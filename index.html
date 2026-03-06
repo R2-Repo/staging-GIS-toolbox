@@ -4,14 +4,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GIS-Toolbox.com</title>
+    <meta name="robots" content="noindex">
+
+ 
+    <meta property="og:title" content="GIS Toolbox — GIS & Data Tools">
 
 
-    <!-- Mapbox GL JS CSS -->
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.12.0/mapbox-gl.css" rel="stylesheet">
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1c1c1e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GIS Toolbox">
+    <link rel="apple-touch-icon" href="icons/PWAicon.png">
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-ZTHRF9QMPV');
+    </script>
+
+
+    <!-- MapLibre GL JS CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
 
     <!-- App CSS -->
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/mobile.css">
+    <link rel="stylesheet" href="css/workflow.css">
 
     <!-- Favicons -->
     <link rel="icon" type="image/png" href="icons/favicon.png">
@@ -45,22 +68,27 @@
             <button class="btn btn-ghost btn-sm" id="btn-undo" disabled title="Undo">↩</button>
             <button class="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo">↪</button>
             <button class="btn btn-secondary btn-sm hidden" id="btn-merge">Merge Layers</button>
+            <div class="header-sep"></div>
+            <button class="btn btn-secondary btn-sm" id="btn-workflow" title="Visual workflow editor">
+                <span class="btn-icon-text">⛓️</span><span>Workflow</span>
+            </button>
         </div>
         <div class="header-right">
             <!-- Mobile overflow menu button (hidden on desktop) -->
             <button class="btn btn-ghost btn-sm mobile-menu-btn" id="btn-mobile-menu" title="Menu">☰</button>
-            <div class="basemap-dropdown" id="basemap-dropdown">
-                <button class="btn btn-secondary btn-sm basemap-dropdown-btn" id="basemap-dropdown-btn" title="Basemap">🗺️ Mapbox Default ▾</button>
-                <div class="basemap-dropdown-menu hidden" id="basemap-dropdown-menu">
-                    <button class="basemap-option active" data-basemap="standard">Mapbox Default</button>
-                    <button class="basemap-option" data-basemap="imagery">Mapbox Imagery</button>
-                    <div class="basemap-sep"></div>
-                    <label class="basemap-3d-toggle">
-                        <span>3D Terrain</span>
-                        <input type="checkbox" id="basemap-3d-check">
-                    </label>
-                </div>
+
+            <!-- Basemap toggle: Voyager / Satellite -->
+            <div class="header-toggle" id="basemap-toggle">
+                <button class="header-toggle-option active" data-value="voyager">🗺️ Map</button>
+                <button class="header-toggle-option" data-value="satellite">🛰️ Satellite</button>
             </div>
+
+            <!-- 2D / 3D toggle -->
+            <div class="header-toggle" id="dimension-toggle">
+                <button class="header-toggle-option active" data-value="2d">2D</button>
+                <button class="header-toggle-option" data-value="3d">3D</button>
+            </div>
+
             <button class="btn btn-ghost btn-sm" id="btn-logs" title="Logs">📋</button>
             <button class="btn btn-ghost" id="btn-info" title="Tool Guide" style="font-size:22px;padding:2px 6px;line-height:1;">ℹ️</button>
         </div>
@@ -256,8 +284,8 @@
     <!-- ================================ -->
     <!-- LIBRARY SCRIPTS (CDN, NO API KEYS) -->
     <!-- ================================ -->
-    <!-- Mapbox GL JS -->
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.12.0/mapbox-gl.js"></script>
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
 
     <!-- PapaParse (CSV) -->
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>

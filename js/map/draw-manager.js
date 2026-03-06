@@ -1,46 +1,62 @@
 /**
  * Draw Manager — Create and edit features directly on the map
  * Supports drawing points, lines, and polygons into a target layer.
- * Uses native Mapbox GL JS events (no external draw library required).
+ * Uses native MapLibre GL JS events (no external draw library required).
  */
 import bus from '../core/event-bus.js';
 import logger from '../core/logger.js';
 import mapManager from './map-manager.js';
 
-const DRAW_COLOR  = '#01bcdd';
-const DRAW_WEIGHT = 3;
+const DRAW_STYLE = {
+    lineColor: '#01bcdd',
+    lineWidth: 3,
+    lineOpacity: 0.9,
+    fillColor: '#01bcdd',
+    fillOpacity: 0.3,
+    lineDasharray: [6, 4]
+};
+
+const VERTEX_STYLE = {
+    radius: 5,
+    fillColor: '#fff',
+    strokeColor: '#01bcdd',
+    strokeWidth: 2
+};
+
+let _drawIdCounter = 0;
+function _nextDrawId(prefix) { return `draw-${prefix}-${++_drawIdCounter}`; }
 
 class DrawManager {
     constructor() {
         this._active = false;
         this._tool = null;          // 'point' | 'line' | 'polygon' | null
-        this._targetLayerId = null;
-        this._vertices = [];        // [{lat, lng}]
-        this._toolbar = null;
+        this._targetLayerId = null;  // layer ID to add features to
+        this._vertices = [];         // current drawing vertices [{lat, lng}]
+        this._vertexMarkers = [];    // MapLibre Marker instances for vertices
+        this._previewSourceId = null;
+        this._previewLayerIds = [];
+        this._rubberBandSourceId = null;
+        this._rubberBandLayerIds = [];
+        this._toolbar = null;        // DOM element for draw toolbar
         this._escHandler = null;
         this._clickHandler = null;
         this._moveHandler = null;
         this._dblClickHandler = null;
-        this._enterHandler = null;
-        this._clickTimeout = null;
-        this._finishing = false;
-        this._lastTapTime = 0;
-
-        // Guard: skip a dblclick that arrives after finish + restart
-        this._skipNextDblClick = false;
-
-        // Mapbox preview ids
-        this._previewSrcId   = '_draw-preview-src';
-        this._previewLineId  = '_draw-preview-line';
-        this._previewFillId  = '_draw-preview-fill';
-        this._rubberSrcId    = '_draw-rubber-src';
-        this._rubberLineId   = '_draw-rubber-line';
-        this._vertexMarkers  = [];  // mapboxgl.Marker[]
+        this._clickTimeout = null;   // debounce clicks vs dblclick
+        this._finishing = false;     // guard to prevent clicks during finish
+        this._lastTapTime = 0;       // for mobile double-tap detection
     }
 
+    /** Get the MapLibre map instance */
     get map() { return mapManager.map; }
+
+    /** Is drawing currently active? */
     get isDrawing() { return this._active && this._tool !== null; }
+
+    /** Get the active tool name */
     get activeTool() { return this._tool; }
+
+    /** Get the target layer ID */
     get targetLayerId() { return this._targetLayerId; }
 
     // ============================
@@ -77,13 +93,25 @@ class DrawManager {
         `;
 
         toolbar.querySelector('.draw-toolbar-close').onclick = () => this.hideToolbar();
-        toolbar.querySelector('.draw-finish-btn').onclick = (e) => { e.stopPropagation(); this._finishDraw(); };
+        toolbar.querySelector('.draw-finish-btn').onclick = (e) => {
+            e.stopPropagation();
+            this._finishDraw();
+        };
         toolbar.querySelectorAll('.draw-tool-btn').forEach(btn => {
-            btn.onclick = (e) => { e.stopPropagation(); this._tool === btn.dataset.tool ? this.cancelDraw() : this.startTool(btn.dataset.tool); };
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                const tool = btn.dataset.tool;
+                if (this._tool === tool) {
+                    this.cancelDraw();
+                } else {
+                    this.startTool(tool);
+                }
+            };
         });
-        toolbar.addEventListener('click', e => e.stopPropagation());
-        toolbar.addEventListener('dblclick', e => e.stopPropagation());
-        toolbar.addEventListener('mousedown', e => e.stopPropagation());
+
+        toolbar.addEventListener('click', (e) => e.stopPropagation());
+        toolbar.addEventListener('dblclick', (e) => e.stopPropagation());
+        toolbar.addEventListener('mousedown', (e) => e.stopPropagation());
 
         this.map.getContainer().appendChild(toolbar);
         this._toolbar = toolbar;
@@ -95,7 +123,10 @@ class DrawManager {
 
     hideToolbar() {
         this.cancelDraw();
-        if (this._toolbar) { this._toolbar.remove(); this._toolbar = null; }
+        if (this._toolbar) {
+            this._toolbar.remove();
+            this._toolbar = null;
+        }
         this._active = false;
         this._targetLayerId = null;
         bus.emit('draw:toolbarClosed');
@@ -103,14 +134,15 @@ class DrawManager {
 
     _setHint(text) {
         if (!this._toolbar) return;
-        const h = this._toolbar.querySelector('.draw-toolbar-hint');
-        if (h) h.textContent = text;
+        const hint = this._toolbar.querySelector('.draw-toolbar-hint');
+        if (hint) hint.textContent = text;
     }
 
     _updateToolButtons() {
         if (!this._toolbar) return;
-        this._toolbar.querySelectorAll('.draw-tool-btn').forEach(btn =>
-            btn.classList.toggle('active', btn.dataset.tool === this._tool));
+        this._toolbar.querySelectorAll('.draw-tool-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tool === this._tool);
+        });
     }
 
     // ============================
@@ -122,16 +154,16 @@ class DrawManager {
         this._tool = tool;
         this._vertices = [];
         this._finishing = false;
-        this._skipNextDblClick = false;
         this._updateToolButtons();
 
         if (mapManager._selectionMode) mapManager.exitSelectionMode();
+
         this.map.getCanvas().style.cursor = 'crosshair';
 
-        this._clickHandler    = (e) => this._onMapClick(e);
-        this._moveHandler     = (e) => this._onMapMove(e);
+        this._clickHandler = (e) => this._onMapClick(e);
+        this._moveHandler = (e) => this._onMapMove(e);
         this._dblClickHandler = (e) => this._onMapDblClick(e);
-        this._escHandler      = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
+        this._escHandler = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
 
         this.map.on('click', this._clickHandler);
         this.map.on('mousemove', this._moveHandler);
@@ -140,21 +172,30 @@ class DrawManager {
         if (tool === 'line' || tool === 'polygon') {
             this.map.doubleClickZoom.disable();
             this.map.on('dblclick', this._dblClickHandler);
-            const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
-            this._setHint(tool === 'line'
-                ? (mobile ? 'Tap to add vertices. Tap Finish when done.' : 'Click to add vertices. Double-click or Enter to finish.')
-                : (mobile ? 'Tap to add vertices. Tap Finish to close polygon.' : 'Click to add vertices. Double-click or Enter to close polygon.'));
+            const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
+            if (isMobile) {
+                this._setHint(tool === 'line'
+                    ? 'Tap to add vertices. Tap Finish when done.'
+                    : 'Tap to add vertices. Tap Finish to close polygon.');
+            } else {
+                this._setHint(tool === 'line'
+                    ? 'Click to add vertices. Double-click or press Enter to finish.'
+                    : 'Click to add vertices. Double-click or press Enter to close polygon.');
+            }
         } else if (tool === 'point') {
             this._setHint(window.innerWidth < 768 ? 'Tap on the map to place a point.' : 'Click on the map to place a point.');
         }
 
-        this._enterHandler = (e) => {
+        const enterHandler = (e) => {
             if (e.key === 'Enter') {
-                const min = this._tool === 'polygon' ? 3 : 2;
-                if (this._vertices.length >= min) this._finishDraw();
+                const minVerts = this._tool === 'polygon' ? 3 : 2;
+                if (this._vertices.length >= minVerts) {
+                    this._finishDraw();
+                }
             }
         };
-        document.addEventListener('keydown', this._enterHandler);
+        this._enterHandler = enterHandler;
+        document.addEventListener('keydown', enterHandler);
 
         logger.info('Draw', `Started tool: ${tool}`);
     }
@@ -169,14 +210,21 @@ class DrawManager {
         this._setHint('');
         this._updateFinishBtn();
 
-        if (this._clickTimeout) { clearTimeout(this._clickTimeout); this._clickTimeout = null; }
-        if (this.map) { this.map.getCanvas().style.cursor = ''; this.map.doubleClickZoom.enable(); }
+        if (this._clickTimeout) {
+            clearTimeout(this._clickTimeout);
+            this._clickTimeout = null;
+        }
 
-        if (this._clickHandler)    { this.map?.off('click', this._clickHandler);    this._clickHandler = null; }
-        if (this._moveHandler)     { this.map?.off('mousemove', this._moveHandler); this._moveHandler = null; }
+        if (this.map) {
+            this.map.getCanvas().style.cursor = '';
+            this.map.doubleClickZoom.enable();
+        }
+
+        if (this._clickHandler) { this.map?.off('click', this._clickHandler); this._clickHandler = null; }
+        if (this._moveHandler) { this.map?.off('mousemove', this._moveHandler); this._moveHandler = null; }
         if (this._dblClickHandler) { this.map?.off('dblclick', this._dblClickHandler); this._dblClickHandler = null; }
-        if (this._escHandler)      { document.removeEventListener('keydown', this._escHandler);  this._escHandler = null; }
-        if (this._enterHandler)    { document.removeEventListener('keydown', this._enterHandler); this._enterHandler = null; }
+        if (this._escHandler) { document.removeEventListener('keydown', this._escHandler); this._escHandler = null; }
+        if (this._enterHandler) { document.removeEventListener('keydown', this._enterHandler); this._enterHandler = null; }
     }
 
     // ============================
@@ -184,26 +232,31 @@ class DrawManager {
     // ============================
 
     _onMapClick(e) {
-        if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent._drawHandled = true; }
-        e._handled = true;
+        if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+        e._drawHandled = true;
+
         if (this._finishing) return;
 
-        // Mapbox uses lngLat instead of Leaflet's latlng
-        const { lat, lng } = e.lngLat;
+        const lat = e.lngLat.lat;
+        const lng = e.lngLat.lng;
 
         if (this._tool === 'point') {
             this._createFeature('Point', [[lng, lat]]);
             return;
         }
 
-        // Mobile double-tap detection
         const now = Date.now();
         if (now - this._lastTapTime < 400) {
             this._lastTapTime = 0;
             if (this._clickTimeout) { clearTimeout(this._clickTimeout); this._clickTimeout = null; }
+            const minVerts = this._tool === 'polygon' ? 3 : 2;
             this._addVertex(lat, lng);
-            const min = this._tool === 'polygon' ? 3 : 2;
-            if (this._vertices.length >= min) this._finishDraw();
+            if (this._vertices.length >= minVerts) {
+                this._finishDraw();
+            }
             return;
         }
         this._lastTapTime = now;
@@ -218,15 +271,18 @@ class DrawManager {
 
     _addVertex(lat, lng) {
         this._vertices.push({ lat, lng });
-        this._addVertexMarker(lng, lat);
+        this._addVertexMarker(lat, lng);
         this._updatePreviewLine();
 
         const n = this._vertices.length;
-        const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
-        const fHint = mobile ? 'Tap Finish when done.' : 'Double-click or Enter to finish.';
-        const cHint = mobile ? 'Tap Finish to close polygon.' : 'Double-click or Enter to close polygon.';
-        if (this._tool === 'line') this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed. ${fHint}`);
-        else this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed. ${n < 3 ? 'Need at least 3.' : cHint}`);
+        const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
+        const finishHint = isMobile ? 'Tap Finish when done.' : 'Double-click or Enter to finish.';
+        const closeHint = isMobile ? 'Tap Finish to close polygon.' : 'Double-click or Enter to close polygon.';
+        if (this._tool === 'line') {
+            this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed. ${finishHint}`);
+        } else {
+            this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed. ${n < 3 ? 'Need at least 3.' : closeHint}`);
+        }
         this._updateFinishBtn();
     }
 
@@ -234,98 +290,169 @@ class DrawManager {
         if (!this._toolbar) return;
         const btn = this._toolbar.querySelector('.draw-finish-btn');
         if (!btn) return;
-        const min = this._tool === 'polygon' ? 3 : 2;
-        btn.style.display = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length >= min ? '' : 'none';
+        const minVerts = this._tool === 'polygon' ? 3 : 2;
+        btn.style.display = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length >= minVerts ? '' : 'none';
     }
 
     _onMapMove(e) {
-        if (this._tool === 'point' || !this._vertices.length) return;
+        if (this._tool === 'point' || this._vertices.length === 0) return;
         this._updateRubberBand(e.lngLat);
     }
 
     _onMapDblClick(e) {
-        if (e.originalEvent) { e.originalEvent.preventDefault(); e.originalEvent.stopPropagation(); e.originalEvent._drawHandled = true; }
-        e._handled = true;
-        if (this._skipNextDblClick) { this._skipNextDblClick = false; return; }
-        if (this._finishing) return;
-        if (this._clickTimeout) { clearTimeout(this._clickTimeout); this._clickTimeout = null; }
-        if (e.lngLat) this._addVertex(e.lngLat.lat, e.lngLat.lng);
-        const min = this._tool === 'polygon' ? 3 : 2;
-        if (this._vertices.length >= min) this._finishDraw();
+        if (e.originalEvent) {
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+        e._drawHandled = true;
+
+        if (this._clickTimeout) {
+            clearTimeout(this._clickTimeout);
+            this._clickTimeout = null;
+        }
+
+        if (e.lngLat) {
+            this._addVertex(e.lngLat.lat, e.lngLat.lng);
+        }
+
+        const minVerts = this._tool === 'polygon' ? 3 : 2;
+        if (this._vertices.length >= minVerts) {
+            this._finishDraw();
+        }
     }
 
     // ============================
-    // Preview rendering (Mapbox)
+    // Preview rendering (MapLibre sources/layers + markers)
     // ============================
 
-    _addVertexMarker(lng, lat) {
+    _addVertexMarker(lat, lng) {
         const el = document.createElement('div');
-        el.style.cssText = `width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid ${DRAW_COLOR};pointer-events:none;`;
-        const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
-            .setLngLat([lng, lat])
-            .addTo(this.map);
-        this._vertexMarkers.push(m);
+        el.style.cssText = `width:${VERTEX_STYLE.radius * 2}px;height:${VERTEX_STYLE.radius * 2}px;background:${VERTEX_STYLE.fillColor};border:${VERTEX_STYLE.strokeWidth}px solid ${VERTEX_STYLE.strokeColor};border-radius:50%;`;
+        const marker = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(this.map);
+        this._vertexMarkers.push(marker);
     }
 
     _updatePreviewLine() {
-        if (this._vertices.length < 2) {
-            this._removePreviewLine();
-            return;
-        }
+        // Remove old preview source/layers
+        this._removePreviewLine();
+
+        if (this._vertices.length < 2) return;
 
         const coords = this._vertices.map(v => [v.lng, v.lat]);
-        if (this._tool === 'polygon' && this._vertices.length >= 3) coords.push(coords[0]);
+        if (this._tool === 'polygon' && this._vertices.length >= 3) {
+            coords.push(coords[0]);
+        }
 
-        const geojson = {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: coords }
-        };
+        const srcId = _nextDrawId('preview');
+        this._previewSourceId = srcId;
 
-        if (this.map.getSource(this._previewSrcId)) {
-            this.map.getSource(this._previewSrcId).setData(geojson);
-        } else {
-            this.map.addSource(this._previewSrcId, { type: 'geojson', data: geojson });
-            this.map.addLayer({
-                id: this._previewLineId, type: 'line', source: this._previewSrcId,
-                paint: { 'line-color': DRAW_COLOR, 'line-width': DRAW_WEIGHT, 'line-opacity': 0.9, 'line-dasharray': [6, 4] }
+        this.map.addSource(srcId, {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+        });
+
+        const lineId = srcId + '-line';
+        this.map.addLayer({
+            id: lineId, type: 'line', source: srcId,
+            paint: {
+                'line-color': DRAW_STYLE.lineColor,
+                'line-width': DRAW_STYLE.lineWidth,
+                'line-opacity': DRAW_STYLE.lineOpacity,
+                'line-dasharray': DRAW_STYLE.lineDasharray
+            }
+        });
+        this._previewLayerIds = [lineId];
+
+        // Add fill for polygon preview
+        if (this._tool === 'polygon' && this._vertices.length >= 3) {
+            const fillCoords = this._vertices.map(v => [v.lng, v.lat]);
+            fillCoords.push(fillCoords[0]);
+            const fillSrcId = srcId + '-fill-src';
+            this.map.addSource(fillSrcId, {
+                type: 'geojson',
+                data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [fillCoords] } }
             });
+            const fillId = srcId + '-fill';
+            this.map.addLayer({
+                id: fillId, type: 'fill', source: fillSrcId,
+                paint: { 'fill-color': DRAW_STYLE.fillColor, 'fill-opacity': DRAW_STYLE.fillOpacity }
+            });
+            this._previewLayerIds.push(fillId);
+            this._previewLayerIds.push(fillSrcId); // track for cleanup
         }
     }
 
     _removePreviewLine() {
-        if (this.map.getLayer(this._previewLineId)) this.map.removeLayer(this._previewLineId);
-        if (this.map.getSource(this._previewSrcId)) this.map.removeSource(this._previewSrcId);
+        if (this._previewLayerIds.length > 0) {
+            for (const id of this._previewLayerIds) {
+                if (this.map?.getLayer(id)) this.map.removeLayer(id);
+            }
+            this._previewLayerIds = [];
+        }
+        if (this._previewSourceId) {
+            // Also remove fill source if present
+            const fillSrcId = this._previewSourceId + '-fill-src';
+            if (this.map?.getSource(fillSrcId)) this.map.removeSource(fillSrcId);
+            if (this.map?.getSource(this._previewSourceId)) this.map.removeSource(this._previewSourceId);
+            this._previewSourceId = null;
+        }
     }
 
-    _updateRubberBand(cursorLngLat) {
-        const last = this._vertices[this._vertices.length - 1];
-        if (!last) return;
+    _updateRubberBand(lngLat) {
+        this._removeRubberBand();
+        const lastVertex = this._vertices[this._vertices.length - 1];
+        if (!lastVertex) return;
 
-        const coords = [[last.lng, last.lat], [cursorLngLat.lng, cursorLngLat.lat]];
-        if (this._tool === 'polygon' && this._vertices.length >= 2)
+        const coords = [[lastVertex.lng, lastVertex.lat], [lngLat.lng, lngLat.lat]];
+        if (this._tool === 'polygon' && this._vertices.length >= 2) {
             coords.push([this._vertices[0].lng, this._vertices[0].lat]);
+        }
 
-        const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } };
+        const srcId = _nextDrawId('rubber');
+        this._rubberBandSourceId = srcId;
 
-        if (this.map.getSource(this._rubberSrcId)) {
-            this.map.getSource(this._rubberSrcId).setData(geojson);
-        } else {
-            this.map.addSource(this._rubberSrcId, { type: 'geojson', data: geojson });
-            this.map.addLayer({
-                id: this._rubberLineId, type: 'line', source: this._rubberSrcId,
-                paint: { 'line-color': DRAW_COLOR, 'line-width': DRAW_WEIGHT, 'line-opacity': 0.5, 'line-dasharray': [4, 6] }
-            });
+        this.map.addSource(srcId, {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+        });
+
+        const lineId = srcId + '-line';
+        this.map.addLayer({
+            id: lineId, type: 'line', source: srcId,
+            paint: {
+                'line-color': DRAW_STYLE.lineColor,
+                'line-width': DRAW_STYLE.lineWidth,
+                'line-opacity': 0.5,
+                'line-dasharray': [4, 6]
+            }
+        });
+        this._rubberBandLayerIds = [lineId];
+    }
+
+    _removeRubberBand() {
+        for (const lid of this._rubberBandLayerIds) {
+            if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
+        }
+        this._rubberBandLayerIds = [];
+        if (this._rubberBandSourceId) {
+            if (this.map?.getSource(this._rubberBandSourceId)) this.map.removeSource(this._rubberBandSourceId);
+            this._rubberBandSourceId = null;
         }
     }
 
     _clearPreview() {
-        this._vertexMarkers.forEach(m => { try { m.remove(); } catch {} });
-        this._vertexMarkers = [];
-        this._removePreviewLine();
-        if (this.map) {
-            if (this.map.getLayer(this._rubberLineId)) this.map.removeLayer(this._rubberLineId);
-            if (this.map.getSource(this._rubberSrcId)) this.map.removeSource(this._rubberSrcId);
+        // Remove vertex markers
+        for (const m of this._vertexMarkers) {
+            try { m.remove(); } catch (_) {}
         }
+        this._vertexMarkers = [];
+
+        // Remove preview line/fill
+        this._removePreviewLine();
+
+        // Remove rubber band
+        this._removeRubberBand();
     }
 
     // ============================
@@ -335,7 +462,8 @@ class DrawManager {
     _finishDraw() {
         this._finishing = true;
         if (this._tool === 'line' && this._vertices.length >= 2) {
-            this._createFeature('LineString', this._vertices.map(v => [v.lng, v.lat]));
+            const coords = this._vertices.map(v => [v.lng, v.lat]);
+            this._createFeature('LineString', coords);
         } else if (this._tool === 'polygon' && this._vertices.length >= 3) {
             const coords = this._vertices.map(v => [v.lng, v.lat]);
             coords.push(coords[0]);
@@ -348,13 +476,20 @@ class DrawManager {
         const feature = {
             type: 'Feature',
             properties: {},
-            geometry: { type, coordinates: type === 'Point' ? coordinates[0] : coordinates }
+            geometry: {
+                type,
+                coordinates: type === 'Point' ? coordinates[0] : coordinates
+            }
         };
 
         this._clearPreview();
         this._vertices = [];
 
-        bus.emit('draw:featureCreated', { layerId: this._targetLayerId, feature });
+        bus.emit('draw:featureCreated', {
+            layerId: this._targetLayerId,
+            feature
+        });
+
         logger.info('Draw', `Created ${type} feature`);
 
         if (this._tool === 'point') {
@@ -363,7 +498,6 @@ class DrawManager {
             const currentTool = this._tool;
             this.cancelDraw();
             this.startTool(currentTool);
-            this._skipNextDblClick = true;
         }
     }
 }

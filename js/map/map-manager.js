@@ -1,227 +1,160 @@
 /**
- * Map manager — Mapbox GL JS integration
- * Custom basemaps, layer rendering, popups, 2D/3D toggle, satellite overlay
+ * Map manager — MapLibre GL JS integration
+ * Keyless basemaps, layer rendering, popups, 3D terrain & buildings
  */
 import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
 
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoicm9tZGl6bGUiLCJhIjoiY21senAyb2lqMDA3bTNrcHNyY2xydGNvZiJ9.vv2JayFyykKXg6pylj756Q';
-
-/* ─── Basemap style URLs ─── */
 const BASEMAPS = {
-    standard:  { name: 'Mapbox Default', style: 'mapbox://styles/mapbox/standard' },
-    imagery:   { name: 'Mapbox Imagery', style: 'mapbox://styles/mapbox/satellite-streets-v12' }
+    voyager: {
+        name: 'Voyager',
+        tiles: [
+            'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'
+        ],
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 20
+    },
+    satellite: {
+        name: 'Satellite',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution: '&copy; Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19
+    }
 };
 
 const LAYER_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
 
-/* ─── Point symbol SVG factories ─── */
-function _svgCircle(color, fillColor, size, opacity) {
+const POINT_SYMBOL_NAMES = ['circle', 'square', 'triangle', 'diamond', 'star', 'pin'];
+
+/** Create an SVG string for a given point symbol shape */
+function _makeSymbolSVG(shape, color, fillColor, size, opacity) {
     const s = size * 2;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${size}" cy="${size}" r="${size - 1}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2"/></svg>`;
-}
-function _svgSquare(color, fillColor, size, opacity) {
-    const s = size * 2;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><rect x="1" y="1" width="${s - 2}" height="${s - 2}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2" rx="2"/></svg>`;
-}
-function _svgTriangle(color, fillColor, size, opacity) {
-    const s = size * 2;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${size},1 ${s - 1},${s - 1} 1,${s - 1}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2"/></svg>`;
-}
-function _svgDiamond(color, fillColor, size, opacity) {
-    const s = size * 2;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${size},1 ${s - 1},${size} ${size},${s - 1} 1,${size}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2"/></svg>`;
-}
-function _svgStar(color, fillColor, size, opacity) {
-    const cx = size, cy = size, r = size - 1, ri = r * 0.4, s = size * 2;
-    let pts = '';
-    for (let i = 0; i < 5; i++) {
-        const aOuter = (Math.PI / 2) + (2 * Math.PI * i / 5);
-        const aInner = aOuter + Math.PI / 5;
-        pts += `${cx + r * Math.cos(aOuter)},${cy - r * Math.sin(aOuter)} `;
-        pts += `${cx + ri * Math.cos(aInner)},${cy - ri * Math.sin(aInner)} `;
+    switch (shape) {
+        case 'square':
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><rect x="1" y="1" width="${s-2}" height="${s-2}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2" rx="2"/></svg>`;
+        case 'triangle':
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${size},1 ${s-1},${s-1} 1,${s-1}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2"/></svg>`;
+        case 'diamond':
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${size},1 ${s-1},${size} ${size},${s-1} 1,${size}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="2"/></svg>`;
+        case 'star': {
+            const cx = size, cy = size, r = size - 1, ri = r * 0.4;
+            let pts = '';
+            for (let i = 0; i < 5; i++) {
+                const aOuter = (Math.PI / 2) + (2 * Math.PI * i / 5);
+                const aInner = aOuter + Math.PI / 5;
+                pts += `${cx + r * Math.cos(aOuter)},${cy - r * Math.sin(aOuter)} `;
+                pts += `${cx + ri * Math.cos(aInner)},${cy - ri * Math.sin(aInner)} `;
+            }
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="1.5"/></svg>`;
+        }
+        case 'pin': {
+            const h = s + 8;
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${h}" viewBox="0 0 ${s} ${h}"><path d="M${size} ${s+6} C${size} ${s+6} ${s-1} ${size+2} ${s-1} ${size} A${size-1} ${size-1} 0 1 0 1 ${size} C1 ${size+2} ${size} ${s+6} ${size} ${s+6}Z" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="1.5"/><circle cx="${size}" cy="${size}" r="${size*0.35}" fill="${color}" opacity="0.6"/></svg>`;
+        }
+        default:
+            return null;
     }
-    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="1.5"/></svg>`;
-}
-function _svgPin(color, fillColor, size, opacity) {
-    const s = size * 2, h = s + 8;
-    return `<svg width="${s}" height="${h}" viewBox="0 0 ${s} ${h}"><path d="M${size} ${s + 6} C${size} ${s + 6} ${s - 1} ${size + 2} ${s - 1} ${size} A${size - 1} ${size - 1} 0 1 0 1 ${size} C1 ${size + 2} ${size} ${s + 6} ${size} ${s + 6}Z" fill="${fillColor}" fill-opacity="${opacity}" stroke="${color}" stroke-width="1.5"/><circle cx="${size}" cy="${size}" r="${size * 0.35}" fill="${color}" opacity="0.6"/></svg>`;
-}
-
-const SVG_FACTORIES = { circle: _svgCircle, square: _svgSquare, triangle: _svgTriangle, diamond: _svgDiamond, star: _svgStar, pin: _svgPin };
-
-/**
- * Create an HTMLElement marker for a point feature with the given style.
- */
-function _createPointMarkerEl(sty) {
-    const sym = sty.pointSymbol || 'circle';
-    const size = sty.pointSize || 6;
-    const fo = Math.min(1, (sty.fillOpacity ?? 0.3) + 0.3);
-    const factory = SVG_FACTORIES[sym] || SVG_FACTORIES.circle;
-    const svg = factory(sty.strokeColor, sty.fillColor, size, fo);
-    const el = document.createElement('div');
-    el.className = 'point-symbol';
-    el.innerHTML = svg;
-    el.style.cursor = 'pointer';
-    return el;
 }
 
 class MapManager {
     constructor() {
         this.map = null;
-        this.dataLayers = new Map();       // layerId -> { sourceId, layerIds[], markers[], visible }
-        this._layerNames = new Map();      // layerId -> display name
-        this._layerStyles = new Map();     // layerId -> style object
-        this._layerData = new Map();       // layerId -> { geojson, colorIndex }
-        this.currentBasemap = 'standard';
+        this.dataLayers = new Map();   // layerId -> { sourceId, layerIds[], geojson }
+        this._layerNames = new Map();
+        this._layerStyles = new Map();
+        this.clusterGroups = new Map();
+        this.currentBasemap = 'voyager';
+        this.drawLayer = null;
+        this.highlightLayer = null;
+        this._highlightedInfo = null;
 
-        // Import fence state
+        // Import fence
         this._importFence = null;
 
-        // Feature selection state
+        // Selection
         this._selections = new Map();
         this._selectionMode = false;
-        this._selectionMarkers = new Map();
-        this._selectionBanner = null;
-        this._rectSelectCleanup = null;
 
-        // Popup cycling state
-        this._popupHits = null;
-        this._popupIndex = 0;
-        this._popupLatLng = null;
+        // 3D
+        this._3dEnabled = false;
+        this._terrainEnabled = false;
+        this._buildingsEnabled = false;
+
+        // Popup
         this._popup = null;
 
-        // 3D state
-        this._is3D = false;
+        // Temp layers
+        this._tempLayers = [];
 
-        // Right-click drag tracking (suppress context menu after 3D rotate/pitch)
-        this._rightDragged = false;
-
-        // Interaction cleanup
-        this._interactionCleanup = null;
-
-        // Coordinate search
-        this._searchMarker = null;
-        this._searchLatLng = null;
-
-        // Highlight marker (for popup-triggered highlight)
-        this._highlightMarker = null;
+        // ID counter
+        this._idCounter = 0;
     }
 
-    /* =========================================================
-       BACKWARD-COMPAT SHIMS
-       ========================================================= */
-
-    /**
-     * Patch the Mapbox map instance so callers that still use Leaflet-ish
-     * methods (map.invalidateSize, map.closePopup, map.setView …) keep working.
-     */
-    _applyMapShims() {
-        if (!this.map) return;
-        const mgr = this;
-        const map = this.map;
-
-        /* map.invalidateSize() → map.resize() */
-        map.invalidateSize = () => map.resize();
-
-        /* map.closePopup() */
-        map.closePopup = () => {
-            if (mgr._popup) { mgr._popup.remove(); mgr._popup = null; }
-        };
-
-        /* map.setView([lat,lng], zoom) */
-        map.setView = (latlng, zoom) => {
-            const center = Array.isArray(latlng) ? [latlng[1], latlng[0]] : [latlng.lng, latlng.lat];
-            map.jumpTo({ center, zoom });
-        };
-
-        /* map.doubleClickZoom compat */
-        const origDCZ = map.doubleClickZoom;
-        map.doubleClickZoom = {
-            enabled: () => origDCZ.isActive?.() ?? true,
-            disable: () => origDCZ.disable(),
-            enable:  () => origDCZ.enable()
-        };
-
-        /* map.dragging compat */
-        map.dragging = {
-            disable: () => map.dragPan.disable(),
-            enable:  () => map.dragPan.enable()
-        };
-
-        /* map.fitBounds — normalise Leaflet-style LatLngBounds objects */
-        const origFit = map.fitBounds.bind(map);
-        map.fitBounds = (b, opts = {}) => {
-            let mb;
-            if (b && typeof b.getSouthWest === 'function') {
-                const sw = b.getSouthWest(), ne = b.getNorthEast();
-                mb = [[sw.lng, sw.lat], [ne.lng, ne.lat]];
-            } else {
-                mb = b;
-            }
-            const pad = typeof opts.padding === 'number' ? opts.padding : 30;
-            origFit(mb, { padding: pad, maxZoom: opts.maxZoom || 16 });
-        };
+    _nextId(prefix) {
+        return `${prefix}-${++this._idCounter}`;
     }
-
-    /* =========================================================
-       INIT
-       ========================================================= */
 
     init(containerId) {
-        if (typeof mapboxgl === 'undefined') {
-            logger.error('Map', 'Mapbox GL JS not loaded');
+        if (typeof maplibregl === 'undefined') {
+            logger.error('Map', 'MapLibre GL JS not loaded');
             return;
         }
 
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-
-        this.map = new mapboxgl.Map({
+        this.map = new maplibregl.Map({
             container: containerId,
-            style: BASEMAPS.standard.style,
+            style: this._buildStyle('voyager'),
             center: [-111.09, 39.32],
             zoom: 7,
             attributionControl: true,
             maxPitch: 0,
-            dragRotate: false
+            dragRotate: false,
+            touchZoomRotate: true,
+            pitchWithRotate: false
         });
 
-        this.map.addControl(new mapboxgl.NavigationControl({ showCompass: true, visualizePitch: false }), 'top-right');
-        this._applyMapShims();
+        // Disable right-click rotate and touch rotation (keeps zoom gestures)
+        this.map.dragRotate.disable();
+        this.map.touchZoomRotate.disableRotation();
+
+        this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
         this.map.on('error', (e) => {
-            logger.warn('Map', 'Map error', { error: e.error?.message || e.message });
+            if (e.error?.status === 404 || e.error?.message?.includes('tile')) {
+                logger.warn('Map', 'Tile load error', { message: e.error?.message });
+            }
         });
 
-        // Click on empty area — clear highlight / popup
+        // Click on empty map — clear highlight & popup
         this.map.on('click', (e) => {
-            if (e._handled) return;
-            if (!this._selectionMode) this.clearHighlight();
+            if (e._drawHandled) return;
+            const hitLayers = this._getInteractiveLayerIds();
+            const features = hitLayers.length > 0 ? this.map.queryRenderedFeatures(e.point, { layers: hitLayers }) : [];
+            if (features.length === 0 && !this._selectionMode) {
+                this.clearHighlight();
+                this._closePopup();
+            }
         });
 
-        // Track right-button drag to suppress context menu after 3D rotate/pitch
-        const canvas = this.map.getCanvas();
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 2) this._rightDragged = false;
-        });
-        canvas.addEventListener('mousemove', (e) => {
-            if (e.buttons & 2) this._rightDragged = true;
-        });
-
+        // Right-click
         this.map.on('contextmenu', (e) => {
-            if (e._handled) return;
-            if (this._rightDragged) { this._rightDragged = false; return; }
-            bus.emit('map:contextmenu', {
-                latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
-                originalEvent: e.originalEvent,
-                layerId: null, featureIndex: null, feature: null
-            });
+            e.preventDefault();
+            const hitLayers = this._getInteractiveLayerIds();
+            const features = hitLayers.length > 0 ? this.map.queryRenderedFeatures(e.point, { layers: hitLayers }) : [];
+            if (features.length === 0) {
+                bus.emit('map:contextmenu', {
+                    latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
+                    originalEvent: e.originalEvent,
+                    layerId: null,
+                    featureIndex: null,
+                    feature: null
+                });
+            }
         });
 
         this.map.on('load', () => {
-            this._hideLabelsAndLandmarks();
-            this._logAllLayers();  // temporary diagnostic — remove after debugging exit labels
-            logger.info('Map', 'Map initialised (Mapbox GL JS)');
+            logger.info('Map', 'Map initialized');
             bus.emit('map:ready', this.map);
             this._initCoordSearch();
         });
@@ -229,224 +162,113 @@ class MapManager {
         return this.map;
     }
 
-    /* =========================================================
-       3D TOGGLE
-       ========================================================= */
+    // ==========================================
+    // Style builder
+    // ==========================================
 
-    get is3D() { return this._is3D; }
+    _buildStyle(basemapKey) {
+        const bm = BASEMAPS[basemapKey] || BASEMAPS.voyager;
+        const sources = {};
+        const layers = [];
 
-    toggle3D(enable) {
-        const target = enable !== undefined ? !!enable : !this._is3D;
-        if (target === this._is3D) return;
-        this._is3D = target;
+        if (bm.tiles) {
+            sources['basemap'] = {
+                type: 'raster',
+                tiles: bm.tiles,
+                tileSize: 256,
+                maxzoom: bm.maxZoom || 19,
+                attribution: bm.attribution
+            };
+            layers.push({
+                id: 'basemap-layer',
+                type: 'raster',
+                source: 'basemap',
+                minzoom: 0,
+                maxzoom: 22
+            });
 
-        if (target) {
-            this.map.setMaxPitch(85);
-            this.map.dragRotate.enable();
-
-            if (!this.map.getSource('mapbox-dem')) {
-                this.map.addSource('mapbox-dem', {
-                    type: 'raster-dem',
-                    url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                    tileSize: 512, maxzoom: 14
+            if (bm.overlayTiles) {
+                sources['basemap-overlay'] = {
+                    type: 'raster',
+                    tiles: bm.overlayTiles,
+                    tileSize: 256,
+                    maxzoom: 20
+                };
+                layers.push({
+                    id: 'basemap-overlay-layer',
+                    type: 'raster',
+                    source: 'basemap-overlay',
+                    minzoom: 0,
+                    maxzoom: 22
                 });
             }
-            this.map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
-            this._add3DBuildings();
-            this.map.easeTo({ pitch: 60, bearing: -30, duration: 1000 });
-            logger.info('Map', '3D mode enabled');
-        } else {
-            this.map.setTerrain(null);
-            this._remove3DBuildings();
-            this.map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
-            setTimeout(() => {
-                if (!this._is3D) { this.map.setMaxPitch(0); this.map.dragRotate.disable(); }
-            }, 850);
-            logger.info('Map', '3D mode disabled');
         }
-        bus.emit('map:3dToggled', this._is3D);
-    }
 
-    _add3DBuildings() {
-        if (this.map.getLayer('3d-buildings')) return;
-        const layers = this.map.getStyle().layers || [];
-        let labelId;
-        for (const l of layers) {
-            if (l.type === 'symbol' && l.layout?.['text-field']) { labelId = l.id; break; }
-        }
-        try {
-            this.map.addLayer({
-                id: '3d-buildings', source: 'composite', 'source-layer': 'building',
-                filter: ['==', 'extrude', 'true'], type: 'fill-extrusion', minzoom: 14,
-                paint: {
-                    'fill-extrusion-color': '#aaa',
-                    'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.05, ['get', 'height']],
-                    'fill-extrusion-base':   ['interpolate', ['linear'], ['zoom'], 14, 0, 14.05, ['get', 'min_height']],
-                    'fill-extrusion-opacity': 0.6
-                }
-            }, labelId);
-        } catch (e) {
-            logger.warn('Map', 'Could not add 3D buildings', { error: e.message });
-        }
+        return {
+            version: 8,
+            sources,
+            layers,
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
+        };
     }
-
-    _remove3DBuildings() {
-        if (this.map.getLayer('3d-buildings')) this.map.removeLayer('3d-buildings');
-    }
-
-    /* =========================================================
-       BASEMAPS
-       ========================================================= */
 
     setBasemap(key) {
         const bm = BASEMAPS[key];
-        if (!bm) { logger.warn('Map', 'Unknown basemap', { key }); return; }
-        const was3D = this._is3D;
-        this.map.setStyle(bm.style);
+        if (!bm) {
+            logger.warn('Map', 'Unknown basemap key', { key });
+            return;
+        }
+
+        // Collect all non-basemap sources/layers to preserve data layers
+        const style = this.map.getStyle();
+        const userSources = {};
+        const userLayers = [];
+        for (const [id, src] of Object.entries(style.sources)) {
+            if (id !== 'basemap' && id !== 'basemap-overlay') {
+                userSources[id] = src;
+            }
+        }
+        for (const layer of style.layers) {
+            if (!layer.id.startsWith('basemap')) {
+                userLayers.push(layer);
+            }
+        }
+
+        // Build new basemap style
+        const newStyle = this._buildStyle(key);
+
+        // Merge user data back
+        Object.assign(newStyle.sources, userSources);
+        newStyle.layers.push(...userLayers);
+
+        this.map.setStyle(newStyle, { diff: true });
         this.currentBasemap = key;
 
-        this.map.once('style.load', () => {
-            this._hideLabelsAndLandmarks();
-            this._reAddAllLayers();
-            if (was3D) { this._is3D = false; this.toggle3D(true); }
-            bus.emit('map:basemap', key);
-        });
+        // Re-apply 3D if it was active before the basemap switch
+        if (this._3dEnabled) {
+            this.map.once('style.load', () => {
+                this._terrainEnabled = false;
+                this._buildingsEnabled = false;
+                this._apply3D();
+            });
+        }
+
+        bus.emit('map:basemap', key);
     }
 
     getBasemaps() { return BASEMAPS; }
 
-    /**
-     * Hide place labels, POI labels, and landmark icons on the current style.
-     * Works with both Mapbox Standard (config-based) and classic styles (layer-based).
-     */
-    _hideLabelsAndLandmarks() {
-        if (!this.map) return;
-        try {
-            // Mapbox Standard style: use setConfigProperty to hide labels/landmarks
-            const importIds = ['basemap', 'standard'];
-            for (const importId of importIds) {
-                try {
-                    this.map.setConfigProperty(importId, 'showPlaceLabels', false);
-                    this.map.setConfigProperty(importId, 'showPointOfInterestLabels', false);
-                    this.map.setConfigProperty(importId, 'showTransitLabels', false);
-                } catch (_) { /* not a Standard style or import not found */ }
-            }
-
-            // Collect all layers — including imported/internal Standard style layers
-            let layers = this.map.getStyle()?.layers || [];
-
-            // For Standard style: try to access internal fragment layers
-            try {
-                const styleLayers = this.map.style?._mergedLayers || this.map.style?.stylesheet?.layers;
-                if (styleLayers && styleLayers.length > layers.length) layers = styleLayers;
-            } catch (_) {}
-
-            // Also gather layer IDs from order array if available
-            try {
-                const order = this.map.style?._order || this.map.style?.order;
-                if (order?.length) {
-                    for (const lid of order) {
-                        if (!layers.find(l => l.id === lid)) {
-                            layers.push({ id: lid });
-                        }
-                    }
-                }
-            } catch (_) {}
-
-            for (const layer of layers) {
-                const id = layer.id || '';
-                const src = layer['source-layer'] || '';
-
-                // Match POI labels/icons
-                if (id.includes('poi') || src === 'poi_label') {
-                    try { this.map.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
-                    continue;
-                }
-                // Match place / locality / city / town labels
-                if (id.includes('place') || id.includes('settlement') || src === 'place_label') {
-                    try { this.map.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
-                    continue;
-                }
-                // Match landmark icons / labels
-                if (id.includes('landmark') || id.includes('airport-label') || id.includes('natural-point')) {
-                    try { this.map.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
-                    continue;
-                }
-                // Match freeway exit numbers / junction refs / exit shields
-                if (id.includes('exit') || id.includes('junction') || id.includes('motorway-junction')
-                    || src === 'motorway_junction') {
-                    try { this.map.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
-                    continue;
-                }
-            }
-
-            // Brute-force: try known Standard style layer IDs for exit shields
-            const knownExitLayers = [
-                'road-exit-shield', 'road-exit-ref', 'motorway-junction',
-                'road-number-shield', 'road-exit', 'junction-ref',
-                'exit-shield', 'motorway-exit', 'road-ref-shield'
-            ];
-            for (const lid of knownExitLayers) {
-                try {
-                    if (this.map.getLayer(lid)) {
-                        this.map.setLayoutProperty(lid, 'visibility', 'none');
-                    }
-                } catch (_) {}
-            }
-
-            logger.info('Map', 'Place labels, POI labels, landmarks, and exit numbers hidden');
-        } catch (e) {
-            logger.warn('Map', 'Could not hide labels/landmarks', { error: e.message });
-        }
+    getLayerStyle(layerId) {
+        return this._layerStyles.get(layerId) || null;
     }
 
-    /** Temporary diagnostic: log all map layers to console so we can identify exit number layers */
-    _logAllLayers() {
-        try {
-            const layers = this.map.getStyle()?.layers || [];
-            const symbolLayers = layers.filter(l => l.type === 'symbol' || !l.type);
-            console.group('🗺️ Map layers (symbol/label type) — total:', layers.length, 'symbols:', symbolLayers.length);
-            for (const l of symbolLayers) {
-                console.log(`  id: "${l.id}"  type: ${l.type}  source-layer: "${l['source-layer'] || ''}"  layout:`, l.layout);
-            }
-            console.groupEnd();
-
-            // Also check for any layer with exit/junction/shield in name across ALL layers
-            const exitRelated = layers.filter(l => {
-                const id = (l.id || '').toLowerCase();
-                return id.includes('exit') || id.includes('junction') || id.includes('shield') || id.includes('ref');
-            });
-            if (exitRelated.length) {
-                console.group('🔍 Exit/junction/shield/ref related layers:');
-                exitRelated.forEach(l => console.log(`  "${l.id}" type:${l.type} source-layer:"${l['source-layer'] || ''}"`));
-                console.groupEnd();
-            } else {
-                console.log('🔍 No exit/junction/shield/ref layers found in getStyle().layers — they may be inside a Standard style import.');
-            }
-        } catch (e) {
-            console.warn('Layer diagnostic failed:', e);
-        }
+    setLayerStyle(layerId, style) {
+        this._layerStyles.set(layerId, style);
     }
 
-    _reAddAllLayers() {
-        for (const [layerId, { geojson, colorIndex }] of this._layerData) {
-            const info = this.dataLayers.get(layerId);
-            const wasVisible = info ? info.visible !== false : true;
-            this._doAddLayer(layerId, geojson, colorIndex, false);
-            if (!wasVisible) this.toggleLayer(layerId, false);
-        }
-    }
-
-    /* =========================================================
-       LAYER STYLE ACCESSORS
-       ========================================================= */
-
-    getLayerStyle(layerId) { return this._layerStyles.get(layerId) || null; }
-    setLayerStyle(layerId, style) { this._layerStyles.set(layerId, style); }
-
-    /* =========================================================
-       ADD LAYER
-       ========================================================= */
+    // ==========================================
+    // Layer management
+    // ==========================================
 
     addLayer(dataset, colorIndex = 0, { fit = false } = {}) {
         if (!this.map || !dataset.geojson) return;
@@ -456,634 +278,940 @@ class MapManager {
         const defaultColor = LAYER_COLORS[colorIndex % LAYER_COLORS.length];
         const stored = this._layerStyles.get(dataset.id);
         const sty = {
-            strokeColor:   stored?.strokeColor   || defaultColor,
-            fillColor:     stored?.fillColor     || defaultColor,
-            strokeWidth:   stored?.strokeWidth   ?? 2,
+            strokeColor: stored?.strokeColor || defaultColor,
+            fillColor:   stored?.fillColor   || defaultColor,
+            strokeWidth: stored?.strokeWidth  ?? 2,
             strokeOpacity: stored?.strokeOpacity ?? 0.8,
-            fillOpacity:   stored?.fillOpacity   ?? 0.3,
-            pointSize:     stored?.pointSize     ?? 6,
-            pointSymbol:   stored?.pointSymbol   || 'circle'
+            fillOpacity: stored?.fillOpacity ?? 0.3,
+            pointSize:   stored?.pointSize   ?? 6,
+            pointSymbol: stored?.pointSymbol  || 'circle'
         };
+
         if (!stored) this._layerStyles.set(dataset.id, { ...sty });
 
-        this._layerData.set(dataset.id, { geojson: dataset.geojson, colorIndex });
-        this._layerNames.set(dataset.id, dataset.name);
-
-        this._doAddLayer(dataset.id, dataset.geojson, colorIndex, fit);
-    }
-
-    /**
-     * Internal: add sources + layers + markers.
-     */
-    _doAddLayer(layerId, geojson, colorIndex, fit) {
-        const features = (geojson.features || []).filter(f => f.geometry);
-        if (!features.length) {
-            logger.info('Map', 'No geometries to display', { layer: this._layerNames.get(layerId) });
+        const features = dataset.geojson.features.filter(f => f.geometry);
+        if (features.length === 0) {
+            logger.info('Map', 'No geometries to display', { layer: dataset.name });
             return;
         }
 
-        const sty = this._layerStyles.get(layerId) || {};
-        const sourceId    = `src-${layerId}`;
-        const fillId      = `fill-${layerId}`;
-        const lineId      = `line-${layerId}`;
-        const outlineId   = `outline-${layerId}`;
-        const layerIds    = [];
-        const markers     = [];
+        // Tag features with index and dataset id
+        const taggedFeatures = features.map(f => {
+            const origIndex = dataset.geojson.features.indexOf(f);
+            return {
+                ...f,
+                properties: { ...(f.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+            };
+        });
 
-        const points = [], lines = [], polys = [];
-        for (let i = 0; i < features.length; i++) {
-            const f = features[i];
-            const origIdx = geojson.features.indexOf(f);
-            const enriched = { ...f, properties: { ...f.properties, _featureIndex: origIdx, _datasetId: layerId } };
-            const gt = f.geometry.type;
-            if (gt === 'Point' || gt === 'MultiPoint')             points.push(enriched);
-            else if (gt === 'LineString' || gt === 'MultiLineString') lines.push(enriched);
-            else if (gt === 'Polygon' || gt === 'MultiPolygon')       polys.push(enriched);
+        const geojson = { type: 'FeatureCollection', features: taggedFeatures };
+        const sourceId = `src-${dataset.id}`;
+
+        const hasPoints = taggedFeatures.some(f => f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint');
+        const hasLines = taggedFeatures.some(f => f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString');
+        const hasPolygons = taggedFeatures.some(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
+
+        this.map.addSource(sourceId, { type: 'geojson', data: geojson });
+
+        const layerIds = [];
+
+        // Polygon fill
+        if (hasPolygons) {
+            const fillId = `${dataset.id}-fill`;
+            this.map.addLayer({
+                id: fillId, type: 'fill', source: sourceId,
+                filter: ['==', '$type', 'Polygon'],
+                paint: { 'fill-color': sty.fillColor, 'fill-opacity': sty.fillOpacity }
+            });
+            layerIds.push(fillId);
+
+            const outlineId = `${dataset.id}-outline`;
+            this.map.addLayer({
+                id: outlineId, type: 'line', source: sourceId,
+                filter: ['==', '$type', 'Polygon'],
+                paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
+            });
+            layerIds.push(outlineId);
         }
 
-        // ── Non-point source & layers ──
-        const nonPoints = [...polys, ...lines];
-        if (nonPoints.length) {
-            if (this.map.getSource(sourceId)) {
-                this.map.getSource(sourceId).setData({ type: 'FeatureCollection', features: nonPoints });
-            } else {
-                this.map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: nonPoints } });
-            }
-
-            if (polys.length) {
-                if (!this.map.getLayer(fillId)) {
-                    this.map.addLayer({ id: fillId, type: 'fill', source: sourceId,
-                        filter: ['in', '$type', 'Polygon'],
-                        paint: { 'fill-color': sty.fillColor || '#2563eb', 'fill-opacity': sty.fillOpacity ?? 0.3 }
-                    });
-                    layerIds.push(fillId);
-                    this._addFeatureClickHandler(fillId, layerId);
-                    this._addFeatureContextMenuHandler(fillId, layerId);
-                }
-                if (!this.map.getLayer(outlineId)) {
-                    this.map.addLayer({ id: outlineId, type: 'line', source: sourceId,
-                        filter: ['in', '$type', 'Polygon'],
-                        paint: { 'line-color': sty.strokeColor || '#2563eb', 'line-width': sty.strokeWidth ?? 2, 'line-opacity': sty.strokeOpacity ?? 0.8 }
-                    });
-                    layerIds.push(outlineId);
-                }
-            }
-
-            if (lines.length && !this.map.getLayer(lineId)) {
-                this.map.addLayer({ id: lineId, type: 'line', source: sourceId,
-                    filter: ['in', '$type', 'LineString'],
-                    paint: { 'line-color': sty.strokeColor || '#2563eb', 'line-width': sty.strokeWidth ?? 2, 'line-opacity': sty.strokeOpacity ?? 0.8 }
-                });
-                layerIds.push(lineId);
-                this._addFeatureClickHandler(lineId, layerId);
-                this._addFeatureContextMenuHandler(lineId, layerId);
-            }
+        // Lines
+        if (hasLines) {
+            const lineId = `${dataset.id}-line`;
+            this.map.addLayer({
+                id: lineId, type: 'line', source: sourceId,
+                filter: ['==', '$type', 'LineString'],
+                paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
+            });
+            layerIds.push(lineId);
         }
 
-        // ── Point features (HTML markers) ──
-        for (const pf of points) {
-            const coords = pf.geometry.type === 'MultiPoint' ? pf.geometry.coordinates : [pf.geometry.coordinates];
-            for (const coord of coords) {
-                const el = _createPointMarkerEl(sty);
-                const marker = new mapboxgl.Marker({ element: el, anchor: sty.pointSymbol === 'pin' ? 'bottom' : 'center' })
-                    .setLngLat(coord)
-                    .addTo(this.map);
-                marker._featureIndex = pf.properties._featureIndex;
-                marker._datasetId   = layerId;
-                marker._feature     = pf;
-
-                el.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const ll = { lat: coord[1], lng: coord[0] };
-                    if (this._selectionMode) {
-                        this._handleSelectionClick(layerId, pf.properties._featureIndex, e.shiftKey, sty.strokeColor);
-                    } else {
-                        const nearby = this._findFeaturesNearClick(ll, layerId, pf.properties._featureIndex);
-                        this._popupHits  = nearby;
-                        this._popupIndex = 0;
-                        this._popupLatLng = ll;
-                        this._renderCyclePopup();
+        // Points
+        if (hasPoints) {
+            const fo = Math.min(1, sty.fillOpacity + 0.3);
+            if (sty.pointSymbol === 'circle') {
+                const ptId = `${dataset.id}-point`;
+                this.map.addLayer({
+                    id: ptId, type: 'circle', source: sourceId,
+                    filter: ['==', '$type', 'Point'],
+                    paint: {
+                        'circle-radius': sty.pointSize,
+                        'circle-color': sty.fillColor,
+                        'circle-stroke-color': sty.strokeColor,
+                        'circle-stroke-width': sty.strokeWidth,
+                        'circle-opacity': fo
                     }
                 });
-                el.addEventListener('contextmenu', (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    if (this._rightDragged) { this._rightDragged = false; return; }
-                    bus.emit('map:contextmenu', {
-                        latlng: { lat: coord[1], lng: coord[0] },
-                        originalEvent: e, layerId,
-                        featureIndex: pf.properties._featureIndex,
-                        feature: pf
-                    });
-                });
-                markers.push(marker);
-            }
-        }
-
-        this.dataLayers.set(layerId, { sourceId, layerIds, markers, visible: true });
-
-        if (fit && features.length) {
-            try {
-                const bbox = turf.bbox({ type: 'FeatureCollection', features });
-                if (bbox.every(v => isFinite(v)))
-                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
-            } catch (e) { logger.warn('Map', 'Could not fit bounds', { error: e.message }); }
-        }
-
-        if (features.length > 10000)
-            logger.warn('Map', 'Large dataset — rendering may be slow', { count: features.length });
-
-        logger.info('Map', 'Layer added', { name: this._layerNames.get(layerId), features: features.length });
-        bus.emit('map:layerAdded', { id: layerId, name: this._layerNames.get(layerId) });
-    }
-
-    /* ─── Feature click / context-menu handlers ─── */
-
-    _addFeatureClickHandler(mapLayerId, datasetId) {
-        this.map.on('click', mapLayerId, (e) => {
-            e._handled = true;
-            if (!e.features?.length) return;
-            const f = e.features[0];
-            const idx = f.properties._featureIndex;
-            const ll = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-            const sty = this._layerStyles.get(datasetId) || {};
-
-            if (this._selectionMode) {
-                this._handleSelectionClick(datasetId, idx, e.originalEvent?.shiftKey, sty.strokeColor);
+                layerIds.push(ptId);
             } else {
-                const nearby = this._findFeaturesNearClick(ll, datasetId, idx);
-                if (nearby.length > 1) this._showMultiPopup(nearby, ll);
-                else { this._popupHits = nearby; this._popupIndex = 0; this._popupLatLng = ll; this._renderCyclePopup(); }
+                const imgName = this._ensureSymbolImage(sty.pointSymbol, sty.strokeColor, sty.fillColor, sty.pointSize, fo);
+                const ptId = `${dataset.id}-point`;
+                this.map.addLayer({
+                    id: ptId, type: 'symbol', source: sourceId,
+                    filter: ['==', '$type', 'Point'],
+                    layout: {
+                        'icon-image': imgName,
+                        'icon-size': 1,
+                        'icon-allow-overlap': true,
+                        'icon-anchor': sty.pointSymbol === 'pin' ? 'bottom' : 'center'
+                    }
+                });
+                layerIds.push(ptId);
             }
-        });
-        this.map.on('mouseenter', mapLayerId, () => { if (!this._selectionMode && !this._isDrawing()) this.map.getCanvas().style.cursor = 'pointer'; });
-        this.map.on('mouseleave', mapLayerId, () => { if (!this._selectionMode && !this._isDrawing()) this.map.getCanvas().style.cursor = ''; });
-    }
+        }
 
-    _addFeatureContextMenuHandler(mapLayerId, datasetId) {
-        this.map.on('contextmenu', mapLayerId, (e) => {
-            e._handled = true;
-            if (this._rightDragged) { this._rightDragged = false; return; }
-            if (!e.features?.length) return;
-            const f = e.features[0];
-            const origFeature = this._getOriginalFeature(datasetId, f.properties._featureIndex);
-            bus.emit('map:contextmenu', {
-                latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
-                originalEvent: e.originalEvent,
-                layerId: datasetId,
-                featureIndex: f.properties._featureIndex,
-                feature: origFeature || f
+        // Click handlers
+        for (const lid of layerIds) {
+            this.map.on('click', lid, (e) => {
+                if (e._drawHandled) return;
+                e.preventDefault();
+                const props = e.features?.[0]?.properties;
+                if (!props) return;
+                const featureIndex = props._featureIndex;
+                const feature = dataset.geojson.features[featureIndex];
+                if (!feature) return;
+
+                if (this._selectionMode) {
+                    this._handleSelectionClick(dataset.id, featureIndex, e.originalEvent?.shiftKey, sty.strokeColor);
+                } else {
+                    const latlng = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+                    const nearby = this._findFeaturesNearClick(latlng, dataset.id, featureIndex);
+                    this.highlightFeature(dataset.id, featureIndex, sty.strokeColor);
+                    this._popupHits = nearby.length > 0 ? nearby : [{
+                        feature, featureIndex,
+                        layerId: dataset.id, layerName: dataset.name,
+                        layerColor: sty.strokeColor
+                    }];
+                    this._popupIndex = 0;
+                    this._popupLatLng = latlng;
+                    this._renderCyclePopup();
+                }
             });
-        });
+
+            this.map.on('contextmenu', lid, (e) => {
+                e.preventDefault();
+                const props = e.features?.[0]?.properties;
+                if (!props) return;
+                const featureIndex = props._featureIndex;
+                const feature = dataset.geojson.features[featureIndex];
+                bus.emit('map:contextmenu', {
+                    latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
+                    originalEvent: e.originalEvent,
+                    layerId: dataset.id, featureIndex, feature
+                });
+            });
+
+            this.map.on('mouseenter', lid, () => { this.map.getCanvas().style.cursor = 'pointer'; });
+            this.map.on('mouseleave', lid, () => {
+                if (!this._selectionMode) this.map.getCanvas().style.cursor = '';
+            });
+        }
+
+        this.dataLayers.set(dataset.id, { sourceId, layerIds, geojson });
+        this._layerNames.set(dataset.id, dataset.name);
+
+        if (features.length > 10000) {
+            logger.warn('Map', 'Large dataset — rendering may be slow', { count: features.length });
+        }
+
+        if (fit) {
+            try {
+                const bbox = turf.bbox(geojson);
+                if (bbox && isFinite(bbox[0])) {
+                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
+                }
+            } catch (e) {
+                logger.warn('Map', 'Could not fit bounds', { error: e.message });
+            }
+        }
+
+        logger.info('Map', 'Layer added', { name: dataset.name, features: features.length });
+        bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
     }
 
-    _getOriginalFeature(layerId, idx) {
-        return this._layerData.get(layerId)?.geojson?.features?.[idx] || null;
+    _ensureSymbolImage(shape, color, fillColor, size, opacity) {
+        const imgName = `sym-${shape}-${color}-${fillColor}-${size}-${opacity}`.replace(/#/g, '');
+        if (this.map.hasImage(imgName)) return imgName;
+
+        const svg = _makeSymbolSVG(shape, color, fillColor, size, opacity);
+        if (!svg) return imgName;
+
+        const img = new Image();
+        const blob = new Blob([svg], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        img.onload = () => {
+            if (!this.map.hasImage(imgName)) {
+                this.map.addImage(imgName, img);
+            }
+            URL.revokeObjectURL(url);
+        };
+        img.src = url;
+        return imgName;
     }
 
-    /* =========================================================
-       REMOVE / TOGGLE / RESTYLE
-       ========================================================= */
+    _getInteractiveLayerIds() {
+        const ids = [];
+        for (const info of this.dataLayers.values()) {
+            ids.push(...info.layerIds);
+        }
+        return ids;
+    }
 
     removeLayer(id) {
         const info = this.dataLayers.get(id);
         if (info) {
-            for (const lid of (info.layerIds || [])) { if (this.map.getLayer(lid)) this.map.removeLayer(lid); }
-            if (info.sourceId && this.map.getSource(info.sourceId)) this.map.removeSource(info.sourceId);
-            for (const m of (info.markers || [])) m.remove();
+            for (const lid of info.layerIds) {
+                if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+            }
+            if (this.map.getSource(info.sourceId)) this.map.removeSource(info.sourceId);
             this.dataLayers.delete(id);
         }
         this._layerNames.delete(id);
-        this._layerData.delete(id);
         this.clearSelection(id);
     }
 
     toggleLayer(id, visible) {
         const info = this.dataLayers.get(id);
         if (!info) return;
-        info.visible = visible;
-        const vis = visible ? 'visible' : 'none';
-        for (const lid of (info.layerIds || [])) { if (this.map.getLayer(lid)) this.map.setLayoutProperty(lid, 'visibility', vis); }
-        for (const m of (info.markers || [])) m.getElement().style.display = visible ? '' : 'none';
+        const visibility = visible ? 'visible' : 'none';
+        for (const lid of info.layerIds) {
+            if (this.map.getLayer(lid)) this.map.setLayoutProperty(lid, 'visibility', visibility);
+        }
     }
 
     restyleLayer(layerId, dataset, style) {
         this._layerStyles.set(layerId, { ...style });
-        if (dataset.geojson) this._layerData.set(layerId, { geojson: dataset.geojson, colorIndex: 0 });
-        this.removeLayer(layerId);
-        this.addLayer(dataset, 0, { fit: false });
+        this.addLayer(dataset, this._getLayerZIndex(layerId), { fit: false });
     }
 
-    static get pointSymbols() { return Object.keys(SVG_FACTORIES); }
+    _getLayerZIndex(layerId) {
+        let i = 0;
+        for (const id of this.dataLayers.keys()) {
+            if (id === layerId) return i;
+            i++;
+        }
+        return 0;
+    }
+
+    static get pointSymbols() {
+        return POINT_SYMBOL_NAMES;
+    }
 
     syncLayerOrder(orderedIds) {
         for (const id of orderedIds) {
             const info = this.dataLayers.get(id);
             if (!info) continue;
-            for (const lid of (info.layerIds || [])) { if (this.map.getLayer(lid)) this.map.moveLayer(lid); }
+            for (const lid of info.layerIds) {
+                if (this.map.getLayer(lid)) this.map.moveLayer(lid);
+            }
         }
     }
 
-    /* =========================================================
-       POPUPS
-       ========================================================= */
+    // ==========================================
+    // Popups
+    // ==========================================
 
     _buildPopupHtml(feature) {
         const props = feature.properties || {};
         let imgHtml = '';
         const imgSrc = props._thumbnailUrl || props._thumbnailDataUrl;
         if (imgSrc) {
-            imgHtml = `<div style="margin-bottom:6px;text-align:center;"><img src="${imgSrc}" style="max-width:280px;max-height:200px;border-radius:4px;" /></div>`;
+            imgHtml = `<div style="margin-bottom:6px;text-align:center;">
+                <img src="${imgSrc}" style="max-width:280px;max-height:200px;border-radius:4px;" />
+            </div>`;
         }
+
         const rows = Object.entries(props)
             .filter(([k, v]) => v != null && !k.startsWith('_'))
             .map(([k, v]) => {
-                if (v && typeof v === 'object' && v._att && v.dataUrl)
-                    return `<tr><th>${k}</th><td style="padding:4px 0;"><img src="${v.dataUrl}" style="max-width:240px;max-height:180px;border-radius:4px;display:block;margin-bottom:2px;" /><span style="font-size:10px;color:#888;">${v.name || 'photo'}</span></td></tr>`;
+                if (v && typeof v === 'object' && v._att && v.dataUrl) {
+                    return `<tr><th>${k}</th><td style="padding:4px 0;">
+                        <img src="${v.dataUrl}" style="max-width:240px;max-height:180px;border-radius:4px;display:block;margin-bottom:2px;" />
+                        <span style="font-size:10px;color:#888;">${v.name || 'photo'}</span>
+                    </td></tr>`;
+                }
                 let val = v;
                 if (typeof v === 'object') val = JSON.stringify(v);
                 if (typeof val === 'string' && val.length > 100) val = val.slice(0, 100) + '…';
                 return `<tr><th>${k}</th><td>${val}</td></tr>`;
             }).join('');
-        return imgHtml + (rows ? `<table>${rows}</table>` : '<em>No attributes</em>');
+        const tableHtml = rows ? `<table>${rows}</table>` : '<em>No attributes</em>';
+        return imgHtml + tableHtml;
     }
 
-    showPopup(feature, _unused, latlng) {
+    showPopup(feature, layer, latlng) {
         const html = this._buildPopupHtml(feature);
-        const coords = latlng ? [latlng.lng, latlng.lat]
-            : feature.geometry?.coordinates
-                ? (feature.geometry.type === 'Point' ? feature.geometry.coordinates : turf.centroid(feature).geometry.coordinates)
-                : null;
-        if (!coords) return;
-        if (this._popup) this._popup.remove();
-        this._popup = new mapboxgl.Popup({ maxWidth: '350px', closeOnClick: true })
-            .setLngLat(coords).setHTML(html).addTo(this.map);
-        this._popup.on('close', () => { this.clearHighlight(); this._popup = null; });
+        const pos = latlng || this._getFeatureCenter(feature);
+        this._closePopup();
+        this._popup = new maplibregl.Popup({ maxWidth: '350px' })
+            .setLngLat([pos.lng, pos.lat])
+            .setHTML(`<div class="map-popup-content">${html}</div>`)
+            .addTo(this.map);
+        this._popup.on('close', () => this.clearHighlight());
     }
+
+    _closePopup() {
+        if (this._popup) {
+            this._popup.remove();
+            this._popup = null;
+        }
+    }
+
+    _getFeatureCenter(feature) {
+        try {
+            const c = turf.centroid(feature);
+            return { lng: c.geometry.coordinates[0], lat: c.geometry.coordinates[1] };
+        } catch {
+            return { lng: 0, lat: 0 };
+        }
+    }
+
+    // ==========================================
+    // Feature hit detection
+    // ==========================================
 
     _findFeaturesNearClick(latlng, clickedLayerId, clickedFeatureIndex) {
-        const pt = turf.point([latlng.lng, latlng.lat]);
+        const pixel = this.map.project([latlng.lng, latlng.lat]);
         const results = [];
+        const allLayerIds = this._getInteractiveLayerIds();
+        const rendered = allLayerIds.length > 0 ? this.map.queryRenderedFeatures([pixel.x, pixel.y], { layers: allLayerIds }) : [];
 
-        for (const [layerId, info] of this.dataLayers) {
-            if (!info.visible) continue;
-            const data = this._layerData.get(layerId);
-            if (!data?.geojson?.features) continue;
-            const sty   = this._layerStyles.get(layerId) || {};
-            const color = sty.strokeColor || '#2563eb';
-
-            // Marker proximity for points
-            for (const marker of (info.markers || [])) {
-                const mp = marker.getLngLat();
-                const dist = turf.distance(pt, turf.point([mp.lng, mp.lat]), { units: 'meters' });
-                const zf = Math.max(1, 20 - this.map.getZoom());
-                if (dist < zf * 50) {
-                    const orig = this._getOriginalFeature(layerId, marker._featureIndex);
-                    if (orig) results.push({ feature: orig, featureIndex: marker._featureIndex, layerId, layerName: this._layerNames.get(layerId) || layerId, layerColor: color });
-                }
-            }
-
-            // Non-point hit testing via turf
-            for (const f of data.geojson.features) {
-                if (!f.geometry) continue;
-                const gt = f.geometry.type;
-                if (gt === 'Point' || gt === 'MultiPoint') continue;
-                let hit = false;
-                if (gt === 'Polygon' || gt === 'MultiPolygon') {
-                    try { hit = turf.booleanPointInPolygon(pt, f); } catch { hit = false; }
-                } else if (gt === 'LineString' || gt === 'MultiLineString') {
-                    try {
-                        const nearest = turf.nearestPointOnLine(f, pt, { units: 'kilometers' });
-                        if (nearest) { const dm = turf.distance(pt, nearest, { units: 'meters' }); const zf = Math.max(1, 20 - this.map.getZoom()); hit = dm < zf * 20; }
-                    } catch { hit = false; }
-                }
-                if (hit) {
-                    const fi = data.geojson.features.indexOf(f);
-                    results.push({ feature: f, featureIndex: fi, layerId, layerName: this._layerNames.get(layerId) || layerId, layerColor: color });
-                }
-            }
-        }
-
-        // Ensure the originally-clicked feature is first
-        if (clickedLayerId !== undefined && clickedFeatureIndex !== undefined) {
-            const ci = results.findIndex(r => r.layerId === clickedLayerId && r.featureIndex === clickedFeatureIndex);
-            if (ci > 0) { const [c] = results.splice(ci, 1); results.unshift(c); }
-            else if (ci === -1) {
-                const orig = this._getOriginalFeature(clickedLayerId, clickedFeatureIndex);
-                if (orig) {
-                    const sty = this._layerStyles.get(clickedLayerId) || {};
-                    results.unshift({ feature: orig, featureIndex: clickedFeatureIndex, layerId: clickedLayerId, layerName: this._layerNames.get(clickedLayerId) || clickedLayerId, layerColor: sty.strokeColor || '#2563eb' });
-                }
-            }
-        }
         const seen = new Set();
-        return results.filter(r => { const k = `${r.layerId}:${r.featureIndex}`; if (seen.has(k)) return false; seen.add(k); return true; });
+        for (const rf of rendered) {
+            const props = rf.properties;
+            if (!props || props._featureIndex === undefined) continue;
+            const key = `${props._datasetId}-${props._featureIndex}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            const layerId = props._datasetId;
+            const featureIndex = props._featureIndex;
+            const layerName = this._layerNames.get(layerId) || layerId;
+            const sty = this._layerStyles.get(layerId);
+            const layerColor = sty?.strokeColor || '#2563eb';
+
+            const info = this.dataLayers.get(layerId);
+            let feature = null;
+            if (info?.geojson?.features) {
+                feature = info.geojson.features.find(f => f.properties?._featureIndex === featureIndex);
+            }
+            if (!feature) continue;
+
+            results.push({
+                feature: this._stripInternalProps(feature),
+                featureIndex, layerId, layerName, layerColor
+            });
+        }
+
+        if (clickedLayerId !== undefined && clickedFeatureIndex !== undefined) {
+            const idx = results.findIndex(r => r.layerId === clickedLayerId && r.featureIndex === clickedFeatureIndex);
+            if (idx > 0) {
+                const [clicked] = results.splice(idx, 1);
+                results.unshift(clicked);
+            }
+        }
+
+        return results;
+    }
+
+    _stripInternalProps(feature) {
+        if (!feature?.properties) return feature;
+        const { _featureIndex, _datasetId, ...rest } = feature.properties;
+        return { ...feature, properties: rest };
     }
 
     _showMultiPopup(hits, latlng) {
-        if (!hits.length) return;
-        this._popupHits = hits; this._popupIndex = 0; this._popupLatLng = latlng;
+        if (hits.length === 0) return;
+        this._popupHits = hits;
+        this._popupIndex = 0;
+        this._popupLatLng = latlng;
         this._renderCyclePopup();
     }
 
     _renderCyclePopup() {
         const hits = this._popupHits;
-        const idx  = this._popupIndex;
-        if (!hits?.[idx]) return;
-        const hit = hits[idx];
-        const body = this._buildPopupHtml(hit.feature);
-        const label = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;border-bottom:1px solid var(--border);padding-bottom:3px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${hit.layerColor};margin-right:4px;"></span><strong>${hit.layerName}</strong></div>`;
-        let nav = '';
-        if (hits.length > 1)
-            nav = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:11px;"><button onclick="window._mapPopupNav(-1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&larr;</button><span>${idx + 1} of ${hits.length}</span><button onclick="window._mapPopupNav(1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&rarr;</button></div>`;
-        const editBtn = `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;text-align:right;"><button onclick="window._mapPopupEdit()" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button></div>`;
+        const idx = this._popupIndex;
+        if (!hits || !hits[idx]) return;
 
-        if (this._popup) this._popup.remove();
-        this._popup = new mapboxgl.Popup({ maxWidth: '350px', closeOnClick: false })
+        const hit = hits[idx];
+        const bodyHtml = this._buildPopupHtml(hit.feature);
+        const layerName = hit.layerName || hit.layerId;
+        const layerLabel = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;border-bottom:1px solid var(--border);padding-bottom:3px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${hit.layerColor};margin-right:4px;"></span>
+            <strong>${layerName}</strong>
+        </div>`;
+
+        let navHtml = '';
+        if (hits.length > 1) {
+            navHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:11px;">
+                <button onclick="window._mapPopupNav(-1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&larr;</button>
+                <span>${idx + 1} of ${hits.length}</span>
+                <button onclick="window._mapPopupNav(1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&rarr;</button>
+            </div>`;
+        }
+
+        const editBtn = `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;text-align:right;">
+            <button onclick="window._mapPopupEdit()" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button>
+        </div>`;
+
+        const html = `<div class="map-popup-content">${layerLabel}${navHtml}${bodyHtml}${editBtn}</div>`;
+
+        this.highlightFeature(hit.layerId, hit.featureIndex, hit.layerColor);
+
+        this._closePopup();
+        this._popup = new maplibregl.Popup({ maxWidth: '350px', closeOnClick: false })
             .setLngLat([this._popupLatLng.lng, this._popupLatLng.lat])
-            .setHTML(label + nav + body + editBtn)
+            .setHTML(html)
             .addTo(this.map);
-        this._popup.on('close', () => { this.clearHighlight(); this._popupHits = null; this._popup = null; });
+
+        this._popup.on('close', () => {
+            this.clearHighlight();
+            this._popupHits = null;
+        });
     }
 
-    /* =========================================================
-       HIGHLIGHT
-       ========================================================= */
+    // ==========================================
+    // Feature highlighting
+    // ==========================================
 
-    highlightFeature() { /* kept for API compat — highlighting handled via selection layers */ }
+    highlightFeature(layerId, featureIndex, originalColor) {
+        this.clearHighlight();
+        const info = this.dataLayers.get(layerId);
+        if (!info) return;
+        const feature = info.geojson.features.find(f => f.properties?._featureIndex === featureIndex);
+        if (!feature) return;
+
+        this._highlightedInfo = { layerId, featureIndex };
+        const hlSrcId = 'highlight-source';
+
+        if (this.map.getSource(hlSrcId)) {
+            this.map.getSource(hlSrcId).setData({ type: 'FeatureCollection', features: [feature] });
+        } else {
+            this.map.addSource(hlSrcId, { type: 'geojson', data: { type: 'FeatureCollection', features: [feature] } });
+        }
+
+        const gType = feature.geometry?.type;
+        if (gType === 'Point' || gType === 'MultiPoint') {
+            if (!this.map.getLayer('highlight-circle')) {
+                this.map.addLayer({
+                    id: 'highlight-circle', type: 'circle', source: hlSrcId,
+                    paint: { 'circle-radius': 10, 'circle-color': '#fbbf24', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-opacity': 1 }
+                });
+            }
+        } else if (gType === 'LineString' || gType === 'MultiLineString') {
+            if (!this.map.getLayer('highlight-line')) {
+                this.map.addLayer({
+                    id: 'highlight-line', type: 'line', source: hlSrcId,
+                    paint: { 'line-color': '#fbbf24', 'line-width': 4, 'line-opacity': 1 }
+                });
+            }
+        } else if (gType === 'Polygon' || gType === 'MultiPolygon') {
+            if (!this.map.getLayer('highlight-fill')) {
+                this.map.addLayer({
+                    id: 'highlight-fill', type: 'fill', source: hlSrcId,
+                    paint: { 'fill-color': '#fbbf24', 'fill-opacity': 0.35 }
+                });
+            }
+            if (!this.map.getLayer('highlight-line')) {
+                this.map.addLayer({
+                    id: 'highlight-line', type: 'line', source: hlSrcId,
+                    paint: { 'line-color': '#fbbf24', 'line-width': 4, 'line-opacity': 1 }
+                });
+            }
+        }
+    }
 
     clearHighlight() {
-        for (const id of ['_highlight-fill', '_highlight-line', '_highlight-circle']) {
-            if (this.map?.getLayer(id)) this.map.removeLayer(id);
+        for (const lid of ['highlight-fill', 'highlight-line', 'highlight-circle']) {
+            if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
         }
-        if (this.map?.getSource('_highlight-src')) this.map.removeSource('_highlight-src');
-        if (this._highlightMarker) { this._highlightMarker.remove(); this._highlightMarker = null; }
+        if (this.map?.getSource('highlight-source')) {
+            this.map.getSource('highlight-source').setData({ type: 'FeatureCollection', features: [] });
+        }
+        this._highlightedInfo = null;
     }
-
-    /* =========================================================
-       FIT / BOUNDS
-       ========================================================= */
 
     fitToAll() {
-        const all = [];
-        for (const [, d] of this._layerData) {
-            if (d.geojson?.features) all.push(...d.geojson.features.filter(f => f.geometry));
+        const allFeatures = [];
+        for (const info of this.dataLayers.values()) {
+            if (info.geojson?.features) allFeatures.push(...info.geojson.features);
         }
-        if (!all.length) return;
-        try {
-            const bb = turf.bbox({ type: 'FeatureCollection', features: all });
-            if (bb.every(v => isFinite(v))) this.map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30, maxZoom: 16 });
-        } catch {}
+        if (allFeatures.length > 0) {
+            try {
+                const bbox = turf.bbox({ type: 'FeatureCollection', features: allFeatures });
+                if (bbox && isFinite(bbox[0])) {
+                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
+                }
+            } catch (_) {}
+        }
     }
 
-    getBounds() { return this.map?.getBounds(); }
-    getMap()    { return this.map; }
-
-    /** Zoom to the bounds of a specific layer by ID */
-    zoomToLayer(layerId, options = {}) {
-        const data = this._layerData.get(layerId);
-        if (!data?.geojson?.features?.length) return;
-        const feats = data.geojson.features.filter(f => f.geometry);
-        if (!feats.length) return;
-        try {
-            const bb = turf.bbox({ type: 'FeatureCollection', features: feats });
-            if (bb.every(v => isFinite(v))) {
-                this.map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: options.padding || 30, maxZoom: 16 });
-            }
-        } catch {}
+    getBounds() {
+        if (!this.map) return null;
+        const b = this.map.getBounds();
+        return {
+            getWest: () => b.getWest(),
+            getEast: () => b.getEast(),
+            getNorth: () => b.getNorth(),
+            getSouth: () => b.getSouth()
+        };
     }
 
-    /* =========================================================
-       INTERACTIONS
-       ========================================================= */
+    getMap() { return this.map; }
+
+    /** Resize map — replaces Leaflet's invalidateSize */
+    resize() {
+        this.map?.resize();
+    }
+
+    // ==========================================
+    // 3D Terrain & Buildings
+    // ==========================================
+
+    toggle3D() {
+        this._3dEnabled ? this.disable3D() : this.enable3D();
+    }
+
+    /** Internal helper — adds terrain, sky, buildings without changing _3dEnabled flag */
+    _apply3D() {
+        if (!this.map.getSource('terrain-source')) {
+            this.map.addSource('terrain-source', {
+                type: 'raster-dem',
+                tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                encoding: 'terrarium',
+                tileSize: 256,
+                maxzoom: 15
+            });
+        }
+        this.map.setTerrain({ source: 'terrain-source', exaggeration: 1.5 });
+        this._terrainEnabled = true;
+
+        if (!this.map.getLayer('sky')) {
+            this.map.addLayer({
+                id: 'sky', type: 'sky',
+                paint: { 'sky-type': 'atmosphere', 'sky-atmosphere-sun': [0.0, 0.0], 'sky-atmosphere-sun-intensity': 15 }
+            });
+        }
+        this._addBuildingsLayer();
+    }
+
+    enable3D() {
+        if (this._3dEnabled) return;
+        this._3dEnabled = true;
+
+        // Unlock pitch / rotation for 3D
+        this.map.dragRotate.enable();
+        this.map.touchZoomRotate.enableRotation();
+        this.map.setMaxPitch(85);
+
+        this._apply3D();
+
+        // Tilt for 3D view
+        this.map.easeTo({ pitch: 60, duration: 1000 });
+
+        logger.info('Map', '3D terrain and buildings enabled');
+        bus.emit('map:3dChanged', true);
+    }
+
+    disable3D() {
+        if (!this._3dEnabled) return;
+        this._3dEnabled = false;
+
+        this.map.setTerrain(null);
+        this._terrainEnabled = false;
+
+        if (this.map.getLayer('sky')) this.map.removeLayer('sky');
+        this._removeBuildingsLayer();
+        if (this.map.getSource('terrain-source')) this.map.removeSource('terrain-source');
+
+        // Return to flat 2D — lock pitch / rotation
+        this.map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+        setTimeout(() => {
+            this.map.setMaxPitch(0);
+            this.map.dragRotate.disable();
+            this.map.touchZoomRotate.disableRotation();
+        }, 550);
+
+        logger.info('Map', '3D terrain and buildings disabled');
+        bus.emit('map:3dChanged', false);
+    }
+
+    _addBuildingsLayer() {
+        if (this._buildingsEnabled) return;
+
+        if (!this.map.getSource('openmaptiles')) {
+            this.map.addSource('openmaptiles', {
+                type: 'vector',
+                tiles: ['https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf'],
+                maxzoom: 14
+            });
+        }
+
+        if (!this.map.getLayer('3d-buildings')) {
+            this.map.addLayer({
+                id: '3d-buildings', source: 'openmaptiles', 'source-layer': 'building',
+                type: 'fill-extrusion', minzoom: 13,
+                paint: {
+                    'fill-extrusion-color': [
+                        'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 5],
+                        0, '#c8c8c8', 50, '#a0a0a0', 200, '#888888'
+                    ],
+                    'fill-extrusion-height': [
+                        'interpolate', ['linear'], ['zoom'],
+                        13, 0, 14, ['coalesce', ['get', 'render_height'], 5]
+                    ],
+                    'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+                    'fill-extrusion-opacity': 0.7
+                }
+            });
+        }
+
+        this._buildingsEnabled = true;
+    }
+
+    _removeBuildingsLayer() {
+        if (this.map.getLayer('3d-buildings')) this.map.removeLayer('3d-buildings');
+        if (this.map.getSource('openmaptiles')) this.map.removeSource('openmaptiles');
+        this._buildingsEnabled = false;
+    }
+
+    get is3DEnabled() { return this._3dEnabled; }
+
+    // ==========================================
+    // Interactive Drawing / Selection System
+    // ==========================================
 
     startPointPick(prompt = 'Click the map to place a point') {
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             this._cancelInteraction();
             const canvas = this.map.getCanvas();
             canvas.style.cursor = 'crosshair';
+
             const banner = this._showInteractionBanner(prompt, () => { cleanup(); resolve(null); });
 
             const onClick = (e) => { cleanup(); resolve([e.lngLat.lng, e.lngLat.lat]); };
-            const onKey   = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
+            const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
 
-            const cleanup = () => { canvas.style.cursor = ''; this.map.off('click', onClick); document.removeEventListener('keydown', onKey); banner?.remove(); this._interactionCleanup = null; };
+            const cleanup = () => {
+                canvas.style.cursor = '';
+                this.map.off('click', onClick);
+                document.removeEventListener('keydown', onKeyDown);
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
             this._interactionCleanup = cleanup;
             this.map.on('click', onClick);
-            document.addEventListener('keydown', onKey);
+            document.addEventListener('keydown', onKeyDown);
         });
     }
 
     startTwoPointPick(prompt1 = 'Click the first point', prompt2 = 'Click the second point') {
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             this._cancelInteraction();
             const canvas = this.map.getCanvas();
             canvas.style.cursor = 'crosshair';
-            const tempM = [];
-            let first = null;
-            const banner = this._showInteractionBanner(prompt1, () => { cleanup(); resolve(null); });
+            const markers = [];
+            let firstPoint = null;
 
-            const onKey = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
+            const banner = this._showInteractionBanner(prompt1, () => { cleanup(); resolve(null); });
+            const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
+
             const onClick = (e) => {
-                const c = [e.lngLat.lng, e.lngLat.lat];
-                tempM.push(new mapboxgl.Marker({ color: '#d4a24e' }).setLngLat(c).addTo(this.map));
-                if (!first) { first = c; banner.querySelector('.interaction-text').textContent = prompt2; }
-                else { cleanup(); resolve([first, c]); }
+                const coord = [e.lngLat.lng, e.lngLat.lat];
+                const el = document.createElement('div');
+                el.style.cssText = 'width:14px;height:14px;background:#d4a24e;border:2px solid #fff;border-radius:50%;';
+                const m = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(this.map);
+                markers.push(m);
+
+                if (!firstPoint) {
+                    firstPoint = coord;
+                    banner.querySelector('.interaction-text').textContent = prompt2;
+                } else {
+                    cleanup();
+                    resolve([firstPoint, coord]);
+                }
             };
-            const cleanup = () => { canvas.style.cursor = ''; this.map.off('click', onClick); document.removeEventListener('keydown', onKey); tempM.forEach(m => m.remove()); banner?.remove(); this._interactionCleanup = null; };
+
+            const cleanup = () => {
+                canvas.style.cursor = '';
+                this.map.off('click', onClick);
+                document.removeEventListener('keydown', onKeyDown);
+                markers.forEach(m => m.remove());
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
             this._interactionCleanup = cleanup;
             this.map.on('click', onClick);
-            document.addEventListener('keydown', onKey);
+            document.addEventListener('keydown', onKeyDown);
         });
     }
 
     startRectangleDraw(prompt = 'Click and drag to draw a rectangle') {
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             this._cancelInteraction();
             const canvas = this.map.getCanvas();
             canvas.style.cursor = 'crosshair';
             const banner = this._showInteractionBanner(prompt, () => { cleanup(); resolve(null); });
 
-            let start = null;
-            const rSrc = '_rect-draw-src', rFill = '_rect-draw-fill', rLine = '_rect-draw-line';
+            let startLngLat = null;
+            const rectId = this._nextId('rect-draw');
 
-            const onDown = (e) => { if (e.originalEvent.button !== 0) return; start = e.lngLat; this.map.dragPan.disable(); };
-            const onMove = (e) => {
-                if (!start) return;
-                const bb = this._lngLatsToBbox(start, e.lngLat);
-                const poly = turf.bboxPolygon(bb);
-                if (this.map.getSource(rSrc)) this.map.getSource(rSrc).setData(poly);
-                else {
-                    this.map.addSource(rSrc, { type: 'geojson', data: poly });
-                    this.map.addLayer({ id: rFill, type: 'fill', source: rSrc, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.15 } });
-                    this.map.addLayer({ id: rLine, type: 'line', source: rSrc, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                }
-            };
-            const onUp = (e) => {
-                if (!start) return;
+            this.map.addSource(rectId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            this.map.addLayer({ id: rectId + '-fill', type: 'fill', source: rectId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.15 } });
+            this.map.addLayer({ id: rectId + '-line', type: 'line', source: rectId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+
+            const onMouseDown = (e) => { startLngLat = e.lngLat; this.map.dragPan.disable(); };
+            const onMouseMove = (e) => { if (startLngLat) this._updateRectGeoJSON(rectId, startLngLat, e.lngLat); };
+            const onMouseUp = (e) => {
+                if (!startLngLat) return;
                 this.map.dragPan.enable();
-                const bb = this._lngLatsToBbox(start, e.lngLat);
+                const w = Math.min(startLngLat.lng, e.lngLat.lng), s = Math.min(startLngLat.lat, e.lngLat.lat);
+                const east = Math.max(startLngLat.lng, e.lngLat.lng), n = Math.max(startLngLat.lat, e.lngLat.lat);
                 cleanup();
-                resolve([bb[0], bb[1], bb[2], bb[3]]);
+                resolve([w, s, east, n]);
             };
-            const onKey = (e) => { if (e.key === 'Escape') { this.map.dragPan.enable(); cleanup(); resolve(null); } };
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') { this.map.dragPan.enable(); cleanup(); resolve(null); }
+            };
 
             const cleanup = () => {
                 canvas.style.cursor = '';
-                this.map.off('mousedown', onDown); this.map.off('mousemove', onMove); this.map.off('mouseup', onUp);
-                document.removeEventListener('keydown', onKey);
-                if (this.map.getLayer(rFill)) this.map.removeLayer(rFill);
-                if (this.map.getLayer(rLine)) this.map.removeLayer(rLine);
-                if (this.map.getSource(rSrc)) this.map.removeSource(rSrc);
-                banner?.remove(); this._interactionCleanup = null;
+                this.map.off('mousedown', onMouseDown);
+                this.map.off('mousemove', onMouseMove);
+                this.map.off('mouseup', onMouseUp);
+                document.removeEventListener('keydown', onKeyDown);
+                if (this.map.getLayer(rectId + '-fill')) this.map.removeLayer(rectId + '-fill');
+                if (this.map.getLayer(rectId + '-line')) this.map.removeLayer(rectId + '-line');
+                if (this.map.getSource(rectId)) this.map.removeSource(rectId);
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
             };
+
             this._interactionCleanup = cleanup;
-            this.map.on('mousedown', onDown); this.map.on('mousemove', onMove); this.map.on('mouseup', onUp);
-            document.addEventListener('keydown', onKey);
+            this.map.on('mousedown', onMouseDown);
+            this.map.on('mousemove', onMouseMove);
+            this.map.on('mouseup', onMouseUp);
+            document.addEventListener('keydown', onKeyDown);
         });
     }
 
-    _lngLatsToBbox(a, b) {
-        return [Math.min(a.lng, b.lng), Math.min(a.lat, b.lat), Math.max(a.lng, b.lng), Math.max(a.lat, b.lat)];
+    _updateRectGeoJSON(sourceId, start, end) {
+        const w = Math.min(start.lng, end.lng), s = Math.min(start.lat, end.lat);
+        const e = Math.max(start.lng, end.lng), n = Math.max(start.lat, end.lat);
+        const src = this.map.getSource(sourceId);
+        if (src) {
+            src.setData({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] }
+            });
+        }
     }
 
-    /* =========================================================
-       IMPORT FENCE
-       ========================================================= */
+    // ============================
+    // Import Fence
+    // ============================
 
     startImportFenceDraw() {
         this.clearImportFence();
         const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
 
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             this._cancelInteraction();
             const canvas = this.map.getCanvas();
             canvas.style.cursor = 'crosshair';
+
             const banner = this._showInteractionBanner(
-                isMobile ? 'Tap and drag to draw your import fence.' : 'Click and drag to draw your import fence.',
-                () => { cleanup(true); resolve(null); }
+                isMobile ? 'Tap and drag to draw your import fence.' : 'Click and drag to draw your import fence. Only features inside will be imported.',
+                () => { cleanup(); resolve(null); }
             );
 
-            let start = null;
-            const fSrc = '_fence-src', fFill = '_fence-fill', fLine = '_fence-line';
-            const beginDraw  = ll => { start = ll; this.map.dragPan.disable(); };
-            const updateDraw = ll => {
-                if (!start) return;
-                const bb = this._lngLatsToBbox(start, ll);
-                const poly = turf.bboxPolygon(bb);
-                if (this.map.getSource(fSrc)) this.map.getSource(fSrc).setData(poly);
-                else {
-                    this.map.addSource(fSrc, { type: 'geojson', data: poly });
-                    this.map.addLayer({ id: fFill, type: 'fill', source: fSrc, paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.08 } });
-                    this.map.addLayer({ id: fLine, type: 'line', source: fSrc, paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-dasharray': [8, 5] } });
-                }
-            };
-            const endDraw = ll => {
-                if (!start) return;
-                this.map.dragPan.enable();
-                const bb = this._lngLatsToBbox(start, ll);
-                this._importFence = { bbox: bb, fSrc, fFill, fLine };
-                cleanup(false);
-                resolve([bb[0], bb[1], bb[2], bb[3]]);
-            };
+            let startLngLat = null;
+            const fenceId = 'import-fence';
 
-            const onDown = e => { if (e.originalEvent.button !== 0) return; beginDraw(e.lngLat); };
-            const onMove = e => updateDraw(e.lngLat);
-            const onUp   = e => endDraw(e.lngLat);
+            if (!this.map.getSource(fenceId)) {
+                this.map.addSource(fenceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            }
+            if (!this.map.getLayer(fenceId + '-fill')) {
+                this.map.addLayer({ id: fenceId + '-fill', type: 'fill', source: fenceId, paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.08 } });
+            }
+            if (!this.map.getLayer(fenceId + '-line')) {
+                this.map.addLayer({ id: fenceId + '-line', type: 'line', source: fenceId, paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-dasharray': [10, 6] } });
+            }
+
+            const onMouseDown = (e) => { startLngLat = e.lngLat; this.map.dragPan.disable(); };
+            const onMouseMove = (e) => { if (startLngLat) this._updateRectGeoJSON(fenceId, startLngLat, e.lngLat); };
+            const onMouseUp = (e) => {
+                if (!startLngLat) return;
+                this.map.dragPan.enable();
+                const west = Math.min(startLngLat.lng, e.lngLat.lng), south = Math.min(startLngLat.lat, e.lngLat.lat);
+                const east = Math.max(startLngLat.lng, e.lngLat.lng), north = Math.max(startLngLat.lat, e.lngLat.lat);
+                this._importFence = { west, south, east, north };
+                cleanup(false);
+                resolve([west, south, east, north]);
+            };
 
             const container = this.map.getContainer();
-            const touchLL = t => { const r = container.getBoundingClientRect(); return this.map.unproject(new mapboxgl.Point(t.clientX - r.left, t.clientY - r.top)); };
-            const onTS = e => { if (e.touches.length === 1) { e.preventDefault(); beginDraw(touchLL(e.touches[0])); } };
-            const onTM = e => { if (start && e.touches.length === 1) { e.preventDefault(); updateDraw(touchLL(e.touches[0])); } };
-            const onTE = e => { if (start) { e.preventDefault(); endDraw(touchLL(e.changedTouches[0])); } };
-
-            const onKey = e => { if (e.key === 'Escape') { this.map.dragPan.enable(); cleanup(true); resolve(null); } };
-
-            const cleanup = (removeRect = true) => {
-                canvas.style.cursor = '';
-                this.map.off('mousedown', onDown); this.map.off('mousemove', onMove); this.map.off('mouseup', onUp);
-                container.removeEventListener('touchstart', onTS);
-                container.removeEventListener('touchmove', onTM);
-                container.removeEventListener('touchend', onTE);
-                document.removeEventListener('keydown', onKey);
-                if (removeRect) {
-                    if (this.map.getLayer(fFill)) this.map.removeLayer(fFill);
-                    if (this.map.getLayer(fLine)) this.map.removeLayer(fLine);
-                    if (this.map.getSource(fSrc)) this.map.removeSource(fSrc);
-                }
-                banner?.remove(); this._interactionCleanup = null;
+            const touchToLngLat = (touch) => {
+                const rect = container.getBoundingClientRect();
+                return this.map.unproject(new maplibregl.Point(touch.clientX - rect.left, touch.clientY - rect.top));
             };
+            const onTouchStart = (e) => { if (e.touches.length === 1) { e.preventDefault(); startLngLat = touchToLngLat(e.touches[0]); this.map.dragPan.disable(); } };
+            const onTouchMove = (e) => { if (startLngLat && e.touches.length === 1) { e.preventDefault(); this._updateRectGeoJSON(fenceId, startLngLat, touchToLngLat(e.touches[0])); } };
+            const onTouchEnd = (e) => {
+                if (!startLngLat) return;
+                e.preventDefault();
+                const ll = touchToLngLat(e.changedTouches[0]);
+                this.map.dragPan.enable();
+                const west = Math.min(startLngLat.lng, ll.lng), south = Math.min(startLngLat.lat, ll.lat);
+                const east = Math.max(startLngLat.lng, ll.lng), north = Math.max(startLngLat.lat, ll.lat);
+                this._importFence = { west, south, east, north };
+                cleanup(false);
+                resolve([west, south, east, north]);
+            };
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') { this.map.dragPan.enable(); cleanup(); resolve(null); }
+            };
+
+            const cleanup = (removeFence = true) => {
+                canvas.style.cursor = '';
+                this.map.off('mousedown', onMouseDown);
+                this.map.off('mousemove', onMouseMove);
+                this.map.off('mouseup', onMouseUp);
+                container.removeEventListener('touchstart', onTouchStart);
+                container.removeEventListener('touchmove', onTouchMove);
+                container.removeEventListener('touchend', onTouchEnd);
+                document.removeEventListener('keydown', onKeyDown);
+                if (removeFence) {
+                    if (this.map.getLayer(fenceId + '-fill')) this.map.removeLayer(fenceId + '-fill');
+                    if (this.map.getLayer(fenceId + '-line')) this.map.removeLayer(fenceId + '-line');
+                    if (this.map.getSource(fenceId)) this.map.removeSource(fenceId);
+                }
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
             this._interactionCleanup = cleanup;
-            this.map.on('mousedown', onDown); this.map.on('mousemove', onMove); this.map.on('mouseup', onUp);
-            container.addEventListener('touchstart', onTS, { passive: false });
-            container.addEventListener('touchmove', onTM, { passive: false });
-            container.addEventListener('touchend', onTE, { passive: false });
-            document.addEventListener('keydown', onKey);
+            this.map.on('mousedown', onMouseDown);
+            this.map.on('mousemove', onMouseMove);
+            this.map.on('mouseup', onMouseUp);
+            container.addEventListener('touchstart', onTouchStart, { passive: false });
+            container.addEventListener('touchmove', onTouchMove, { passive: false });
+            container.addEventListener('touchend', onTouchEnd, { passive: false });
+            document.addEventListener('keydown', onKeyDown);
         });
     }
 
     clearImportFence() {
-        if (!this._importFence) return;
-        const f = this._importFence;
-        if (this.map.getLayer(f.fFill)) this.map.removeLayer(f.fFill);
-        if (this.map.getLayer(f.fLine)) this.map.removeLayer(f.fLine);
-        if (this.map.getSource(f.fSrc)) this.map.removeSource(f.fSrc);
         this._importFence = null;
+        const fenceId = 'import-fence';
+        if (this.map?.getLayer(fenceId + '-fill')) this.map.removeLayer(fenceId + '-fill');
+        if (this.map?.getLayer(fenceId + '-line')) this.map.removeLayer(fenceId + '-line');
+        if (this.map?.getSource(fenceId)) this.map.removeSource(fenceId);
         bus.emit('importFence:cleared');
     }
 
-    getImportFenceBbox()          { return this._importFence?.bbox || null; }
-    getImportFenceEsriEnvelope()  { if (!this._importFence) return null; const b = this._importFence.bbox; return { xmin: b[0], ymin: b[1], xmax: b[2], ymax: b[3], spatialReference: { wkid: 4326 } }; }
-    get hasImportFence()          { return !!this._importFence; }
-
-    /* =========================================================
-       TEMP FEATURES
-       ========================================================= */
-
-    showTempFeature(geojson, duration = 10000) {
-        const uid  = `_temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        const sId  = `${uid}-src`, fId  = `${uid}-fill`, lId  = `${uid}-line`;
-        this.map.addSource(sId, { type: 'geojson', data: geojson });
-        this.map.addLayer({ id: fId, type: 'fill', source: sId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.25 }, filter: ['in', '$type', 'Polygon'] });
-        this.map.addLayer({ id: lId, type: 'line', source: sId, paint: { 'line-color': '#d4a24e', 'line-width': 3 } });
-
-        const tm = [];
-        const addPt = c => tm.push(new mapboxgl.Marker({ color: '#d4a24e' }).setLngLat(c).addTo(this.map));
-        if (geojson.features) geojson.features.filter(f => f.geometry?.type === 'Point').forEach(f => addPt(f.geometry.coordinates));
-        else if (geojson.geometry?.type === 'Point') addPt(geojson.geometry.coordinates);
-
-        const rm = () => { try { if (this.map.getLayer(fId)) this.map.removeLayer(fId); if (this.map.getLayer(lId)) this.map.removeLayer(lId); if (this.map.getSource(sId)) this.map.removeSource(sId); tm.forEach(m => m.remove()); } catch {} };
-        if (duration > 0) setTimeout(rm, duration);
-        return { remove: rm };
+    getImportFenceBbox() {
+        if (!this._importFence) return null;
+        const b = this._importFence;
+        return [b.west, b.south, b.east, b.north];
     }
 
-    _cancelInteraction() { if (this._interactionCleanup) { this._interactionCleanup(); this._interactionCleanup = null; } }
+    getImportFenceEsriEnvelope() {
+        if (!this._importFence) return null;
+        const b = this._importFence;
+        return { xmin: b.west, ymin: b.south, xmax: b.east, ymax: b.north, spatialReference: { wkid: 4326 } };
+    }
 
-    /** Check if a draw tool is currently active (via DrawManager) */
-    _isDrawing() {
-        try { return !!this.map?.getCanvas()?.style.cursor?.includes('crosshair'); } catch { return false; }
+    get hasImportFence() { return !!this._importFence; }
+
+    showTempFeature(geojson, duration = 10000) {
+        const srcId = this._nextId('temp');
+        this.map.addSource(srcId, { type: 'geojson', data: geojson });
+        const layerIds = [];
+
+        const fillId = srcId + '-fill';
+        this.map.addLayer({ id: fillId, type: 'fill', source: srcId, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.25 } });
+        layerIds.push(fillId);
+
+        const lineId = srcId + '-line';
+        this.map.addLayer({ id: lineId, type: 'line', source: srcId, paint: { 'line-color': '#d4a24e', 'line-width': 3 } });
+        layerIds.push(lineId);
+
+        const circleId = srcId + '-circle';
+        this.map.addLayer({ id: circleId, type: 'circle', source: srcId, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 8, 'circle-color': '#d4a24e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+        layerIds.push(circleId);
+
+        const entry = { srcId, layerIds };
+        this._tempLayers.push(entry);
+
+        if (duration > 0) setTimeout(() => this._removeTempFeature(entry), duration);
+        return entry;
+    }
+
+    _removeTempFeature(entry) {
+        for (const lid of entry.layerIds) { if (this.map?.getLayer(lid)) this.map.removeLayer(lid); }
+        if (this.map?.getSource(entry.srcId)) this.map.removeSource(entry.srcId);
+        this._tempLayers = this._tempLayers.filter(e => e !== entry);
+    }
+
+    _cancelInteraction() {
+        if (this._interactionCleanup) { this._interactionCleanup(); this._interactionCleanup = null; }
     }
 
     _showInteractionBanner(text, onCancel) {
-        const b = document.createElement('div');
-        b.className = 'map-interaction-banner';
-        b.innerHTML = `<span class="interaction-text">${text}</span><button class="interaction-cancel">✕ Cancel</button><span style="font-size:11px;opacity:0.6;margin-left:8px;">(Esc to cancel)</span>`;
-        b.querySelector('.interaction-cancel').onclick = onCancel;
-        this.map.getContainer().appendChild(b);
-        return b;
+        const banner = document.createElement('div');
+        banner.className = 'map-interaction-banner';
+        banner.innerHTML = `
+            <span class="interaction-text">${text}</span>
+            <button class="interaction-cancel">✕ Cancel</button>
+            <span style="font-size:11px;opacity:0.6;margin-left:8px;">(Esc to cancel)</span>
+        `;
+        banner.querySelector('.interaction-cancel').onclick = onCancel;
+        this.map.getContainer().appendChild(banner);
+        return banner;
     }
 
-    /* =========================================================
-       SELECTION SYSTEM
-       ========================================================= */
+    // ==========================================
+    // Feature Selection System
+    // ==========================================
 
-    static get SELECTION_STYLE()       { return { color: '#00e5ff', weight: 3, opacity: 1, fillColor: '#00e5ff', fillOpacity: 0.35, dashArray: null }; }
-    static get SELECTION_POINT_STYLE() { return { radius: 8, fillColor: '#00e5ff', color: '#ffffff', weight: 3, fillOpacity: 1 }; }
+    static get SELECTION_STYLE() {
+        return { color: '#00e5ff', weight: 3, opacity: 1, fillColor: '#00e5ff', fillOpacity: 0.35 };
+    }
+    static get SELECTION_POINT_STYLE() {
+        return { radius: 8, fillColor: '#00e5ff', color: '#ffffff', weight: 3, fillOpacity: 1 };
+    }
 
     enterSelectionMode() {
         this._selectionMode = true;
         this.map.getCanvas().style.cursor = 'pointer';
-        this._selectionBanner = this._showInteractionBanner('Selection mode — click features or draw a box to multiselect (Shift+click then drag).', () => this.exitSelectionMode());
-        this._setupRectangleSelect();
+        const banner = this._showInteractionBanner(
+            'Selection mode — click features or Shift+drag to box select.',
+            () => this.exitSelectionMode()
+        );
+        this._selectionBanner = banner;
+        this._rectSelectHandler = this._setupRectangleSelect();
         bus.emit('selection:modeChanged', true);
         logger.info('Map', 'Selection mode enabled');
     }
@@ -1091,129 +1219,153 @@ class MapManager {
     exitSelectionMode() {
         this._selectionMode = false;
         this.map.getCanvas().style.cursor = '';
-        this._selectionBanner?.remove(); this._selectionBanner = null;
-        this._rectSelectCleanup?.(); this._rectSelectCleanup = null;
+        if (this._selectionBanner) { this._selectionBanner.remove(); this._selectionBanner = null; }
+        if (this._rectSelectCleanup) { this._rectSelectCleanup(); this._rectSelectCleanup = null; }
         bus.emit('selection:modeChanged', false);
         logger.info('Map', 'Selection mode disabled');
     }
 
     isSelectionMode() { return this._selectionMode; }
 
-    _handleSelectionClick(layerId, featureIndex, shiftKey, layerColor) {
+    _handleSelectionClick(layerId, featureIndex, shiftKey) {
         if (!this._selections.has(layerId)) this._selections.set(layerId, new Set());
         const sel = this._selections.get(layerId);
-        if (shiftKey) { if (sel.has(featureIndex)) sel.delete(featureIndex); else sel.add(featureIndex); }
-        else {
+
+        if (shiftKey) {
+            sel.has(featureIndex) ? sel.delete(featureIndex) : sel.add(featureIndex);
+        } else {
             for (const lid of this._selections.keys()) { this._selections.set(lid, new Set()); this._renderSelectionHighlights(lid); }
             this._selections.set(layerId, new Set([featureIndex]));
         }
+
         this._renderSelectionHighlights(layerId);
         bus.emit('selection:changed', { layerId, count: this.getSelectionCount(layerId), totalCount: this.getTotalSelectionCount() });
     }
 
     _setupRectangleSelect() {
-        let start = null, dragging = false;
-        const rSrc = '_sel-rect-src', rLay = '_sel-rect-lay';
+        let startLngLat = null;
+        let dragging = false;
+        const rectId = 'selection-rect';
 
-        const onDown = e => { if (e.originalEvent.button !== 0) return; if (!e.originalEvent.shiftKey && !e.originalEvent.ctrlKey) return; start = e.lngLat; dragging = true; this.map.dragPan.disable(); };
-        const onMove = e => {
-            if (!dragging) return;
-            const bb = this._lngLatsToBbox(start, e.lngLat);
-            const poly = turf.bboxPolygon(bb);
-            if (this.map.getSource(rSrc)) this.map.getSource(rSrc).setData(poly);
-            else { this.map.addSource(rSrc, { type: 'geojson', data: poly }); this.map.addLayer({ id: rLay, type: 'fill', source: rSrc, paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.1 } }); }
+        if (!this.map.getSource(rectId)) {
+            this.map.addSource(rectId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            this.map.addLayer({ id: rectId + '-fill', type: 'fill', source: rectId, paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.1 } });
+            this.map.addLayer({ id: rectId + '-line', type: 'line', source: rectId, paint: { 'line-color': '#00e5ff', 'line-width': 2, 'line-dasharray': [6, 4] } });
+        }
+
+        const onMouseDown = (e) => {
+            if (!e.originalEvent.shiftKey && !e.originalEvent.ctrlKey) return;
+            startLngLat = e.lngLat; dragging = true; this.map.dragPan.disable();
         };
-        const onUp = e => {
-            if (!dragging) return;
+        const onMouseMove = (e) => {
+            if (!dragging || !startLngLat) return;
+            this._updateRectGeoJSON(rectId, startLngLat, e.lngLat);
+        };
+        const onMouseUp = (e) => {
+            if (!dragging || !startLngLat) return;
             this.map.dragPan.enable(); dragging = false;
-            const bb = this._lngLatsToBbox(start, e.lngLat); start = null;
-            setTimeout(() => { if (this.map.getLayer(rLay)) this.map.removeLayer(rLay); if (this.map.getSource(rSrc)) this.map.removeSource(rSrc); }, 400);
-            this._selectFeaturesInBounds(bb, e.originalEvent?.shiftKey);
+            const w = Math.min(startLngLat.lng, e.lngLat.lng), s = Math.min(startLngLat.lat, e.lngLat.lat);
+            const east = Math.max(startLngLat.lng, e.lngLat.lng), n = Math.max(startLngLat.lat, e.lngLat.lat);
+            startLngLat = null;
+
+            const p1 = this.map.project([w, s]), p2 = this.map.project([east, n]);
+            const size = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+            if (size < 10) { this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] }); return; }
+
+            this._selectFeaturesInBounds([w, s, east, n], e.originalEvent?.shiftKey);
+            setTimeout(() => { this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] }); }, 400);
         };
 
-        this.map.on('mousedown', onDown); this.map.on('mousemove', onMove); this.map.on('mouseup', onUp);
+        this.map.on('mousedown', onMouseDown);
+        this.map.on('mousemove', onMouseMove);
+        this.map.on('mouseup', onMouseUp);
+
         this._rectSelectCleanup = () => {
-            this.map.off('mousedown', onDown); this.map.off('mousemove', onMove); this.map.off('mouseup', onUp);
-            if (this.map.getLayer(rLay)) this.map.removeLayer(rLay);
-            if (this.map.getSource(rSrc)) this.map.removeSource(rSrc);
+            this.map.off('mousedown', onMouseDown);
+            this.map.off('mousemove', onMouseMove);
+            this.map.off('mouseup', onMouseUp);
+            if (this.map.getLayer(rectId + '-fill')) this.map.removeLayer(rectId + '-fill');
+            if (this.map.getLayer(rectId + '-line')) this.map.removeLayer(rectId + '-line');
+            if (this.map.getSource(rectId)) this.map.removeSource(rectId);
             this.map.dragPan.enable();
         };
     }
 
     _selectFeaturesInBounds(bbox, addToExisting) {
-        if (!addToExisting) for (const lid of this._selections.keys()) this._selections.set(lid, new Set());
-        const bboxPoly = turf.bboxPolygon(bbox);
+        if (!addToExisting) {
+            for (const lid of this._selections.keys()) this._selections.set(lid, new Set());
+        }
+        const [west, south, east, north] = bbox;
+        const bboxPoly = turf.bboxPolygon([west, south, east, north]);
 
-        for (const [layerId, data] of this._layerData) {
-            const info = this.dataLayers.get(layerId);
-            if (!info?.visible || !data.geojson?.features) continue;
+        for (const [layerId, info] of this.dataLayers) {
+            const firstLayer = info.layerIds[0];
+            if (firstLayer && this.map.getLayoutProperty(firstLayer, 'visibility') === 'none') continue;
             if (!this._selections.has(layerId)) this._selections.set(layerId, new Set());
             const sel = this._selections.get(layerId);
 
-            for (let i = 0; i < data.geojson.features.length; i++) {
-                const f = data.geojson.features[i];
+            for (const f of info.geojson.features) {
                 if (!f.geometry) continue;
-                try { if (turf.booleanIntersects(f, bboxPoly)) sel.add(i); }
-                catch { try { const fb = turf.bbox(f); if (fb[0] <= bbox[2] && fb[2] >= bbox[0] && fb[1] <= bbox[3] && fb[3] >= bbox[1]) sel.add(i); } catch {} }
+                const idx = f.properties?._featureIndex;
+                if (idx === undefined) continue;
+                try {
+                    if (turf.booleanIntersects(f, bboxPoly)) sel.add(idx);
+                } catch {
+                    try { const c = turf.centroid(f); if (turf.booleanPointInPolygon(c, bboxPoly)) sel.add(idx); } catch {}
+                }
             }
             this._renderSelectionHighlights(layerId);
         }
+
         const total = this.getTotalSelectionCount();
         bus.emit('selection:changed', { totalCount: total });
-        if (total) logger.info('Map', `Box selected ${total} feature(s)`);
+        if (total > 0) logger.info('Map', `Box selected ${total} feature(s)`);
     }
 
     _renderSelectionHighlights(layerId) {
-        const hSrc = `_sel-hl-${layerId}`, hFill = `_sel-hl-fill-${layerId}`, hLine = `_sel-hl-line-${layerId}`;
-        if (this.map.getLayer(hFill)) this.map.removeLayer(hFill);
-        if (this.map.getLayer(hLine)) this.map.removeLayer(hLine);
-        if (this.map.getSource(hSrc)) this.map.removeSource(hSrc);
-        if (this._selectionMarkers.get(layerId)) { this._selectionMarkers.get(layerId).forEach(m => m.remove()); this._selectionMarkers.delete(layerId); }
+        const selSrcId = `selection-${layerId}`;
+        for (const lid of [`${selSrcId}-fill`, `${selSrcId}-line`, `${selSrcId}-circle`]) {
+            if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+        }
+        if (this.map.getSource(selSrcId)) this.map.removeSource(selSrcId);
 
         const sel = this._selections.get(layerId);
-        if (!sel?.size) return;
-        const data = this._layerData.get(layerId);
-        if (!data?.geojson?.features) return;
+        if (!sel || sel.size === 0) return;
+        const info = this.dataLayers.get(layerId);
+        if (!info) return;
 
-        const nonPts = [], pts = [];
-        for (const i of sel) {
-            const f = data.geojson.features[i];
-            if (!f?.geometry) continue;
-            (f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint') ? pts.push(f) : nonPts.push(f);
-        }
+        const selectedFeatures = info.geojson.features.filter(f => sel.has(f.properties?._featureIndex));
+        if (selectedFeatures.length === 0) return;
 
-        if (nonPts.length) {
-            this.map.addSource(hSrc, { type: 'geojson', data: { type: 'FeatureCollection', features: nonPts } });
-            this.map.addLayer({ id: hFill, type: 'fill', source: hSrc, paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.35 }, filter: ['in', '$type', 'Polygon'] });
-            this.map.addLayer({ id: hLine, type: 'line', source: hSrc, paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
-        }
-
-        if (pts.length) {
-            const markers = [];
-            for (const f of pts) {
-                const coords = f.geometry.type === 'MultiPoint' ? f.geometry.coordinates : [f.geometry.coordinates];
-                for (const c of coords) {
-                    const el = document.createElement('div');
-                    el.style.cssText = 'width:16px;height:16px;border-radius:50%;background:#00e5ff;border:3px solid #fff;pointer-events:none;';
-                    markers.push(new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(c).addTo(this.map));
-                }
-            }
-            this._selectionMarkers.set(layerId, markers);
-        }
+        this.map.addSource(selSrcId, { type: 'geojson', data: { type: 'FeatureCollection', features: selectedFeatures } });
+        this.map.addLayer({ id: `${selSrcId}-fill`, type: 'fill', source: selSrcId, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.35 } });
+        this.map.addLayer({ id: `${selSrcId}-line`, type: 'line', source: selSrcId, paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
+        this.map.addLayer({ id: `${selSrcId}-circle`, type: 'circle', source: selSrcId, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 8, 'circle-color': '#00e5ff', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-opacity': 1 } });
     }
 
-    getSelectedIndices(layerId) { return [...(this._selections.get(layerId) || [])]; }
+    getSelectedIndices(layerId) { return this._selections.get(layerId) ? [...this._selections.get(layerId)] : []; }
     getSelectedFeatures(layerId, geojson) {
-        const idx = this.getSelectedIndices(layerId);
-        if (!idx.length) return null;
-        return { type: 'FeatureCollection', features: geojson.features.filter((_, i) => idx.includes(i)) };
+        const indices = this.getSelectedIndices(layerId);
+        if (indices.length === 0) return null;
+        return { type: 'FeatureCollection', features: geojson.features.filter((_, i) => indices.includes(i)) };
     }
-    getSelectionCount(layerId)  { return this._selections.get(layerId)?.size || 0; }
-    getTotalSelectionCount()    { let t = 0; for (const s of this._selections.values()) t += s.size; return t; }
+    getSelectionCount(layerId) { return this._selections.get(layerId)?.size || 0; }
+    getTotalSelectionCount() { let t = 0; for (const s of this._selections.values()) t += s.size; return t; }
 
     clearSelection(layerId = null) {
-        if (layerId) { this._selections.delete(layerId); this._renderSelectionHighlights(layerId); }
-        else { const ids = [...this._selections.keys()]; this._selections.clear(); ids.forEach(id => this._renderSelectionHighlights(id)); }
+        if (layerId) {
+            this._selections.delete(layerId);
+            const selSrcId = `selection-${layerId}`;
+            for (const l of [`${selSrcId}-fill`, `${selSrcId}-line`, `${selSrcId}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
+            if (this.map?.getSource(selSrcId)) this.map.removeSource(selSrcId);
+        } else {
+            for (const lid of this._selections.keys()) {
+                const ss = `selection-${lid}`;
+                for (const l of [`${ss}-fill`, `${ss}-line`, `${ss}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
+                if (this.map?.getSource(ss)) this.map.removeSource(ss);
+            }
+            this._selections.clear();
+        }
         bus.emit('selection:changed', { layerId, totalCount: this.getTotalSelectionCount() });
     }
 
@@ -1222,139 +1374,169 @@ class MapManager {
         this._renderSelectionHighlights(layerId);
         bus.emit('selection:changed', { layerId, count: indices.length, totalCount: this.getTotalSelectionCount() });
     }
-
-    selectAll(layerId, geojson)     { this.selectFeatures(layerId, geojson.features.map((_, i) => i)); }
+    selectAll(layerId, geojson) { this.selectFeatures(layerId, geojson.features.map((_, i) => i)); }
     invertSelection(layerId, geojson) {
-        const cur = this._selections.get(layerId) || new Set();
-        this.selectFeatures(layerId, geojson.features.map((_, i) => i).filter(i => !cur.has(i)));
+        const current = this._selections.get(layerId) || new Set();
+        this.selectFeatures(layerId, geojson.features.map((_, i) => i).filter(i => !current.has(i)));
     }
-
-    /* =========================================================
-       DESTROY
-       ========================================================= */
 
     destroy() {
         this._cancelInteraction();
         this.clearSelection();
         if (this._selectionMode) this.exitSelectionMode();
         if (this.map) { this.map.remove(); this.map = null; }
-        this.dataLayers.clear(); this._layerData.clear();
+        this.dataLayers.clear();
     }
 
-    /* =========================================================
-       COORDINATE SEARCH
-       ========================================================= */
-
+    // ============================
+    // Coordinate Search Control
+    // ============================
     _initCoordSearch() {
-        class SearchControl {
-            onAdd(map) {
-                this._map = map;
-                this._container = document.createElement('div');
-                this._container.className = 'mapboxgl-ctrl coord-search-control';
-                const btn = document.createElement('a');
-                btn.href = '#'; btn.title = 'Search Coordinates'; btn.className = 'coord-search-toggle';
-                btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+        this._searchMarker = null;
+        this._searchLatLng = null;
 
-                const panel = document.createElement('div');
-                panel.className = 'coord-search-panel'; panel.style.display = 'none';
-                const input = document.createElement('input');
-                input.className = 'coord-search-input'; input.type = 'text'; input.placeholder = 'Enter coordinates…'; input.autocomplete = 'off';
-                const goBtn = document.createElement('button');
-                goBtn.className = 'coord-search-go'; goBtn.innerHTML = '→'; goBtn.title = 'Search';
-                const clearBtn = document.createElement('button');
-                clearBtn.className = 'coord-search-clear'; clearBtn.innerHTML = '✕'; clearBtn.title = 'Clear & close'; clearBtn.style.display = 'none';
+        const container = document.createElement('div');
+        container.className = 'maplibregl-ctrl maplibregl-ctrl-group coord-search-control';
 
-                panel.appendChild(input); panel.appendChild(goBtn); panel.appendChild(clearBtn);
-                this._container.appendChild(btn); this._container.appendChild(panel);
-                this._panel = panel; this._input = input; this._clearBtn = clearBtn; this._btn = btn; this._goBtn = goBtn;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.title = 'Search Coordinates';
+        btn.className = 'coord-search-toggle';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
 
-                btn.onclick = e => { e.preventDefault(); const open = panel.style.display !== 'none'; panel.style.display = open ? 'none' : 'flex'; if (!open) setTimeout(() => input.focus(), 50); };
-                return this._container;
+        const panel = document.createElement('div');
+        panel.className = 'coord-search-panel';
+        panel.style.display = 'none';
+
+        const input = document.createElement('input');
+        input.type = 'text'; input.className = 'coord-search-input';
+        input.placeholder = 'Enter coordinates…'; input.autocomplete = 'off';
+
+        const goBtn = document.createElement('button');
+        goBtn.className = 'coord-search-go'; goBtn.innerHTML = '→'; goBtn.title = 'Search';
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'coord-search-clear'; clearBtn.innerHTML = '✕'; clearBtn.title = 'Clear & close'; clearBtn.style.display = 'none';
+
+        panel.append(input, goBtn, clearBtn);
+        container.append(btn, panel);
+
+        container.addEventListener('click', (e) => e.stopPropagation());
+        container.addEventListener('dblclick', (e) => e.stopPropagation());
+
+        btn.onclick = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const open = panel.style.display !== 'none';
+            panel.style.display = open ? 'none' : 'flex';
+            if (!open) setTimeout(() => input.focus(), 50);
+        };
+
+        const doSearch = () => {
+            const val = input.value.trim();
+            if (!val) return;
+            const result = this._parseCoordinates(val);
+            if (result) {
+                this._placeSearchMarker(result.lat, result.lng, val, result.format);
+                clearBtn.style.display = ''; input.blur();
+            } else {
+                input.style.outline = '2px solid #e74c3c';
+                setTimeout(() => input.style.outline = '', 1200);
             }
-            onRemove() { this._container.parentNode?.removeChild(this._container); }
-        }
+        };
 
-        const ctrl = new SearchControl();
+        goBtn.onclick = doSearch;
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') doSearch();
+            if (e.key === 'Escape') panel.style.display = 'none';
+        };
+        clearBtn.onclick = () => {
+            this._clearSearchMarker();
+            input.value = ''; clearBtn.style.display = 'none'; panel.style.display = 'none';
+        };
+
+        const ctrl = { onAdd: () => container, onRemove: () => container.remove() };
         this.map.addControl(ctrl, 'top-left');
-
-        setTimeout(() => {
-            const { _input: input, _clearBtn: clearBtn, _goBtn: goBtn, _panel: panel } = ctrl;
-            const doSearch = () => {
-                const val = input.value.trim();
-                if (!val) return;
-                const r = this._parseCoordinates(val);
-                if (r) { this._placeSearchMarker(r.lat, r.lng, val, r.format); clearBtn.style.display = ''; input.blur(); }
-                else { input.style.outline = '2px solid #e74c3c'; setTimeout(() => input.style.outline = '', 1200); }
-            };
-            goBtn.onclick = doSearch;
-            input.onkeydown = e => { if (e.key === 'Enter') doSearch(); if (e.key === 'Escape') panel.style.display = 'none'; };
-            clearBtn.onclick = () => { this._clearSearchMarker(); input.value = ''; clearBtn.style.display = 'none'; panel.style.display = 'none'; };
-        }, 0);
     }
 
     _parseCoordinates(input) {
         const s = input.trim();
-
-        /* Decimal Degrees */
-        const dd = s.match(/^([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)$/);
-        if (dd) {
-            const a = parseFloat(dd[1]), b = parseFloat(dd[2]);
+        const ddMatch = s.match(/^([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)$/);
+        if (ddMatch) {
+            const a = parseFloat(ddMatch[1]), b = parseFloat(ddMatch[2]);
             if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lng: b, format: 'DD' };
             if (Math.abs(b) <= 90 && Math.abs(a) <= 180) return { lat: b, lng: a, format: 'DD' };
         }
-
-        /* DMS with symbols */
-        const dmsRx = /(\d+)[°]\s*(\d+)[′']\s*(\d+\.?\d*)[″"]\s*([NSEW])/gi;
-        const dms = [...s.matchAll(dmsRx)];
-        if (dms.length >= 2) {
-            const p = m => { let d = parseInt(m[1]) + parseInt(m[2]) / 60 + parseFloat(m[3]) / 3600; if ('SW'.includes(m[4].toUpperCase())) d = -d; return d; };
-            const v1 = p(dms[0]), v2 = p(dms[1]), d1 = dms[0][4].toUpperCase();
-            const lat = 'NS'.includes(d1) ? v1 : v2, lng = 'EW'.includes(d1) ? v1 : v2;
+        const dmsRegex = /(\d+)[°]\s*(\d+)[′']\s*(\d+\.?\d*)[″"]\s*([NSEW])/gi;
+        const dmsMatches = [...s.matchAll(dmsRegex)];
+        if (dmsMatches.length >= 2) {
+            const parse = (m) => { let dd = parseInt(m[1]) + parseInt(m[2]) / 60 + parseFloat(m[3]) / 3600; if (m[4].toUpperCase() === 'S' || m[4].toUpperCase() === 'W') dd = -dd; return dd; };
+            const v1 = parse(dmsMatches[0]), v2 = parse(dmsMatches[1]);
+            const d1 = dmsMatches[0][4].toUpperCase();
+            const lat = (d1 === 'N' || d1 === 'S') ? v1 : v2;
+            const lng = (d1 === 'E' || d1 === 'W') ? v1 : v2;
             if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, format: 'DMS' };
         }
-
-        /* DMS plain */
-        const dp = s.match(/(-?\d+)\s+(\d+)\s+(\d+\.?\d*)\s*([NSEW])[,\s]+(-?\d+)\s+(\d+)\s+(\d+\.?\d*)\s*([NSEW])/i);
-        if (dp) {
-            let lat = parseInt(dp[1]) + parseInt(dp[2]) / 60 + parseFloat(dp[3]) / 3600; if (dp[4].toUpperCase() === 'S') lat = -lat;
-            let lng = parseInt(dp[5]) + parseInt(dp[6]) / 60 + parseFloat(dp[7]) / 3600; if (dp[8].toUpperCase() === 'W') lng = -lng;
+        const dmsPlain = /(-?\d+)\s+(\d+)\s+(\d+\.?\d*)\s*([NSEW])[,\s]+(-?\d+)\s+(\d+)\s+(\d+\.?\d*)\s*([NSEW])/i;
+        const dpMatch = s.match(dmsPlain);
+        if (dpMatch) {
+            let lat = parseInt(dpMatch[1]) + parseInt(dpMatch[2]) / 60 + parseFloat(dpMatch[3]) / 3600;
+            if (dpMatch[4].toUpperCase() === 'S') lat = -lat;
+            let lng = parseInt(dpMatch[5]) + parseInt(dpMatch[6]) / 60 + parseFloat(dpMatch[7]) / 3600;
+            if (dpMatch[8].toUpperCase() === 'W') lng = -lng;
             if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, format: 'DMS' };
         }
-
-        /* DDM */
-        const ddmRx = /(\d+)[°]\s*(\d+\.?\d*)[′']\s*([NSEW])/gi;
-        const ddm = [...s.matchAll(ddmRx)];
-        if (ddm.length >= 2) {
-            const p = m => { let d = parseInt(m[1]) + parseFloat(m[2]) / 60; if ('SW'.includes(m[3].toUpperCase())) d = -d; return d; };
-            const v1 = p(ddm[0]), v2 = p(ddm[1]), d1 = ddm[0][3].toUpperCase();
-            const lat = 'NS'.includes(d1) ? v1 : v2, lng = 'EW'.includes(d1) ? v1 : v2;
+        const ddmRegex = /(\d+)[°]\s*(\d+\.?\d*)[′']\s*([NSEW])/gi;
+        const ddmMatches = [...s.matchAll(ddmRegex)];
+        if (ddmMatches.length >= 2) {
+            const parse = (m) => { let dd = parseInt(m[1]) + parseFloat(m[2]) / 60; if (m[3].toUpperCase() === 'S' || m[3].toUpperCase() === 'W') dd = -dd; return dd; };
+            const v1 = parse(ddmMatches[0]), v2 = parse(ddmMatches[1]);
+            const d1 = ddmMatches[0][3].toUpperCase();
+            const lat = (d1 === 'N' || d1 === 'S') ? v1 : v2;
+            const lng = (d1 === 'E' || d1 === 'W') ? v1 : v2;
             if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, format: 'DDM' };
         }
-
-        /* Google Maps URL */
-        const gm = s.match(/@([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/);
-        if (gm) { const lat = parseFloat(gm[1]), lng = parseFloat(gm[2]); if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, format: 'URL' }; }
-
+        const gUrlMatch = s.match(/@([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/);
+        if (gUrlMatch) {
+            const lat = parseFloat(gUrlMatch[1]), lng = parseFloat(gUrlMatch[2]);
+            if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, format: 'URL' };
+        }
         return null;
     }
 
     _placeSearchMarker(lat, lng, inputText, format) {
         this._clearSearchMarker();
         this._searchLatLng = { lat, lng, inputText, format };
+
         const el = document.createElement('div');
         el.className = 'coord-search-marker';
-        el.innerHTML = `<div class="coord-pin"><svg viewBox="0 0 24 36" width="28" height="42"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#e74c3c" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4.5" fill="#fff"/></svg></div>`;
-        this._searchMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(this.map);
-        const popup = new mapboxgl.Popup({ maxWidth: '280px', className: 'coord-search-popup' }).setHTML(this._buildSearchPopup(lat, lng, format));
-        this._searchMarker.setPopup(popup).togglePopup();
+        el.innerHTML = `<svg viewBox="0 0 24 36" width="28" height="42"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#e74c3c" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4.5" fill="#fff"/></svg>`;
+
+        this._searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(this.map);
+
+        const popup = new maplibregl.Popup({ maxWidth: '280px' }).setHTML(this._buildSearchPopup(lat, lng, format));
+        this._searchMarker.setPopup(popup);
+        popup.addTo(this.map);
         this.map.flyTo({ center: [lng, lat], zoom: Math.max(this.map.getZoom(), 14) });
     }
 
     _buildSearchPopup(lat, lng, format) {
-        return `<div class="coord-popup-content"><div style="font-weight:600;margin-bottom:4px;">📍 ${format} Coordinate</div><div style="font-size:12px;color:#666;margin-bottom:8px;font-family:monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div><div style="display:flex;flex-direction:column;gap:4px;"><button class="coord-popup-btn coord-add-new" onclick="window.app._coordSearchAddNew()">＋ Add as New Layer</button><button class="coord-popup-btn coord-add-existing" onclick="window.app._coordSearchAddToExisting()">↳ Add to Existing Layer</button><button class="coord-popup-btn coord-dismiss" onclick="window.app._coordSearchClear()">✕ Dismiss</button></div></div>`;
+        return `
+            <div class="coord-popup-content">
+                <div style="font-weight:600;margin-bottom:4px;">📍 ${format} Coordinate</div>
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-family:monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                    <button class="coord-popup-btn coord-add-new" onclick="window.app._coordSearchAddNew()">＋ Add as New Layer</button>
+                    <button class="coord-popup-btn coord-add-existing" onclick="window.app._coordSearchAddToExisting()">↳ Add to Existing Layer</button>
+                    <button class="coord-popup-btn coord-dismiss" onclick="window.app._coordSearchClear()">✕ Dismiss</button>
+                </div>
+            </div>`;
     }
 
-    _clearSearchMarker() { if (this._searchMarker) { this._searchMarker.remove(); this._searchMarker = null; } this._searchLatLng = null; }
+    _clearSearchMarker() {
+        if (this._searchMarker) { this._searchMarker.remove(); this._searchMarker = null; }
+        this._searchLatLng = null;
+    }
+
     getSearchLatLng() { return this._searchLatLng; }
 }
 

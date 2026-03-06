@@ -634,8 +634,6 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
         return new Promise((resolve) => {
             const points = [];
-            let polyline = null;
-            let previewPoly = null;
             let clickTimer = null;
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
@@ -645,27 +643,31 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 () => { cleanup(); resolve(); }
             );
 
-            const _srcLine = '_sa-draw-line';
-            const _srcFill = '_sa-draw-fill';
+            let previewSrcId = null;
+            let previewLayerIds = [];
+
             const drawPreview = () => {
-                // Remove old preview layers/sources
-                try { if (map.getLayer(_srcLine + '-l')) map.removeLayer(_srcLine + '-l'); } catch {}
-                try { if (map.getLayer(_srcFill + '-l')) map.removeLayer(_srcFill + '-l'); } catch {}
-                try { if (map.getSource(_srcLine)) map.removeSource(_srcLine); } catch {}
-                try { if (map.getSource(_srcFill)) map.removeSource(_srcFill); } catch {}
-                polyline = null; previewPoly = null;
-                if (points.length >= 2) {
-                    const coords = points.map(p => [p[1], p[0]]);
-                    map.addSource(_srcLine, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
-                    map.addLayer({ id: _srcLine + '-l', type: 'line', source: _srcLine, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                    polyline = true;
-                }
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
+
+                if (points.length < 2) return;
+
+                previewSrcId = `sa-poly-preview-${Date.now()}`;
+                const coords = points.map(p => [p[1], p[0]]);
                 if (points.length >= 3) {
-                    const coords = points.map(p => [p[1], p[0]]);
-                    coords.push(coords[0]);
-                    map.addSource(_srcFill, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } } });
-                    map.addLayer({ id: _srcFill + '-l', type: 'fill', source: _srcFill, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
-                    previewPoly = true;
+                    const closed = [...coords, coords[0]];
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] } } });
+                    const fillId = previewSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: previewSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [fillId, lineId];
+                } else {
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [lineId];
                 }
             };
 
@@ -681,8 +683,7 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
             const onDblClick = (e) => {
                 if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                e.originalEvent?.stopPropagation?.();
-                e.originalEvent?.preventDefault?.();
+                if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent.preventDefault(); }
                 // Add the double-click point
                 points.push([e.lngLat.lat, e.lngLat.lng]);
                 finish();
@@ -714,11 +715,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('dblclick', onDblClick);
                 document.removeEventListener('keydown', onKeydown);
-                try { if (map.getLayer(_srcLine + '-l')) map.removeLayer(_srcLine + '-l'); } catch {}
-                try { if (map.getLayer(_srcFill + '-l')) map.removeLayer(_srcFill + '-l'); } catch {}
-                try { if (map.getSource(_srcLine)) map.removeSource(_srcLine); } catch {}
-                try { if (map.getSource(_srcFill)) map.removeSource(_srcFill); } catch {}
-                polyline = null; previewPoly = null;
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
                 if (banner) banner.remove?.();
                 if (hadDblClickZoom) map.doubleClickZoom.enable();
             };
@@ -737,9 +736,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         if (!map) return;
 
         return new Promise((resolve) => {
-            let center = null;
-            let circle = null;
-            const _srcCircle = '_sa-circle-src';
+            let centerLngLat = null;
+            let circleSrcId = null;
+            let circleLayerIds = [];
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
 
@@ -749,43 +748,44 @@ export class SpatialAnalyzerWidget extends WidgetBase {
             );
 
             const onClick = (e) => {
-                if (!center) {
+                if (!centerLngLat) {
                     // First click = center
-                    center = e.lngLat;
+                    centerLngLat = e.lngLat;
                     if (banner) {
                         const txt = banner.querySelector?.('span') || banner;
                         if (txt.textContent !== undefined) txt.textContent = 'Move mouse to set radius, click to confirm.';
                     }
                 } else {
                     // Second click = set radius and finish
-                    const radiusM = turf.distance(
-                        turf.point([center.lng, center.lat]),
-                        turf.point([e.lngLat.lng, e.lngLat.lat]),
-                        { units: 'meters' }
-                    );
-                    finish(center, radiusM);
+                    const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                    const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                    const radiusM = turf.distance(from, to, { units: 'meters' });
+                    finish(centerLngLat, radiusM);
                 }
             };
 
-            const _updateCirclePreview = (radiusM) => {
-                const poly = turf.circle([center.lng, center.lat], radiusM / 1000, { units: 'kilometers', steps: 64 });
-                try { if (map.getLayer(_srcCircle + '-fill')) map.removeLayer(_srcCircle + '-fill'); } catch {}
-                try { if (map.getLayer(_srcCircle + '-line')) map.removeLayer(_srcCircle + '-line'); } catch {}
-                try { if (map.getSource(_srcCircle)) map.removeSource(_srcCircle); } catch {}
-                map.addSource(_srcCircle, { type: 'geojson', data: poly });
-                map.addLayer({ id: _srcCircle + '-fill', type: 'fill', source: _srcCircle, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
-                map.addLayer({ id: _srcCircle + '-line', type: 'line', source: _srcCircle, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                circle = true;
+            const onMouseMove = (e) => {
+                if (!centerLngLat) return;
+                const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                const radiusM = turf.distance(from, to, { units: 'meters' });
+                updateCirclePreview(radiusM);
             };
 
-            const onMouseMove = (e) => {
-                if (!center) return;
-                const radiusM = turf.distance(
-                    turf.point([center.lng, center.lat]),
-                    turf.point([e.lngLat.lng, e.lngLat.lat]),
-                    { units: 'meters' }
-                );
-                _updateCirclePreview(radiusM);
+            const updateCirclePreview = (radiusM) => {
+                let circlePoly;
+                try { circlePoly = turf.circle([centerLngLat.lng, centerLngLat.lat], radiusM / 1000, { units: 'kilometers', steps: 64 }); } catch { return; }
+                if (circleSrcId && map.getSource(circleSrcId)) {
+                    map.getSource(circleSrcId).setData(circlePoly);
+                } else {
+                    circleSrcId = `sa-circle-preview-${Date.now()}`;
+                    map.addSource(circleSrcId, { type: 'geojson', data: circlePoly });
+                    const fillId = circleSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: circleSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+                    const lineId = circleSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: circleSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    circleLayerIds = [fillId, lineId];
+                }
             };
 
             const onKeydown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(); } };
@@ -816,10 +816,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('mousemove', onMouseMove);
                 document.removeEventListener('keydown', onKeydown);
-                try { if (map.getLayer(_srcCircle + '-fill')) map.removeLayer(_srcCircle + '-fill'); } catch {}
-                try { if (map.getLayer(_srcCircle + '-line')) map.removeLayer(_srcCircle + '-line'); } catch {}
-                try { if (map.getSource(_srcCircle)) map.removeSource(_srcCircle); } catch {}
-                circle = null;
+                for (const lid of circleLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (circleSrcId && map.getSource(circleSrcId)) map.removeSource(circleSrcId);
+                circleLayerIds = []; circleSrcId = null;
                 if (banner) banner.remove?.();
             };
 
@@ -1166,12 +1165,15 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         this._clearPreview();
         if (!this._analysisArea || !this.mapManager?.map) return;
         const map = this.mapManager.map;
-        const srcId = '_sa-area-preview';
         try {
+            const srcId = `sa-area-preview-${Date.now()}`;
             map.addSource(srcId, { type: 'geojson', data: this._analysisArea });
-            map.addLayer({ id: srcId + '-fill', type: 'fill', source: srcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
-            map.addLayer({ id: srcId + '-line', type: 'line', source: srcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-            this._previewLayer = srcId;
+            const fillId = srcId + '-fill';
+            map.addLayer({ id: fillId, type: 'fill', source: srcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+            const lineId = srcId + '-line';
+            map.addLayer({ id: lineId, type: 'line', source: srcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+            this._previewSrcId = srcId;
+            this._previewLayerIds = [fillId, lineId];
         } catch {}
     }
 
@@ -1179,51 +1181,48 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         this._clearPreview();
         if (!features.length || !this.mapManager?.map) return;
         const map = this.mapManager.map;
-        const srcArea = '_sa-hl-area';
-        const srcResults = '_sa-hl-results';
         try {
-            this._previewLayer = [srcArea, srcResults];
-            this._previewMarkers = [];
+            const ids = [];
+            // Area outline
             if (this._analysisArea) {
-                map.addSource(srcArea, { type: 'geojson', data: this._analysisArea });
-                map.addLayer({ id: srcArea + '-fill', type: 'fill', source: srcArea, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
-                map.addLayer({ id: srcArea + '-line', type: 'line', source: srcArea, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                const areaSrc = `sa-area-hl-${Date.now()}`;
+                map.addSource(areaSrc, { type: 'geojson', data: this._analysisArea });
+                const aFillId = areaSrc + '-fill';
+                map.addLayer({ id: aFillId, type: 'fill', source: areaSrc, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                const aLineId = areaSrc + '-line';
+                map.addLayer({ id: aLineId, type: 'line', source: areaSrc, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                ids.push(aFillId, aLineId);
+                this._previewExtraSrcIds = [areaSrc];
             }
-            // Separate point features from polygon/line features
-            const pointFeats = features.filter(f => f.geometry && (f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint'));
-            const nonPointFeats = features.filter(f => f.geometry && f.geometry.type !== 'Point' && f.geometry.type !== 'MultiPoint');
-            if (nonPointFeats.length) {
-                map.addSource(srcResults, { type: 'geojson', data: { type: 'FeatureCollection', features: nonPointFeats } });
-                map.addLayer({ id: srcResults + '-fill', type: 'fill', source: srcResults, paint: { 'fill-color': '#30d158', 'fill-opacity': 0.25 } });
-                map.addLayer({ id: srcResults + '-line', type: 'line', source: srcResults, paint: { 'line-color': '#30d158', 'line-width': 3 } });
-            }
-            // Points as HTML markers
-            for (const f of pointFeats) {
-                const coords = f.geometry.type === 'Point' ? f.geometry.coordinates : f.geometry.coordinates[0];
-                const el = document.createElement('div');
-                el.style.cssText = 'width:12px;height:12px;border-radius:50%;background:#30d158;border:2px solid #30d158;opacity:0.7;';
-                const m = new mapboxgl.Marker({ element: el }).setLngLat(coords).addTo(map);
-                this._previewMarkers.push(m);
-            }
+            // Result features
+            const resSrc = `sa-results-hl-${Date.now()}`;
+            map.addSource(resSrc, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+            const rFillId = resSrc + '-fill';
+            map.addLayer({ id: rFillId, type: 'fill', source: resSrc, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#30d158', 'fill-opacity': 0.25 } });
+            const rLineId = resSrc + '-line';
+            map.addLayer({ id: rLineId, type: 'line', source: resSrc, paint: { 'line-color': '#30d158', 'line-width': 3 } });
+            const rCircleId = resSrc + '-circle';
+            map.addLayer({ id: rCircleId, type: 'circle', source: resSrc, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#30d158', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.8 } });
+            ids.push(rFillId, rLineId, rCircleId);
+            this._previewSrcId = resSrc;
+            this._previewLayerIds = ids;
         } catch {}
     }
 
     _clearPreview() {
         const map = this.mapManager?.map;
-        if (map && this._previewLayer) {
-            const ids = Array.isArray(this._previewLayer) ? this._previewLayer : [this._previewLayer];
-            for (const srcId of ids) {
-                for (const suffix of ['-fill', '-line', '-l']) {
-                    try { if (map.getLayer(srcId + suffix)) map.removeLayer(srcId + suffix); } catch {}
-                }
-                try { if (map.getSource(srcId)) map.removeSource(srcId); } catch {}
-            }
+        if (this._previewLayerIds) {
+            for (const lid of this._previewLayerIds) { if (map?.getLayer(lid)) map.removeLayer(lid); }
+            this._previewLayerIds = null;
         }
-        if (this._previewMarkers) {
-            for (const m of this._previewMarkers) try { m.remove(); } catch {}
+        if (this._previewSrcId) {
+            if (map?.getSource(this._previewSrcId)) map.removeSource(this._previewSrcId);
+            this._previewSrcId = null;
         }
-        this._previewLayer = null;
-        this._previewMarkers = null;
+        if (this._previewExtraSrcIds) {
+            for (const sid of this._previewExtraSrcIds) { if (map?.getSource(sid)) map.removeSource(sid); }
+            this._previewExtraSrcIds = null;
+        }
     }
 
     /* ================================================================

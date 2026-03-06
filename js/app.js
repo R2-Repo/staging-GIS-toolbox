@@ -6,10 +6,10 @@ import logger from './core/logger.js';
 import bus from './core/event-bus.js';
 import { handleError } from './core/error-handler.js';
 import {
-    getState, getLayers, getActiveLayer, addLayer, removeLayer,
+    getState, getLayers, getActiveLayer, addLayer, removeLayer, updateLayer,
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from './core/state.js';
-import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from './core/data-model.js';
+import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from './core/data-model.js';
 import { importFile, importFiles } from './import/importer.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, setExportMapManager } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
@@ -29,6 +29,7 @@ import sessionStore from './core/session-store.js';
 import { SpatialAnalyzerWidget } from './widgets/spatial-analyzer.js';
 import { BulkUpdateWidget } from './widgets/bulk-update.js';
 import { ProximityJoinWidget } from './widgets/proximity-join.js';
+import { WorkflowOverlay } from './workflow/workflow-overlay.js';
 
 // ============================
 // Initialize app
@@ -41,7 +42,7 @@ function boot() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     // Ensure map recalculates size after layout settles
-    setTimeout(() => { mapManager.map?.invalidateSize(); }, 100);
+    setTimeout(() => { mapManager.resize(); }, 100);
 
     // Popup navigation for multi-feature cycling
     window._mapPopupNav = (dir) => {
@@ -219,6 +220,8 @@ function setupDragDrop() {
     document.addEventListener('dragover', e => { e.preventDefault(); });
     document.addEventListener('dragenter', e => {
         e.preventDefault();
+        // Suppress overlay when workflow editor is open
+        if (document.querySelector('.wf-overlay.visible')) return;
         dragCounter++;
         overlay.classList.add('visible');
     });
@@ -234,6 +237,9 @@ function setupDragDrop() {
         e.preventDefault();
         dragCounter = 0;
         overlay.classList.remove('visible');
+
+        // Don't handle file drops when workflow editor is open
+        if (document.querySelector('.wf-overlay.visible')) return;
 
         const files = Array.from(e.dataTransfer?.files || []);
         if (files.length === 0) return;
@@ -364,6 +370,53 @@ function setupEventListeners() {
     // Import Fence
     document.getElementById('btn-fence')?.addEventListener('click', startImportFence);
 
+    // Workflow editor
+    const workflowOverlay = new WorkflowOverlay({
+        getLayers: () => getLayers(),
+        importFile: (file) => importFile(file),
+        addToMap: (data, name, opts = {}) => {
+            if (data.type !== 'spatial') {
+                // Tables: just add to state, no map layer
+                const dataset = createTableDataset(name, data.rows, null, { format: 'workflow' });
+                addLayer(dataset);
+                refreshUI();
+                showToast(`Table "${name}" added from workflow`, 'success');
+                return dataset.id;
+            }
+            // Check if a workflow layer with this name already exists → update in place
+            const existing = getLayers().find(l => l.name === name && l.source?.format === 'workflow');
+            if (existing) {
+                updateLayer(existing.id, { geojson: data.geojson });
+                mapManager.removeLayer(existing.id);
+                mapManager.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
+                refreshUI();
+                showToast(`Layer "${name}" updated`, 'success');
+                return existing.id;
+            }
+            // New layer
+            const dataset = createSpatialDataset(name, data.geojson, { format: 'workflow' });
+            addLayer(dataset);
+            mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
+            refreshUI();
+            if (!opts.workflow) showToast(`Layer "${name}" added from workflow`, 'success');
+            return dataset.id;
+        },
+        updateMapLayer: (layerId, data) => {
+            const layer = getLayers().find(l => l.id === layerId);
+            if (!layer) return;
+            updateLayer(layerId, { geojson: data.geojson });
+            mapManager.removeLayer(layerId);
+            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
+        },
+        removeFromMap: (layerId) => {
+            mapManager.removeLayer(layerId);
+            removeLayer(layerId);
+            refreshUI();
+        }
+    });
+    document.getElementById('btn-workflow')?.addEventListener('click', () => workflowOverlay.toggle());
+
     // ArcGIS REST Import
     document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
     document.getElementById('btn-arcgis-mobile')?.addEventListener('click', openArcGISImporter);
@@ -464,13 +517,13 @@ function setupEventListeners() {
         const isCollapsed = panel?.classList.contains('collapsed');
         document.getElementById('expand-left-panel')?.classList.toggle('hidden', !isCollapsed);
         document.getElementById('toggle-left-panel').textContent = isCollapsed ? '▶' : '◀';
-        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+        setTimeout(() => { mapManager.resize(); }, 250);
     });
     document.getElementById('expand-left-panel')?.addEventListener('click', () => {
         document.querySelector('.panel-left')?.classList.remove('collapsed');
         document.getElementById('expand-left-panel')?.classList.add('hidden');
         document.getElementById('toggle-left-panel').textContent = '◀';
-        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+        setTimeout(() => { mapManager.resize(); }, 250);
     });
     document.getElementById('toggle-right-panel')?.addEventListener('click', () => {
         const panel = document.querySelector('.panel-right');
@@ -478,13 +531,13 @@ function setupEventListeners() {
         const isCollapsed = panel?.classList.contains('collapsed');
         document.getElementById('expand-right-panel')?.classList.toggle('hidden', !isCollapsed);
         document.getElementById('toggle-right-panel').textContent = isCollapsed ? '◀' : '▶';
-        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+        setTimeout(() => { mapManager.resize(); }, 250);
     });
     document.getElementById('expand-right-panel')?.addEventListener('click', () => {
         document.querySelector('.panel-right')?.classList.remove('collapsed');
         document.getElementById('expand-right-panel')?.classList.add('hidden');
         document.getElementById('toggle-right-panel').textContent = '▶';
-        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+        setTimeout(() => { mapManager.resize(); }, 250);
     });
 
     // Listen for layer changes to update UI
@@ -502,46 +555,25 @@ function setupEventListeners() {
     // Right-click context menu
     bus.on('map:contextmenu', showMapContextMenu);
 
-    // Basemap custom dropdown
-    const bmDropBtn  = document.getElementById('basemap-dropdown-btn');
-    const bmDropMenu = document.getElementById('basemap-dropdown-menu');
+    // Basemap toggle
+    document.getElementById('basemap-toggle')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.header-toggle-option');
+        if (!btn || btn.classList.contains('active')) return;
+        const val = btn.dataset.value;
+        mapManager.setBasemap(val);
+        document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
 
-    if (bmDropBtn && bmDropMenu) {
-        // Toggle dropdown open/close
-        bmDropBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            bmDropMenu.classList.toggle('hidden');
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', () => bmDropMenu.classList.add('hidden'));
-        bmDropMenu.addEventListener('click', (e) => e.stopPropagation());
-
-        // Basemap option buttons
-        bmDropMenu.querySelectorAll('.basemap-option').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const key = btn.dataset.basemap;
-                mapManager.setBasemap(key);
-                // Update active state
-                bmDropMenu.querySelectorAll('.basemap-option').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                // Update button label
-                bmDropBtn.textContent = `🗺️ ${btn.textContent} ▾`;
-            });
-        });
-
-        // 3D toggle checkbox
-        const check3D = document.getElementById('basemap-3d-check');
-        if (check3D) {
-            check3D.addEventListener('change', () => {
-                mapManager.toggle3D(check3D.checked);
-            });
-            // Keep checkbox in sync if 3D is toggled elsewhere
-            bus.on('map:3dToggled', (is3D) => {
-                check3D.checked = is3D;
-            });
-        }
-    }
+    // 2D/3D toggle
+    document.getElementById('dimension-toggle')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.header-toggle-option');
+        if (!btn || btn.classList.contains('active')) return;
+        const val = btn.dataset.value;
+        if (val === '3d') mapManager.enable3D(); else mapManager.disable3D();
+        document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
 
     // AGOL compat toggle
     document.getElementById('agol-toggle')?.addEventListener('change', () => {
@@ -1003,6 +1035,11 @@ function renderDataPrepTools() {
                 </div>
                 <div id="selection-bar" class="selection-bar hidden"></div>
 
+                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Coordinates</div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openCoordConverter()">🌐 Coord Convert</button><span class="geo-tip">Convert coordinates between formats: Decimal Degrees, DMS, Degrees Decimal Minutes, and UTM.</span></span>
+                </div>
+
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Measurement</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDistanceTool()">📏 Distance</button><span class="geo-tip">Measure the straight-line distance between any two points you click on the map.</span></span>
@@ -1205,6 +1242,7 @@ function mobileShowToolsModal() {
         { label: '🔗 Combine', action: 'openCombine' },
         { label: '⚠ Kinks', action: 'openKinks' },
         { label: '📊 NN Analysis', action: 'openNearestNeighborAnalysis' },
+        { label: '🌐 Coord Convert', action: 'openCoordConverter' },
     ];
     const html = `
     <div style="margin-bottom:10px;">
@@ -1324,7 +1362,10 @@ function mobileShowLayersModal() {
                         refreshModal();
                         break;
                     case 'zoom': {
-                        mapManager.zoomToLayer(id);
+                        const mapLayer = mapManager.dataLayers.get(id);
+                        if (mapLayer && mapLayer.geojson) {
+                            try { const bb = turf.bbox(mapLayer.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
+                        }
                         close(null);
                         break;
                     }
@@ -1458,26 +1499,19 @@ function mobileShowDataToolsModal() {
 
 function mobileShowBasemapModal() {
     const basemapOptions = [
-        { value: 'standard', label: 'Mapbox Default' },
-        { value: 'imagery',  label: 'Mapbox Imagery' }
+        { value: 'voyager', label: 'Map' },
+        { value: 'satellite', label: 'Satellite' }
     ];
-    const currentBasemap = mapManager.currentBasemap || 'standard';
-    const is3D = mapManager._is3D;
+    const currentBasemap = mapManager.currentBasemap || 'voyager';
     const html = `
         <div style="display:flex;flex-direction:column;gap:6px;">
             ${basemapOptions.map(o => `
                 <button class="btn ${o.value === currentBasemap ? 'btn-primary' : 'btn-secondary'}"
                     style="min-height:48px;justify-content:flex-start;gap:12px;"
                     data-basemap="${o.value}">
-                    🌍 ${o.label}
+                    ${o.value === 'voyager' ? '🗺️' : '🛰️'} ${o.label}
                 </button>
             `).join('')}
-            <div style="height:1px;background:var(--border);margin:6px 0;"></div>
-            <label style="display:flex;align-items:center;justify-content:space-between;padding:12px;font-size:14px;color:var(--text);cursor:pointer;">
-                <span>3D Terrain</span>
-                <input type="checkbox" id="mobile-3d-check" ${is3D ? 'checked' : ''}
-                    style="width:40px;height:22px;accent-color:var(--primary);cursor:pointer;">
-            </label>
         </div>`;
     showModal('Basemap', html, {
         onMount: (overlay, close) => {
@@ -1485,28 +1519,12 @@ function mobileShowBasemapModal() {
                 btn.addEventListener('click', () => {
                     const val = btn.dataset.basemap;
                     mapManager.setBasemap(val);
-                    // Sync desktop dropdown
-                    const bmDropMenu = document.getElementById('basemap-dropdown-menu');
-                    const bmDropBtn  = document.getElementById('basemap-dropdown-btn');
-                    if (bmDropMenu) {
-                        bmDropMenu.querySelectorAll('.basemap-option').forEach(b => b.classList.remove('active'));
-                        const match = bmDropMenu.querySelector(`[data-basemap="${val}"]`);
-                        if (match) match.classList.add('active');
-                    }
-                    if (bmDropBtn) {
-                        const lbl = basemapOptions.find(o => o.value === val)?.label || val;
-                        bmDropBtn.textContent = `🗺️ ${lbl} ▾`;
-                    }
+                    // Sync header toggle
+                    document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === val));
                     close(null);
                     showToast(`Basemap: ${btn.textContent.trim()}`, 'success', { duration: 1500 });
                 });
             });
-            const mob3d = overlay.querySelector('#mobile-3d-check');
-            if (mob3d) {
-                mob3d.addEventListener('change', () => {
-                    mapManager.toggle3D(mob3d.checked);
-                });
-            }
         }
     });
 }
@@ -1722,7 +1740,7 @@ function showMobileContent(tab) {
     if (tab === 'map') {
         // All panels hidden — map is visible underneath
         // Recalculate map size in case container was obscured
-        setTimeout(() => { mapManager.map?.invalidateSize(); }, 50);
+        setTimeout(() => { mapManager.resize(); }, 50);
         return;
     }
     const panel = document.getElementById(`mobile-${tab}`);
@@ -1837,11 +1855,10 @@ function renderMobileToolsPanel() {
     const el = document.getElementById('mobile-tools');
     if (!el) return;
     const basemapOptions = [
-        { value: 'standard', label: 'Mapbox Default' },
-        { value: 'imagery',  label: 'Mapbox Imagery' }
+        { value: 'voyager', label: 'Map' },
+        { value: 'satellite', label: 'Satellite' }
     ];
-    const currentBasemap = mapManager.currentBasemap || 'standard';
-    const is3D = mapManager._is3D;
+    const currentBasemap = mapManager.currentBasemap || 'voyager';
     const layers = getLayers();
     el.innerHTML = `
         <h3>GIS Tools</h3>
@@ -1864,35 +1881,18 @@ function renderMobileToolsPanel() {
             <button class="btn btn-secondary btn-sm" onclick="window.app.openCombine()">🔗 Combine</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openKinks()">⚠ Kinks</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openNearestNeighborAnalysis()">📊 NN Analysis</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openCoordConverter()">🌐 Coord Convert</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openPhotoMapper()">📷 Photo Map</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openArcGISImporter()">🌐 ArcGIS REST</button>
         </div>
         <h3 style="margin-top:10px;">Basemap</h3>
         <select id="basemap-select-mobile" style="width:100%;">
             ${basemapOptions.map(o => `<option value="${o.value}" ${o.value === currentBasemap ? 'selected' : ''}>${o.label}</option>`).join('')}
-        </select>
-        <label style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-top:6px;font-size:13px;color:var(--text);cursor:pointer;">
-            <span>3D Terrain</span>
-            <input type="checkbox" id="mobile-tools-3d-check" ${is3D ? 'checked' : ''}
-                style="width:36px;height:20px;accent-color:var(--primary);cursor:pointer;">
-        </label>`;
+        </select>`;
     el.querySelector('#basemap-select-mobile')?.addEventListener('change', (e) => {
         mapManager.setBasemap(e.target.value);
-        // Sync desktop dropdown
-        const bmDropMenu = document.getElementById('basemap-dropdown-menu');
-        const bmDropBtn  = document.getElementById('basemap-dropdown-btn');
-        if (bmDropMenu) {
-            bmDropMenu.querySelectorAll('.basemap-option').forEach(b => b.classList.remove('active'));
-            const match = bmDropMenu.querySelector(`[data-basemap="${e.target.value}"]`);
-            if (match) match.classList.add('active');
-        }
-        if (bmDropBtn) {
-            const lbl = basemapOptions.find(o => o.value === e.target.value)?.label || e.target.value;
-            bmDropBtn.textContent = `🗺️ ${lbl} ▾`;
-        }
-    });
-    el.querySelector('#mobile-tools-3d-check')?.addEventListener('change', (e) => {
-        mapManager.toggle3D(e.target.checked);
+        // Sync header toggle
+        document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === e.target.value));
     });
 }
 
@@ -3502,6 +3502,102 @@ async function openPointsWithinPolygon() {
 }
 
 // ============================
+// Coordinate Converter
+// ============================
+async function openCoordConverter() {
+    const layer = getActiveLayer();
+    if (!layer) return showToast('No active layer', 'warning');
+
+    const isSpatial = layer.type === 'spatial';
+    const fields = getFieldNames();
+
+    const formats = [
+        { id: 'dd', label: 'Decimal Degrees (DD)' },
+        { id: 'dms', label: 'Degrees Minutes Seconds (DMS)' },
+        { id: 'ddm', label: 'Degrees Decimal Minutes (DDM)' },
+        { id: 'utm', label: 'UTM' }
+    ];
+
+    const fromFmtOpts = formats.filter(f => f.id !== 'utm')
+        .map(f => `<option value="${f.id}">${f.label}</option>`).join('');
+    const toFmtOpts = formats.map(f => `<option value="${f.id}" ${f.id === 'dms' ? 'selected' : ''}>${f.label}</option>`).join('');
+    const fieldOpts = fields.map(f => `<option value="${f}">${f}</option>`).join('');
+
+    // Auto-detect lat/lon fields
+    const latGuess = fields.find(f => /^(lat|latitude|y)$/i.test(f)) || fields[0] || '';
+    const lonGuess = fields.find(f => /^(lon|lng|longitude|long|x)$/i.test(f)) || (fields[1] || '');
+
+    const html = `
+        <div class="form-group"><label>Coordinate Source</label>
+            <select id="cc-source">
+                ${isSpatial ? '<option value="geometry" selected>Feature Geometry (lat/lon from shape)</option>' : ''}
+                <option value="fields" ${!isSpatial ? 'selected' : ''}>Attribute Fields</option>
+            </select>
+        </div>
+        <div id="cc-field-opts" style="${isSpatial ? 'display:none' : ''}">
+            <div class="form-group"><label>Source Format</label>
+                <select id="cc-from">${fromFmtOpts}</select></div>
+            <div class="form-group"><label>Latitude / Y Field</label>
+                <select id="cc-lat">${fieldOpts}</select></div>
+            <div class="form-group"><label>Longitude / X Field</label>
+                <select id="cc-lon">${fieldOpts}</select></div>
+        </div>
+        <div class="form-group"><label>Convert To</label>
+            <select id="cc-to">${toFmtOpts}</select></div>
+        <div class="form-group"><label>Output Field Prefix (optional)</label>
+            <input type="text" id="cc-prefix" placeholder="Auto (e.g. DMS, UTM)"></div>
+        <div class="info-box text-xs">
+            Adds new attribute fields with the converted coordinates.<br>
+            Examples: <code>DMS_lat</code>, <code>DMS_lon</code>, <code>UTM_zone</code>, <code>UTM_easting</code>, <code>UTM_northing</code>
+        </div>`;
+
+    showModal('Coordinate Converter', html, {
+        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Convert</button>',
+        onMount: (overlay, close) => {
+            // Set guessed field values
+            const latSel = overlay.querySelector('#cc-lat');
+            const lonSel = overlay.querySelector('#cc-lon');
+            if (latGuess && latSel) latSel.value = latGuess;
+            if (lonGuess && lonSel) lonSel.value = lonGuess;
+
+            // Toggle field options visibility
+            overlay.querySelector('#cc-source').addEventListener('change', (e) => {
+                overlay.querySelector('#cc-field-opts').style.display = e.target.value === 'geometry' ? 'none' : '';
+            });
+
+            overlay.querySelector('.cancel-btn').onclick = () => close();
+            overlay.querySelector('.apply-btn').onclick = async () => {
+                const source = overlay.querySelector('#cc-source').value;
+                const toFormat = overlay.querySelector('#cc-to').value;
+                const prefix = overlay.querySelector('#cc-prefix').value.trim() || undefined;
+
+                close();
+                try {
+                    const { convertFeatureCoords } = await import('./tools/coordinates.js');
+                    const features = getFeatures();
+
+                    const opts = {
+                        toFormat,
+                        useGeometry: source === 'geometry',
+                        fromFormat: source === 'geometry' ? 'dd' : overlay.querySelector('#cc-from').value,
+                        latField: source === 'fields' ? overlay.querySelector('#cc-lat').value : null,
+                        lonField: source === 'fields' ? overlay.querySelector('#cc-lon').value : null,
+                        outputPrefix: prefix
+                    };
+
+                    const { features: converted, converted: count, failed } = convertFeatureCoords(features, opts);
+                    applyTransform('Coordinate Convert', converted);
+                    const msg = `Converted ${count} coordinates to ${toFormat.toUpperCase()}`;
+                    showToast(failed > 0 ? `${msg} (${failed} failed)` : msg, failed > 0 ? 'warning' : 'success');
+                } catch (e) {
+                    showErrorToast(handleError(e, 'Coordinates', 'Convert'));
+                }
+            };
+        }
+    });
+}
+
+// ============================
 // Photo Mapper modal
 // ============================
 async function openPhotoMapper() {
@@ -4909,20 +5005,6 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
             .catch(() => showToast(text, 'info'));
     }});
 
-    // Google Street View
-    items.push({ icon: '🛣️', label: 'Open in Google Street View', action: () => {
-        const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${latlng.lat.toFixed(6)},${latlng.lng.toFixed(6)}`;
-        window.open(url, '_blank');
-    }});
-
-    // Google Earth 3D
-    items.push({ icon: '🌎', label: 'Open in Google Earth 3D', action: () => {
-        const lat = latlng.lat.toFixed(6);
-        const lng = latlng.lng.toFixed(6);
-        const url = `https://earth.google.com/web/@${lat},${lng},3000a,0d,50y,0h,45t,0r/data=OgMKATA`;
-        window.open(url, '_blank');
-    }});
-
     if (layer) {
         items.push({ sep: true });
 
@@ -4963,7 +5045,8 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
 
         // Zoom to
         items.push({ icon: '🔍', label: 'Zoom to layer', action: () => {
-            mapManager.zoomToLayer(layerId);
+            const ll = mapManager.dataLayers.get(layerId);
+            if (ll && ll.geojson) { try { const bb = turf.bbox(ll.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {} }
         }});
 
         // Set active
@@ -5026,7 +5109,10 @@ window.app = {
     setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); },
     toggleVisibility: (id) => { toggleLayerVisibility(id); mapManager.toggleLayer(id, getLayers().find(l => l.id === id)?.visible); renderLayerList(); },
     zoomToLayer: (id) => {
-        mapManager.zoomToLayer(id);
+        const layer = mapManager.dataLayers.get(id);
+        if (layer && layer.geojson) {
+            try { const bb = turf.bbox(layer.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
+        }
     },
     removeLayer: async (id) => {
         const ok = await confirm('Remove Layer', 'Remove this layer?');
@@ -5081,6 +5167,7 @@ window.app = {
     openSpatialAnalyzer,
     openBulkUpdate,
     openProximityJoin,
+    openCoordConverter,
     mergeLayers: handleMergeLayers,
     showToolInfo,
     // Selection

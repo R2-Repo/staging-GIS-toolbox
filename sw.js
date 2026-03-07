@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.27.0';
+const CACHE_VERSION = '1.31.0';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -101,7 +101,18 @@ const APP_FILES = [
     './js/workflow/workflow-store.js',
 
     // Workflow CSS
-    './css/workflow.css'
+    './css/workflow.css',
+
+    // Preconfigured pipeline examples
+    './pipelines/index.json',
+    './pipelines/Filter and Preview.json',
+    './pipelines/Buffer and Add to Map.json',
+    './pipelines/Sort Deduplicate and Preview.json',
+    './pipelines/Split Mixed Geometry.json',
+    './pipelines/Spatial Join Schools to Counties.json',
+    './pipelines/Merge and Sort Trails.json',
+    './pipelines/Nearest Join Hospitals.json',
+    './pipelines/Clean Rename Filter and Buffer.json'
 ];
 
 // CDN libraries — versioned, rarely change

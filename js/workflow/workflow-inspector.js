@@ -25,7 +25,7 @@ export class WorkflowInspector {
         this.container.innerHTML = '';
         const title = document.createElement('div');
         title.className = 'wf-inspector-title';
-        title.textContent = 'Inspector';
+        title.textContent = 'Node Configuration';
         this.container.appendChild(title);
 
         this._formEl = document.createElement('div');
@@ -94,6 +94,17 @@ export class WorkflowInspector {
         updateValidation();
         this._formEl.appendChild(vMsg);
 
+        // Comment field at the bottom
+        const commentWrap = document.createElement('div');
+        commentWrap.className = 'wf-inspector-comment';
+        commentWrap.innerHTML = `
+            <label class="wf-inspector-label">Comment</label>
+            <textarea class="wf-inspector-comment-input" placeholder="Add a note about this node…" rows="3">${node.comment || ''}</textarea>`;
+        commentWrap.querySelector('textarea').addEventListener('input', (e) => {
+            node.comment = e.target.value;
+        });
+        this._formEl.appendChild(commentWrap);
+
         // Live-sync: re-read config and re-validate on any form interaction
         configArea.addEventListener('change', updateValidation);
         configArea.addEventListener('input', updateValidation);
@@ -111,6 +122,8 @@ export class WorkflowInspector {
         if (!node) return;
         const configArea = this._formEl.querySelector('.wf-inspector-config');
         if (configArea) node.readInspector(configArea);
+        const commentEl = this._formEl.querySelector('.wf-inspector-comment-input');
+        if (commentEl) node.comment = commentEl.value;
     }
 
     /** Save the current inspector state before running */

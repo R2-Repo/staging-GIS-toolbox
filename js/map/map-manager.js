@@ -85,6 +85,10 @@ class MapManager {
         // Popup
         this._popup = null;
 
+        // Camera orbit
+        this._orbitAnimId = null;
+        this._orbitCenter = null;
+
         // Temp layers
         this._tempLayers = [];
 
@@ -108,17 +112,16 @@ class MapManager {
             center: [-111.09, 39.32],
             zoom: 7,
             attributionControl: true,
-            maxPitch: 0,
+            maxPitch: 85,
             dragRotate: false,
-            touchZoomRotate: true,
-            pitchWithRotate: false
+            touchZoomRotate: true
         });
 
         // Disable right-click rotate and touch rotation (keeps zoom gestures)
         this.map.dragRotate.disable();
         this.map.touchZoomRotate.disableRotation();
 
-        this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        this.map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
         this.map.on('error', (e) => {
             if (e.error?.status === 404 || e.error?.message?.includes('tile')) {
@@ -220,16 +223,20 @@ class MapManager {
         }
 
         // Collect all non-basemap sources/layers to preserve data layers
+        // Skip 3D-specific assets — _apply3D will recreate them cleanly
+        const _3dIds = new Set(['terrain-source', 'openfreemap']);
+        const _3dLayerIds = new Set(['hillshade', 'sky', '3d-buildings']);
+
         const style = this.map.getStyle();
         const userSources = {};
         const userLayers = [];
         for (const [id, src] of Object.entries(style.sources)) {
-            if (id !== 'basemap' && id !== 'basemap-overlay') {
+            if (id !== 'basemap' && id !== 'basemap-overlay' && !_3dIds.has(id)) {
                 userSources[id] = src;
             }
         }
         for (const layer of style.layers) {
-            if (!layer.id.startsWith('basemap')) {
+            if (!layer.id.startsWith('basemap') && !_3dLayerIds.has(layer.id)) {
                 userLayers.push(layer);
             }
         }
@@ -241,16 +248,38 @@ class MapManager {
         Object.assign(newStyle.sources, userSources);
         newStyle.layers.push(...userLayers);
 
+        // If 3D is active, carry terrain into the new style so there is
+        // no gap between setStyle and _apply3D (prevents black flash)
+        if (this._3dEnabled) {
+            newStyle.sources['terrain-source'] = {
+                type: 'raster-dem',
+                tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                encoding: 'terrarium',
+                tileSize: 256,
+                maxzoom: 15
+            };
+            newStyle.terrain = { source: 'terrain-source', exaggeration: 1.5 };
+        }
+
         this.map.setStyle(newStyle, { diff: true });
         this.currentBasemap = key;
 
-        // Re-apply 3D if it was active before the basemap switch
+        // Re-apply 3D if it was active before the basemap switch.
+        // style.load does NOT always fire with { diff: true }, so we
+        // listen for styledata (always emitted) with a one-shot guard.
         if (this._3dEnabled) {
-            this.map.once('style.load', () => {
+            let applied = false;
+            const reapply = () => {
+                if (applied) return;
+                applied = true;
+                this.map.off('styledata', reapply);
                 this._terrainEnabled = false;
                 this._buildingsEnabled = false;
                 this._apply3D();
-            });
+            };
+            this.map.on('styledata', reapply);
+            // Safety fallback in case styledata already fired synchronously
+            setTimeout(reapply, 200);
         }
 
         bus.emit('map:basemap', key);
@@ -805,6 +834,33 @@ class MapManager {
         this.map.setTerrain({ source: 'terrain-source', exaggeration: 1.5 });
         this._terrainEnabled = true;
 
+        // Only add hillshade on non-satellite basemaps
+        if (this.currentBasemap !== 'satellite' && !this.map.getLayer('hillshade')) {
+            // Find the first non-basemap layer to insert hillshade above basemap but below data
+            const layers = this.map.getStyle().layers;
+            let beforeId;
+            for (const l of layers) {
+                if (!l.id.startsWith('basemap') && l.id !== 'hillshade' && l.id !== 'sky') {
+                    beforeId = l.id;
+                    break;
+                }
+            }
+            this.map.addLayer({
+                id: 'hillshade',
+                type: 'hillshade',
+                source: 'terrain-source',
+                paint: {
+                    'hillshade-illumination-direction': 315,
+                    'hillshade-exaggeration': 0.8,
+                    'hillshade-shadow-color': '#473B24',
+                    'hillshade-highlight-color': '#FFFFFF',
+                    'hillshade-accent-color': '#6e6e6e'
+                }
+            }, beforeId);
+        } else if (this.currentBasemap === 'satellite' && this.map.getLayer('hillshade')) {
+            this.map.removeLayer('hillshade');
+        }
+
         if (!this.map.getLayer('sky')) {
             this.map.addLayer({
                 id: 'sky', type: 'sky',
@@ -818,15 +874,33 @@ class MapManager {
         if (this._3dEnabled) return;
         this._3dEnabled = true;
 
+        // Snapshot current view so the tilt doesn't shift position
+        const center = this.map.getCenter();
+        const zoom = this.map.getZoom();
+
         // Unlock pitch / rotation for 3D
         this.map.dragRotate.enable();
         this.map.touchZoomRotate.enableRotation();
-        this.map.setMaxPitch(85);
 
         this._apply3D();
 
-        // Tilt for 3D view
-        this.map.easeTo({ pitch: 60, duration: 1000 });
+        // Wait for terrain tiles to start loading before tilting
+        // (prevents black flash when DEM tiles haven't arrived yet)
+        let tilted = false;
+        const doTilt = () => {
+            if (tilted) return;
+            tilted = true;
+            this.map.easeTo({ pitch: 30, center, zoom, duration: 800 });
+        };
+        const onSourceData = (e) => {
+            if (e.sourceId === 'terrain-source' && e.isSourceLoaded) {
+                this.map.off('sourcedata', onSourceData);
+                doTilt();
+            }
+        };
+        this.map.on('sourcedata', onSourceData);
+        // Fallback: tilt after short delay even if tiles are slow
+        setTimeout(() => { this.map.off('sourcedata', onSourceData); doTilt(); }, 600);
 
         logger.info('Map', '3D terrain and buildings enabled');
         bus.emit('map:3dChanged', true);
@@ -836,20 +910,31 @@ class MapManager {
         if (!this._3dEnabled) return;
         this._3dEnabled = false;
 
-        this.map.setTerrain(null);
-        this._terrainEnabled = false;
+        // Snapshot center so the un-tilt doesn't shift position
+        const center = this.map.getCenter();
+        const zoom = this.map.getZoom();
 
-        if (this.map.getLayer('sky')) this.map.removeLayer('sky');
-        this._removeBuildingsLayer();
-        if (this.map.getSource('terrain-source')) this.map.removeSource('terrain-source');
+        // Flatten camera FIRST while terrain is still loaded
+        // (removing terrain at a tilted pitch causes the black-screen flash)
+        this.map.easeTo({ pitch: 0, bearing: 0, center, zoom, duration: 500 });
 
-        // Return to flat 2D — lock pitch / rotation
-        this.map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
-        setTimeout(() => {
-            this.map.setMaxPitch(0);
+        // After the camera is flat, tear down 3D assets safely
+        const cleanup = () => {
+            // Guard: if 3D was re-enabled while animating, skip teardown
+            if (this._3dEnabled) return;
+
+            this.map.setTerrain(null);
+            this._terrainEnabled = false;
+
+            if (this.map.getLayer('hillshade')) this.map.removeLayer('hillshade');
+            if (this.map.getLayer('sky')) this.map.removeLayer('sky');
+            this._removeBuildingsLayer();
+            if (this.map.getSource('terrain-source')) this.map.removeSource('terrain-source');
+
             this.map.dragRotate.disable();
             this.map.touchZoomRotate.disableRotation();
-        }, 550);
+        };
+        this.map.once('moveend', cleanup);
 
         logger.info('Map', '3D terrain and buildings disabled');
         bus.emit('map:3dChanged', false);
@@ -858,29 +943,35 @@ class MapManager {
     _addBuildingsLayer() {
         if (this._buildingsEnabled) return;
 
-        if (!this.map.getSource('openmaptiles')) {
-            this.map.addSource('openmaptiles', {
+        if (!this.map.getSource('openfreemap')) {
+            this.map.addSource('openfreemap', {
                 type: 'vector',
-                tiles: ['https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf'],
-                maxzoom: 14
+                url: 'https://tiles.openfreemap.org/planet'
             });
         }
 
         if (!this.map.getLayer('3d-buildings')) {
             this.map.addLayer({
-                id: '3d-buildings', source: 'openmaptiles', 'source-layer': 'building',
-                type: 'fill-extrusion', minzoom: 13,
+                id: '3d-buildings',
+                source: 'openfreemap',
+                'source-layer': 'building',
+                type: 'fill-extrusion',
+                minzoom: 15,
+                filter: ['!=', ['get', 'hide_3d'], true],
                 paint: {
                     'fill-extrusion-color': [
-                        'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 5],
-                        0, '#c8c8c8', 50, '#a0a0a0', 200, '#888888'
+                        'interpolate', ['linear'], ['get', 'render_height'],
+                        0, 'lightgray', 200, 'royalblue', 400, 'lightblue'
                     ],
                     'fill-extrusion-height': [
                         'interpolate', ['linear'], ['zoom'],
-                        13, 0, 14, ['coalesce', ['get', 'render_height'], 5]
+                        15, 0, 16, ['get', 'render_height']
                     ],
-                    'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-                    'fill-extrusion-opacity': 0.7
+                    'fill-extrusion-base': [
+                        'case',
+                        ['>=', ['get', 'zoom'], 16],
+                        ['get', 'render_min_height'], 0
+                    ]
                 }
             });
         }
@@ -890,11 +981,103 @@ class MapManager {
 
     _removeBuildingsLayer() {
         if (this.map.getLayer('3d-buildings')) this.map.removeLayer('3d-buildings');
-        if (this.map.getSource('openmaptiles')) this.map.removeSource('openmaptiles');
+        if (this.map.getSource('openfreemap')) this.map.removeSource('openfreemap');
         this._buildingsEnabled = false;
     }
 
     get is3DEnabled() { return this._3dEnabled; }
+
+    // ==========================================
+    // Camera Orbit Animation
+    // ==========================================
+
+    /** Min zoom for orbit (close-in — roughly street/building level) */
+    static ORBIT_MIN_ZOOM = 13;
+    /** Max zoom for orbit (prevents orbiting from too far out) */
+    static ORBIT_MAX_ZOOM = 18;
+    /** Default pitch during orbit */
+    static ORBIT_PITCH = 55;
+
+    /**
+     * Start an animated camera orbit around a point.
+     * Auto-enables 3D if needed. Clamps zoom to the allowed range.
+     * @param {object} center  { lng, lat }
+     */
+    startCameraOrbit(center) {
+        // Stop any existing orbit first
+        this.stopCameraOrbit();
+
+        const map = this.map;
+        this._orbitCenter = center;
+
+        // Enable 3D if not already
+        if (!this._3dEnabled) {
+            this.enable3D();
+        }
+
+        // Clamp zoom to the sweet-spot range
+        let zoom = map.getZoom();
+        if (zoom < MapManager.ORBIT_MIN_ZOOM) zoom = MapManager.ORBIT_MIN_ZOOM;
+        if (zoom > MapManager.ORBIT_MAX_ZOOM) zoom = MapManager.ORBIT_MAX_ZOOM;
+
+        // Fly to the orbit starting position, then begin rotation
+        map.flyTo({
+            center: [center.lng, center.lat],
+            zoom,
+            pitch: MapManager.ORBIT_PITCH,
+            duration: 1500
+        });
+
+        // Auto-stop orbit on any user interaction
+        const stopOnInteract = () => this.stopCameraOrbit();
+        const mapEvents = ['dragstart', 'wheel', 'click', 'dblclick', 'contextmenu', 'touchstart'];
+        mapEvents.forEach(evt => map.once(evt, stopOnInteract));
+        const canvas = map.getCanvas();
+        canvas.addEventListener('keydown', stopOnInteract, { once: true });
+        this._orbitCleanup = () => {
+            mapEvents.forEach(evt => map.off(evt, stopOnInteract));
+            canvas.removeEventListener('keydown', stopOnInteract);
+        };
+
+        map.once('moveend', () => {
+            if (!this._orbitCenter) return; // cancelled while flying
+            const startBearing = map.getBearing();
+            const startTime = performance.now();
+            const degreesPerSec = 10; // rotation speed
+
+            const frame = (now) => {
+                if (!this._orbitCenter) return; // stopped
+                const elapsed = (now - startTime) / 1000;
+                const bearing = startBearing + elapsed * degreesPerSec;
+                map.rotateTo(bearing % 360, { duration: 0 });
+                this._orbitAnimId = requestAnimationFrame(frame);
+            };
+            this._orbitAnimId = requestAnimationFrame(frame);
+        });
+
+        logger.info('Map', `Camera orbit started at ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`);
+        bus.emit('map:orbitStarted', center);
+    }
+
+    /** Stop any active camera orbit animation */
+    stopCameraOrbit() {
+        if (this._orbitAnimId) {
+            cancelAnimationFrame(this._orbitAnimId);
+            this._orbitAnimId = null;
+        }
+        if (this._orbitCleanup) {
+            this._orbitCleanup();
+            this._orbitCleanup = null;
+        }
+        if (this._orbitCenter) {
+            this._orbitCenter = null;
+            logger.info('Map', 'Camera orbit stopped');
+            bus.emit('map:orbitStopped');
+        }
+    }
+
+    /** Whether an orbit animation is currently running */
+    get isOrbiting() { return !!this._orbitCenter; }
 
     // ==========================================
     // Interactive Drawing / Selection System

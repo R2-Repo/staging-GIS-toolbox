@@ -5005,6 +5005,31 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
             .catch(() => showToast(text, 'info'));
     }});
 
+    // Camera orbit
+    if (mapManager.isOrbiting) {
+        items.push({ icon: '⏹️', label: 'Stop camera orbit', action: () => {
+            mapManager.stopCameraOrbit();
+            showToast('Camera orbit stopped', 'info');
+        }});
+    } else {
+        items.push({ icon: '🎥', label: 'Orbit camera around point', action: () => {
+            mapManager.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
+            showToast('Camera orbiting — right-click to stop', 'info');
+        }});
+    }
+
+    // Google Street View
+    items.push({ icon: '🛣️', label: 'Open location in Google Street View', action: () => {
+        const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${latlng.lat},${latlng.lng}`;
+        window.open(url, '_blank', 'noopener');
+    }});
+
+    // Google Earth
+    items.push({ icon: '🌍', label: 'Open location in Google Earth', action: () => {
+        const url = `https://earth.google.com/web/@${latlng.lat},${latlng.lng},1200a,900d,60y,0h,35t,0r`;
+        window.open(url, '_blank', 'noopener');
+    }});
+
     if (layer) {
         items.push({ sep: true });
 

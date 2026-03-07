@@ -21,6 +21,7 @@ export class FilterRowsNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getAvailableFields(context);
+        for (const r of this.config.rules) { if (r.field && !fields.includes(r.field)) fields.push(r.field); }
         const ops = [
             { v: 'equals', l: '=' }, { v: 'not_equals', l: '≠' },
             { v: 'contains', l: 'contains' }, { v: 'not_contains', l: '!contains' },
@@ -167,6 +168,7 @@ export class RenameFieldsNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        for (const m of this.config.mappings) { if (m.from && !fields.includes(m.from)) fields.push(m.from); }
         if (this.config.mappings.length === 0 && fields.length > 0) {
             this.config.mappings = [{ from: fields[0], to: '' }];
         }
@@ -261,6 +263,7 @@ export class DeleteFieldsNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        for (const f of this.config.fieldsToDelete) { if (f && !fields.includes(f)) fields.push(f); }
         const checks = fields.map(f => `
             <label class="wf-check-row">
                 <input type="checkbox" value="${f}" ${this.config.fieldsToDelete.includes(f) ? 'checked' : ''}>
@@ -328,6 +331,7 @@ export class SortNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
         container.innerHTML = `
             <label class="wf-inspector-label">Sort Field</label>
             <select class="wf-inspector-select" data-cfg="field">
@@ -403,6 +407,7 @@ export class FindReplaceNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
         container.innerHTML = `
             <label class="wf-inspector-label">Field</label>
             <select class="wf-inspector-select" data-cfg="field">
@@ -482,6 +487,7 @@ export class DeduplicateNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        for (const f of this.config.keyFields) { if (f && !fields.includes(f)) fields.push(f); }
         const checks = fields.map(f => `
             <label class="wf-check-row">
                 <input type="checkbox" value="${f}" ${this.config.keyFields.includes(f) ? 'checked' : ''}>
@@ -648,6 +654,7 @@ export class CombineFieldsNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        for (const f of this.config.fields) { if (f && !fields.includes(f)) fields.push(f); }
         const checks = fields.map(f => `
             <label class="wf-check-row">
                 <input type="checkbox" value="${f}" ${this.config.fields.includes(f) ? 'checked' : ''}>
@@ -732,6 +739,7 @@ export class SplitColumnNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
         container.innerHTML = `
             <label class="wf-inspector-label">Field to Split</label>
             <select class="wf-inspector-select" data-cfg="field">
@@ -825,6 +833,10 @@ export class TemplateBuilderNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        // Extract field names referenced in template like {FieldName}
+        for (const m of this.config.template.matchAll(/\{([^}]+)\}/g)) {
+            if (m[1] && !fields.includes(m[1])) fields.push(m[1]);
+        }
         const chips = fields.map(f =>
             `<span class="wf-field-chip" data-field="${f}" title="Click to insert">{${f}}</span>`
         ).join('');
@@ -930,6 +942,7 @@ export class TypeConvertNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
         container.innerHTML = `
             <label class="wf-inspector-label">Field</label>
             <select class="wf-inspector-select" data-cfg="field">
@@ -1006,6 +1019,9 @@ export class JoinLookupNode extends NodeBase {
     renderInspector(container, context) {
         const leftFields = this._getFieldsForPort(context, 'in');
         const rightFields = this._getFieldsForPort(context, 'lookup');
+        if (this.config.leftKey && !leftFields.includes(this.config.leftKey)) leftFields.push(this.config.leftKey);
+        if (this.config.rightKey && !rightFields.includes(this.config.rightKey)) rightFields.push(this.config.rightKey);
+        for (const f of this.config.fieldsToJoin) { if (f && !rightFields.includes(f)) rightFields.push(f); }
 
         const leftOpts = leftFields.map(f =>
             `<option value="${f}" ${f === this.config.leftKey ? 'selected' : ''}>${f}</option>`
@@ -1131,6 +1147,10 @@ export class CalculateFieldNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        // Extract field names referenced in expression like [FieldName]
+        for (const m of this.config.expression.matchAll(/\[([^\]]+)\]/g)) {
+            if (m[1] && !fields.includes(m[1])) fields.push(m[1]);
+        }
         const chips = fields.map(f =>
             `<span class="wf-field-chip" data-field="${f}" title="Click to insert">[${f}]</span>`
         ).join('');
@@ -1259,6 +1279,7 @@ export class ConditionalValueNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        for (const r of this.config.rules) { if (r.field && !fields.includes(r.field)) fields.push(r.field); }
         const ops = [
             { v: 'equals', l: '=' }, { v: 'not_equals', l: '≠' },
             { v: 'contains', l: 'contains' }, { v: 'greater_than', l: '>' },
@@ -1411,6 +1432,8 @@ export class CoordConvertNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.latField && !fields.includes(this.config.latField)) fields.push(this.config.latField);
+        if (this.config.lonField && !fields.includes(this.config.lonField)) fields.push(this.config.lonField);
         const upstream = context.getUpstreamOutput?.(this.id);
         const isSpatial = upstream?.type === 'spatial';
 
@@ -1685,6 +1708,7 @@ export class UnitConvertNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getAvailableFields(context);
+        if (this.config.sourceField && !fields.includes(this.config.sourceField)) fields.push(this.config.sourceField);
         const categories = Object.keys(UNIT_CATEGORIES);
         const currentCat = UNIT_CATEGORIES[this.config.category] || {};
         const units = Object.keys(currentCat).filter(k => k !== '_base');

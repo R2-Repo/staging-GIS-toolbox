@@ -19,6 +19,7 @@ export class NodeBase {
 
         this.position = { x: 100, y: 100 };
         this.config = {};
+        this.comment = '';
 
         // Ports
         this.inputPorts = [];   // [{ id, label, dataType }]
@@ -89,12 +90,14 @@ export class NodeBase {
 
     /** Serialize for save */
     toJSON() {
-        return {
+        const json = {
             id: this.id,
             type: this.type,
             position: { ...this.position },
             config: JSON.parse(JSON.stringify(this.config))
         };
+        if (this.comment) json.comment = this.comment;
+        return json;
     }
 }
 

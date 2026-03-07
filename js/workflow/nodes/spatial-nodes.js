@@ -107,6 +107,7 @@ export class DissolveNode extends NodeBase {
 
     renderInspector(container, context) {
         const fields = this._getFields(context);
+        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
         container.innerHTML = `
             <label class="wf-inspector-label">Dissolve Field</label>
             <select class="wf-inspector-select" data-cfg="field">
@@ -513,6 +514,8 @@ export class SummarizeWithinNode extends NodeBase {
     renderInspector(container, context) {
         const ptData = context.getUpstreamOutputForPort?.(this.id, 'points');
         const numFields = (ptData?.schema?.fields || []).filter(f => f.type === 'number').map(f => f.name);
+        if (this.config.sumField && !numFields.includes(this.config.sumField)) numFields.push(this.config.sumField);
+        if (this.config.avgField && !numFields.includes(this.config.avgField)) numFields.push(this.config.avgField);
 
         container.innerHTML = `
             <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">

@@ -407,6 +407,9 @@ html, body {
     color: var(--text) !important;
     border-color: var(--border) !important;
 }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: invert(1);
+}
 .maplibregl-ctrl-group button:hover { background: #3a3a3c !important; }
 .maplibregl-ctrl-group button + button { border-top: 1px solid var(--border) !important; }
 .maplibregl-ctrl-attrib {

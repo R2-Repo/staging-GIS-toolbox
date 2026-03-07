@@ -126,6 +126,7 @@ export class WorkflowStore {
                 node.id = nd.id;
                 node.position = nd.position || { x: 0, y: 0 };
                 node.config = { ...node.config, ...nd.config };
+                if (nd.comment) node.comment = nd.comment;
                 engine.addNode(node);
             }
 

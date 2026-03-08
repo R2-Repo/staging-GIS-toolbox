@@ -379,6 +379,23 @@ html, body {
 }
 .maplibregl-popup-tip { border-top-color: var(--bg-surface) !important; }
 .maplibregl-popup-content a { color: var(--primary-light); }
+.maplibregl-popup-close-button {
+    font-size: 22px;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+    padding: 0;
+    right: 4px;
+    top: 4px;
+    color: var(--text-muted);
+    border-radius: 50%;
+    transition: background 0.15s, color 0.15s;
+}
+.maplibregl-popup-close-button:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text);
+}
 
 /* Map context menu */
 .map-context-menu {
@@ -402,16 +419,24 @@ html, body {
 .map-context-menu .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* Dark MapLibre control overrides */
+.maplibregl-ctrl-group {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 .maplibregl-ctrl-group button {
+    width: 34px !important;
+    height: 34px !important;
     background: var(--bg-surface) !important;
     color: var(--text) !important;
-    border-color: var(--border) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important;
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
     filter: invert(1);
 }
 .maplibregl-ctrl-group button:hover { background: #3a3a3c !important; }
-.maplibregl-ctrl-group button + button { border-top: 1px solid var(--border) !important; }
+.maplibregl-ctrl-group button + button { border-top: none !important; margin-top: 4px; }
 .maplibregl-ctrl-attrib {
     background: rgba(15, 17, 23, 0) !important;
     color: var(--text-muted) !important;
@@ -1386,6 +1411,53 @@ textarea { resize: vertical; min-height: 60px; }
     background: #28b84d;
 }
 
+/* Draw toolbar action buttons (Undo / Delete) */
+.draw-toolbar-actions {
+    display: flex;
+    gap: 4px;
+    min-height: 0;
+}
+.draw-action-btn {
+    padding: 5px 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-sm);
+    background: rgba(0,0,0,0.35);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.15s;
+    flex: 1;
+    text-align: center;
+}
+.draw-action-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text);
+}
+.draw-delete-btn:hover {
+    border-color: var(--error);
+    color: var(--error);
+}
+.draw-undo-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* Editable vertex marker (select mode) */
+.draw-edit-vertex {
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border: 2px solid #01bcdd;
+    border-radius: 50%;
+    cursor: grab;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.draw-edit-vertex:active {
+    cursor: grabbing;
+    border-color: #ffd60a;
+    background: #ffd60a;
+}
+
 /* Draw options modal */
 .draw-options {
     display: flex;
@@ -1595,6 +1667,46 @@ textarea { resize: vertical; min-height: 60px; }
 /* ————— SPLASH MOBILE NOTICE ————— */
 .splash-mobile-notice {
     display: none;
+}
+
+/* ————— GUIDE COLLAPSIBLE SECTIONS ————— */
+.guide-section {
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+}
+.guide-section[open] {
+    margin-bottom: 14px;
+}
+.guide-section-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--gold-light);
+    padding: 8px 12px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+}
+.guide-section-title::-webkit-details-marker { display: none; }
+.guide-section-title::before {
+    content: '▸';
+    font-size: 13px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+.guide-section[open] > .guide-section-title::before {
+    transform: rotate(90deg);
+}
+.guide-section-title:hover {
+    background: rgba(255,255,255,0.04);
+    border-radius: var(--radius-sm);
+}
+.guide-section-body {
+    padding: 4px 12px 10px;
 }
 @media (max-width: 768px) {
     .splash-mobile-notice {
@@ -2204,3 +2316,88 @@ textarea { resize: vertical; min-height: 60px; }
 .coord-add-new:hover { background: rgba(219,172,63,0.08); }
 .coord-dismiss { color: #888; border-color: #eee; }
 .coord-dismiss:hover { color: #e74c3c; background: #fff5f5; }
+
+/* ————— MEASURE TOOL CONTROL ————— */
+.measure-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.measure-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    background: var(--bg-surface) !important;
+    color: var(--text) !important;
+    border-radius: var(--radius-sm) !important;
+    cursor: pointer;
+    border: 1px solid var(--border) !important;
+    transition: background 0.15s;
+}
+.measure-toggle:hover {
+    background: #3a3a3c !important;
+}
+.measure-toggle.active {
+    background: var(--primary) !important;
+    color: #1c1c1e !important;
+    border-color: var(--primary) !important;
+}
+.measure-toggle.active svg {
+    stroke: #1c1c1e;
+}
+.measure-panel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    box-shadow: var(--shadow);
+    min-width: 220px;
+    border: 1px solid var(--border-dark);
+}
+.measure-readout {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+    white-space: nowrap;
+    min-width: 70px;
+}
+.measure-unit-select {
+    background: var(--bg-panel);
+    color: var(--text);
+    border: 1px solid var(--border-dark);
+    border-radius: 5px;
+    padding: 4px 6px;
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+}
+.measure-unit-select:focus {
+    border-color: var(--primary);
+}
+.measure-clear {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: transparent;
+    color: var(--text-muted);
+    transition: color 0.12s;
+}
+.measure-clear:hover {
+    color: var(--error);
+}

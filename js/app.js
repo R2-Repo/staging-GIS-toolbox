@@ -440,6 +440,35 @@ function setupEventListeners() {
         showToast(`Added ${feature.geometry.type} to ${layer.name}`, 'success');
     });
 
+    // Handle edited features (vertex dragging)
+    bus.on('draw:featureEdited', ({ layerId, featureIndex }) => {
+        const layer = getLayers().find(l => l.id === layerId);
+        if (!layer || layer.type !== 'spatial') return;
+        saveSnapshot(layer.id, 'Edit feature', layer.geojson);
+        import('./core/data-model.js').then(dm => {
+            layer.schema = dm.analyzeSchema(layer.geojson);
+            bus.emit('layer:updated', layer);
+            bus.emit('layers:changed', getLayers());
+            refreshUI();
+        });
+    });
+
+    // Handle deleted features
+    bus.on('draw:featureDeleted', ({ layerId, featureIndex }) => {
+        const layer = getLayers().find(l => l.id === layerId);
+        if (!layer || layer.type !== 'spatial') return;
+        saveSnapshot(layer.id, 'Delete feature', layer.geojson);
+        layer.geojson.features.splice(featureIndex, 1);
+        import('./core/data-model.js').then(dm => {
+            layer.schema = dm.analyzeSchema(layer.geojson);
+            bus.emit('layer:updated', layer);
+            bus.emit('layers:changed', getLayers());
+            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
+        });
+        showToast('Feature deleted', 'success');
+    });
+
     // Logs
     document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
 
@@ -4830,6 +4859,17 @@ function showToolInfo() {
             ]
         },
         {
+            title: 'Data Pipeline Editor',
+            tools: [
+                ['Overview', 'A visual node-based editor for building multi-step data processing pipelines. Drag nodes onto a canvas, connect them with wires, and run the whole chain in one click.'],
+                ['Input Nodes', 'Layer Input (use an already-imported layer) or File Import (load a file directly into the pipeline).'],
+                ['Transform Nodes', 'Filter Rows, Rename Fields, Delete Fields, Sort, Find & Replace, Deduplicate, and Add Unique ID.'],
+                ['Spatial Nodes', 'Buffer, Simplify, Dissolve, Clip, Union, Combine, Spatial Join, Nearest Join, Intersect, Merge Layers, Difference, Summarize Within, and Split by Geometry.'],
+                ['Output Nodes', 'Preview (inspect results in a data table) or Add to Map (push the result back as a new map layer).'],
+                ['Examples', 'Pre-built pipelines available from the Examples dropdown to get started quickly.']
+            ]
+        },
+        {
             title: 'Layer Data Tools',
             tools: [
                 ['Split Column', 'Split a field into multiple new fields by a delimiter (comma, space, etc.).'],
@@ -4928,19 +4968,38 @@ function showToolInfo() {
         }
     ];
 
-    const html = sections.map(s => `
-        <div style="margin-bottom:30px;">
-            <div style="font-weight:700;font-size:18px;color:var(--gold-light);margin-bottom:6px;border-bottom:2px solid var(--border);padding-bottom:4px;">${s.title}</div>
-            <div style="display:flex;flex-direction:column;gap:4px;">
-                ${s.tools.map(([name, desc]) => `
-                    <div style="display:flex;gap:8px;align-items:baseline;">
-                        <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);">${name}</span>
-                        <span style="color:var(--text-muted);font-size:13px;">${desc}</span>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `).join('');
+    const toolList = (tools) => `
+        <div style="display:flex;flex-direction:column;gap:4px;">
+            ${tools.map(([name, desc]) => `
+                <div style="display:flex;gap:8px;align-items:baseline;">
+                    <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);">${name}</span>
+                    <span style="color:var(--text-muted);font-size:13px;">${desc}</span>
+                </div>
+            `).join('')}
+        </div>`;
+
+    const howToList = (tools) => `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            ${tools.map(([name, desc]) => `
+                <div style="display:flex;gap:10px;align-items:baseline;">
+                    <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);font-size:16px;">${name}</span>
+                    <span style="color:var(--text-muted);font-size:15px;">${desc}</span>
+                </div>
+            `).join('')}
+        </div>`;
+
+    const html = sections.map(s => {
+        if (s.title === 'How To') {
+            return `<div style="margin-bottom:20px;">
+                <div style="font-weight:700;font-size:22px;color:var(--gold-light);margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:4px;">${s.title}</div>
+                ${howToList(s.tools)}
+            </div>`;
+        }
+        return `<details class="guide-section">
+            <summary class="guide-section-title">${s.title}</summary>
+            <div class="guide-section-body">${toolList(s.tools)}</div>
+        </details>`;
+    }).join('');
 
     const isMobile = window.innerWidth < 768;
     const mobileBanner = `<div class="splash-mobile-notice">📱 Mobile site still under development — for a better experience use a larger screen</div>`;

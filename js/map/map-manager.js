@@ -160,6 +160,7 @@ class MapManager {
             logger.info('Map', 'Map initialized');
             bus.emit('map:ready', this.map);
             this._initCoordSearch();
+            this._initMeasureTool();
         });
 
         return this.map;
@@ -449,9 +450,15 @@ class MapManager {
                 });
             });
 
-            this.map.on('mouseenter', lid, () => { this.map.getCanvas().style.cursor = 'pointer'; });
+            this.map.on('mouseenter', lid, () => {
+                if (this.map.getCanvas().style.cursor !== 'crosshair') {
+                    this.map.getCanvas().style.cursor = 'pointer';
+                }
+            });
             this.map.on('mouseleave', lid, () => {
-                if (!this._selectionMode) this.map.getCanvas().style.cursor = '';
+                if (!this._selectionMode && this.map.getCanvas().style.cursor !== 'crosshair') {
+                    this.map.getCanvas().style.cursor = '';
+                }
             });
         }
 
@@ -706,13 +713,18 @@ class MapManager {
 
         this.highlightFeature(hit.layerId, hit.featureIndex, hit.layerColor);
 
+        // Suppress close handler while cycling between features
+        this._cyclingPopup = true;
         this._closePopup();
+        this._cyclingPopup = false;
+
         this._popup = new maplibregl.Popup({ maxWidth: '350px', closeOnClick: false })
             .setLngLat([this._popupLatLng.lng, this._popupLatLng.lat])
             .setHTML(html)
             .addTo(this.map);
 
         this._popup.on('close', () => {
+            if (this._cyclingPopup) return;
             this.clearHighlight();
             this._popupHits = null;
         });
@@ -1721,6 +1733,210 @@ class MapManager {
     }
 
     getSearchLatLng() { return this._searchLatLng; }
+
+    // ============================
+    // Measure Tool
+    // ============================
+    _initMeasureTool() {
+        this._measureActive = false;
+        this._measurePoints = [];
+        this._measureMarkers = [];
+        this._measureUnit = 'feet';
+        this._measureSourceId = '__measure-line';
+        this._measureLayerId = '__measure-line-layer';
+        this._measureNodeLayerId = '__measure-node-layer';
+        this._measureLabelEl = null;
+
+        const UNITS = [
+            { key: 'feet', label: 'Feet', turfUnit: 'feet' },
+            { key: 'miles', label: 'Miles', turfUnit: 'miles' },
+            { key: 'meters', label: 'Meters', turfUnit: 'meters' },
+            { key: 'kilometers', label: 'Kilometers', turfUnit: 'kilometers' }
+        ];
+
+        // Build control container
+        const container = document.createElement('div');
+        container.className = 'maplibregl-ctrl maplibregl-ctrl-group measure-control';
+
+        // Toggle button
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.title = 'Measure Distance';
+        btn.className = 'measure-toggle';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="22" height="10" rx="2"/><line x1="5" y1="7" x2="5" y2="12"/><line x1="9" y1="7" x2="9" y2="14"/><line x1="13" y1="7" x2="13" y2="12"/><line x1="17" y1="7" x2="17" y2="14"/><line x1="21" y1="7" x2="21" y2="12"/></svg>`;
+
+        // Panel (shows when active)
+        const panel = document.createElement('div');
+        panel.className = 'measure-panel';
+        panel.style.display = 'none';
+
+        // Unit selector
+        const unitSel = document.createElement('select');
+        unitSel.className = 'measure-unit-select';
+        UNITS.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.key; opt.textContent = u.label;
+            if (u.key === 'feet') opt.selected = true;
+            unitSel.appendChild(opt);
+        });
+
+        // Distance readout
+        const readout = document.createElement('div');
+        readout.className = 'measure-readout';
+        readout.textContent = '0.00 ft';
+
+        // Clear button
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'measure-clear';
+        clearBtn.innerHTML = '✕';
+        clearBtn.title = 'Clear & close';
+
+        panel.append(readout, unitSel, clearBtn);
+        container.append(btn, panel);
+
+        // Stop propagation so map clicks don't pass through
+        panel.addEventListener('click', e => e.stopPropagation());
+        panel.addEventListener('dblclick', e => e.stopPropagation());
+
+        // Formatting helper
+        const formatDist = (val, unit) => {
+            const abbr = { feet: 'ft', miles: 'mi', meters: 'm', kilometers: 'km' };
+            if (val >= 10) return `${Math.round(val).toLocaleString()} ${abbr[unit]}`;
+            return `${val.toFixed(2)} ${abbr[unit]}`;
+        };
+
+        // Recalculate total distance
+        const recalc = () => {
+            if (this._measurePoints.length < 2) {
+                readout.textContent = formatDist(0, this._measureUnit);
+                return;
+            }
+            const line = turf.lineString(this._measurePoints);
+            const turfUnit = UNITS.find(u => u.key === this._measureUnit)?.turfUnit || 'feet';
+            const dist = turf.length(line, { units: turfUnit });
+            readout.textContent = formatDist(dist, this._measureUnit);
+        };
+
+        // Update the map line source
+        const updateLine = () => {
+            const src = this.map.getSource(this._measureSourceId);
+            if (!src) return;
+            const geojson = {
+                type: 'FeatureCollection',
+                features: []
+            };
+            if (this._measurePoints.length >= 2) {
+                geojson.features.push({
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: this._measurePoints }
+                });
+            }
+            // Add point nodes
+            this._measurePoints.forEach(coord => {
+                geojson.features.push({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: coord }
+                });
+            });
+            src.setData(geojson);
+        };
+
+        // Activate measure mode
+        const activate = () => {
+            this._measureActive = true;
+            btn.classList.add('active');
+            panel.style.display = 'flex';
+            this.map.getCanvas().style.cursor = 'crosshair';
+
+            // Add source + layers if not present
+            if (!this.map.getSource(this._measureSourceId)) {
+                this.map.addSource(this._measureSourceId, {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] }
+                });
+                this.map.addLayer({
+                    id: this._measureLayerId,
+                    type: 'line',
+                    source: this._measureSourceId,
+                    filter: ['==', '$type', 'LineString'],
+                    paint: {
+                        'line-color': '#ff6600',
+                        'line-width': 2.5,
+                        'line-dasharray': [3, 2]
+                    }
+                });
+                this.map.addLayer({
+                    id: this._measureNodeLayerId,
+                    type: 'circle',
+                    source: this._measureSourceId,
+                    filter: ['==', '$type', 'Point'],
+                    paint: {
+                        'circle-radius': 4.5,
+                        'circle-color': '#ff6600',
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#1c1c1e'
+                    }
+                });
+            }
+        };
+
+        // Deactivate & clean up
+        const deactivate = () => {
+            this._measureActive = false;
+            btn.classList.remove('active');
+            panel.style.display = 'none';
+            this.map.getCanvas().style.cursor = '';
+            this._measurePoints = [];
+            this._measureMarkers.forEach(m => m.remove());
+            this._measureMarkers = [];
+            if (this.map.getLayer(this._measureLayerId)) this.map.removeLayer(this._measureLayerId);
+            if (this.map.getLayer(this._measureNodeLayerId)) this.map.removeLayer(this._measureNodeLayerId);
+            if (this.map.getSource(this._measureSourceId)) this.map.removeSource(this._measureSourceId);
+            readout.textContent = formatDist(0, this._measureUnit);
+        };
+
+        // Map click handler for adding points
+        this._measureClickHandler = (e) => {
+            if (!this._measureActive) return;
+            e._drawHandled = true;
+            const coord = [e.lngLat.lng, e.lngLat.lat];
+            this._measurePoints.push(coord);
+            updateLine();
+            recalc();
+        };
+        this.map.on('click', this._measureClickHandler);
+
+        // Button toggles
+        btn.onclick = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (this._measureActive) deactivate();
+            else activate();
+        };
+
+        unitSel.onchange = () => {
+            this._measureUnit = unitSel.value;
+            recalc();
+        };
+
+        clearBtn.onclick = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            deactivate();
+        };
+
+        // Undo last point on right-click while measuring
+        this.map.on('contextmenu', (e) => {
+            if (!this._measureActive) return;
+            e.preventDefault();
+            if (this._measurePoints.length > 0) {
+                this._measurePoints.pop();
+                updateLine();
+                recalc();
+            }
+        });
+
+        const ctrl = { onAdd: () => container, onRemove: () => { deactivate(); container.remove(); } };
+        this.map.addControl(ctrl, 'top-left');
+    }
 }
 
 export const mapManager = new MapManager();

@@ -45,6 +45,21 @@ class DrawManager {
         this._clickTimeout = null;   // debounce clicks vs dblclick
         this._finishing = false;     // guard to prevent clicks during finish
         this._lastTapTime = 0;       // for mobile double-tap detection
+        this._selectedFeatureIndex = null;
+        this._editMarkers = [];
+        this._editFeatureRef = null;
+        this._contextHandler = null;
+        this._rectCorner1 = null;
+        this._rectPreviewSourceId = null;
+        this._rectPreviewLayerIds = [];
+        this._circleCenter = null;
+        this._circlePreviewSourceId = null;
+        this._circlePreviewLayerIds = [];
+        this._sectorCenter = null;
+        this._sectorRadius = null;
+        this._sectorStartAngle = null;
+        this._sectorPreviewSourceId = null;
+        this._sectorPreviewLayerIds = [];
     }
 
     /** Get the MapLibre map instance */
@@ -75,6 +90,10 @@ class DrawManager {
                 <button class="draw-toolbar-close" title="Close draw tools">✕</button>
             </div>
             <div class="draw-toolbar-tools">
+                <button class="draw-tool-btn" data-tool="select" title="Select & edit feature">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 1l5 14 1.5-5.5L14 8 2 1z" fill="currentColor"/></svg>
+                    <span>Select</span>
+                </button>
                 <button class="draw-tool-btn" data-tool="point" title="Draw point">
                     <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg>
                     <span>Point</span>
@@ -87,6 +106,22 @@ class DrawManager {
                     <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,12 1,12" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
                     <span>Polygon</span>
                 </button>
+                <button class="draw-tool-btn" data-tool="rectangle" title="Draw rectangle">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3" rx="1"/></svg>
+                    <span>Rect</span>
+                </button>
+                <button class="draw-tool-btn" data-tool="circle" title="Draw circle">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
+                    <span>Circle</span>
+                </button>
+                <button class="draw-tool-btn" data-tool="sector" title="Draw sector (pie wedge)">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 8L14 8A6 6 0 0 0 8 2Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
+                    <span>Sector</span>
+                </button>
+            </div>
+            <div class="draw-toolbar-actions">
+                <button class="draw-action-btn draw-undo-btn" style="display:none;" title="Undo last vertex (Right-click)">↩ Undo</button>
+                <button class="draw-action-btn draw-delete-btn" style="display:none;" title="Delete selected feature">🗑 Delete</button>
             </div>
             <div class="draw-toolbar-hint"></div>
             <button class="draw-finish-btn" style="display:none;">✓ Finish</button>
@@ -108,6 +143,15 @@ class DrawManager {
                 }
             };
         });
+
+        toolbar.querySelector('.draw-delete-btn').onclick = (e) => {
+            e.stopPropagation();
+            this._deleteSelected();
+        };
+        toolbar.querySelector('.draw-undo-btn').onclick = (e) => {
+            e.stopPropagation();
+            this._undoLastVertex();
+        };
 
         toolbar.addEventListener('click', (e) => e.stopPropagation());
         toolbar.addEventListener('dblclick', (e) => e.stopPropagation());
@@ -158,6 +202,70 @@ class DrawManager {
 
         if (mapManager._selectionMode) mapManager.exitSelectionMode();
 
+        // Select mode — click to select & edit existing features
+        if (tool === 'select') {
+            this.map.getCanvas().style.cursor = '';
+            this._setHint('Click a feature to select it. Drag vertices to edit.');
+            this._clickHandler = (e) => this._onSelectClick(e);
+            this.map.on('click', this._clickHandler);
+            this._escHandler = (e) => {
+                if (e.key === 'Escape') { this._clearEditSelection(); this.cancelDraw(); }
+                if ((e.key === 'Delete' || e.key === 'Backspace') && this._selectedFeatureIndex !== null) {
+                    this._deleteSelected();
+                }
+            };
+            document.addEventListener('keydown', this._escHandler);
+            logger.info('Draw', 'Started tool: select');
+            return;
+        }
+
+        // Rectangle mode — click two corners
+        if (tool === 'rectangle') {
+            this._rectCorner1 = null;
+            this.map.getCanvas().style.cursor = 'crosshair';
+            this._setHint('Click to set first corner of rectangle.');
+            this._clickHandler = (e) => this._onRectClick(e);
+            this._moveHandler = (e) => this._onRectMove(e);
+            this._escHandler = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
+            this.map.on('click', this._clickHandler);
+            this.map.on('mousemove', this._moveHandler);
+            document.addEventListener('keydown', this._escHandler);
+            logger.info('Draw', 'Started tool: rectangle');
+            return;
+        }
+
+        // Circle mode — click center, move to set radius, click to finish
+        if (tool === 'circle') {
+            this._circleCenter = null;
+            this.map.getCanvas().style.cursor = 'crosshair';
+            this._setHint('Click to set centre of circle.');
+            this._clickHandler = (e) => this._onCircleClick(e);
+            this._moveHandler = (e) => this._onCircleMove(e);
+            this._escHandler = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
+            this.map.on('click', this._clickHandler);
+            this.map.on('mousemove', this._moveHandler);
+            document.addEventListener('keydown', this._escHandler);
+            logger.info('Draw', 'Started tool: circle');
+            return;
+        }
+
+        // Sector mode — click center, click to set radius+start angle, click to set end angle
+        if (tool === 'sector') {
+            this._sectorCenter = null;
+            this._sectorRadius = null;
+            this._sectorStartAngle = null;
+            this.map.getCanvas().style.cursor = 'crosshair';
+            this._setHint('Click to set centre of sector.');
+            this._clickHandler = (e) => this._onSectorClick(e);
+            this._moveHandler = (e) => this._onSectorMove(e);
+            this._escHandler = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
+            this.map.on('click', this._clickHandler);
+            this.map.on('mousemove', this._moveHandler);
+            document.addEventListener('keydown', this._escHandler);
+            logger.info('Draw', 'Started tool: sector');
+            return;
+        }
+
         this.map.getCanvas().style.cursor = 'crosshair';
 
         this._clickHandler = (e) => this._onMapClick(e);
@@ -172,6 +280,15 @@ class DrawManager {
         if (tool === 'line' || tool === 'polygon') {
             this.map.doubleClickZoom.disable();
             this.map.on('dblclick', this._dblClickHandler);
+
+            // Right-click to undo last vertex
+            this._contextHandler = (e) => {
+                if (this._vertices.length > 0) {
+                    e.preventDefault();
+                    this._undoLastVertex();
+                }
+            };
+            this.map.on('contextmenu', this._contextHandler);
             const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
             if (isMobile) {
                 this._setHint(tool === 'line'
@@ -202,6 +319,15 @@ class DrawManager {
 
     cancelDraw() {
         this._clearPreview();
+        this._clearEditSelection();
+        this._removeRectPreview();
+        this._removeCirclePreview();
+        this._removeSectorPreview();
+        this._rectCorner1 = null;
+        this._circleCenter = null;
+        this._sectorCenter = null;
+        this._sectorRadius = null;
+        this._sectorStartAngle = null;
         this._vertices = [];
         this._tool = null;
         this._finishing = false;
@@ -209,6 +335,7 @@ class DrawManager {
         this._updateToolButtons();
         this._setHint('');
         this._updateFinishBtn();
+        this._updateActionButtons();
 
         if (this._clickTimeout) {
             clearTimeout(this._clickTimeout);
@@ -223,6 +350,7 @@ class DrawManager {
         if (this._clickHandler) { this.map?.off('click', this._clickHandler); this._clickHandler = null; }
         if (this._moveHandler) { this.map?.off('mousemove', this._moveHandler); this._moveHandler = null; }
         if (this._dblClickHandler) { this.map?.off('dblclick', this._dblClickHandler); this._dblClickHandler = null; }
+        if (this._contextHandler) { this.map?.off('contextmenu', this._contextHandler); this._contextHandler = null; }
         if (this._escHandler) { document.removeEventListener('keydown', this._escHandler); this._escHandler = null; }
         if (this._enterHandler) { document.removeEventListener('keydown', this._enterHandler); this._enterHandler = null; }
     }
@@ -284,6 +412,7 @@ class DrawManager {
             this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed. ${n < 3 ? 'Need at least 3.' : closeHint}`);
         }
         this._updateFinishBtn();
+        this._updateUndoBtn();
     }
 
     _updateFinishBtn() {
@@ -307,15 +436,13 @@ class DrawManager {
         }
         e._drawHandled = true;
 
+        // Cancel any pending single-click that would add a stray vertex
         if (this._clickTimeout) {
             clearTimeout(this._clickTimeout);
             this._clickTimeout = null;
         }
 
-        if (e.lngLat) {
-            this._addVertex(e.lngLat.lat, e.lngLat.lng);
-        }
-
+        // Do NOT add the dblclick point as a vertex — just finish with what we have
         const minVerts = this._tool === 'polygon' ? 3 : 2;
         if (this._vertices.length >= minVerts) {
             this._finishDraw();
@@ -456,11 +583,470 @@ class DrawManager {
     }
 
     // ============================
+    // Select & Edit
+    // ============================
+
+    _onSelectClick(e) {
+        if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+        e._drawHandled = true;
+
+        const info = mapManager.dataLayers.get(this._targetLayerId);
+        if (!info) return;
+
+        const features = this.map.queryRenderedFeatures(e.point, { layers: info.layerIds });
+        if (features.length > 0) {
+            const props = features[0].properties;
+            const featureIndex = props._featureIndex;
+            if (featureIndex !== undefined) {
+                this._selectFeature(featureIndex);
+            }
+        } else {
+            this._clearEditSelection();
+        }
+    }
+
+    _selectFeature(featureIndex) {
+        this._clearEditSelection();
+        this._selectedFeatureIndex = featureIndex;
+
+        mapManager.highlightFeature(this._targetLayerId, featureIndex);
+        this._showEditVertices(featureIndex);
+        this._updateActionButtons();
+        this._setHint(`Feature selected. Drag vertices to reshape, or press Delete.`);
+    }
+
+    _clearEditSelection() {
+        this._selectedFeatureIndex = null;
+        this._editFeatureRef = null;
+        this._removeEditMarkers();
+        mapManager.clearHighlight();
+    }
+
+    _removeEditMarkers() {
+        for (const m of this._editMarkers) {
+            try { m.remove(); } catch (_) {}
+        }
+        this._editMarkers = [];
+    }
+
+    _showEditVertices(featureIndex) {
+        this._removeEditMarkers();
+
+        const info = mapManager.dataLayers.get(this._targetLayerId);
+        if (!info) return;
+
+        const feature = info.geojson.features.find(f => f.properties._featureIndex === featureIndex);
+        if (!feature || !feature.geometry) return;
+
+        this._editFeatureRef = feature;
+        const coords = this._getEditableCoords(feature.geometry);
+
+        coords.forEach((coord, idx) => {
+            const el = document.createElement('div');
+            el.className = 'draw-edit-vertex';
+
+            const marker = new maplibregl.Marker({ element: el, draggable: true })
+                .setLngLat(coord)
+                .addTo(this.map);
+
+            marker.on('drag', () => {
+                const lngLat = marker.getLngLat();
+                this._applyVertexMove(feature.geometry, idx, [lngLat.lng, lngLat.lat]);
+                const src = this.map.getSource(info.sourceId);
+                if (src) src.setData(info.geojson);
+            });
+
+            marker.on('dragend', () => {
+                bus.emit('draw:featureEdited', {
+                    layerId: this._targetLayerId,
+                    featureIndex
+                });
+            });
+
+            this._editMarkers.push(marker);
+        });
+    }
+
+    _getEditableCoords(geometry) {
+        switch (geometry.type) {
+            case 'Point': return [geometry.coordinates];
+            case 'LineString': return geometry.coordinates;
+            case 'Polygon': return geometry.coordinates[0].slice(0, -1);
+            case 'MultiPoint': return geometry.coordinates;
+            default: return [];
+        }
+    }
+
+    _applyVertexMove(geometry, vertexIndex, newCoord) {
+        switch (geometry.type) {
+            case 'Point':
+                geometry.coordinates = newCoord;
+                break;
+            case 'LineString':
+                geometry.coordinates[vertexIndex] = newCoord;
+                break;
+            case 'Polygon':
+                geometry.coordinates[0][vertexIndex] = newCoord;
+                if (vertexIndex === 0) {
+                    geometry.coordinates[0][geometry.coordinates[0].length - 1] = [...newCoord];
+                }
+                break;
+            case 'MultiPoint':
+                geometry.coordinates[vertexIndex] = newCoord;
+                break;
+        }
+    }
+
+    _deleteSelected() {
+        if (this._selectedFeatureIndex === null) return;
+        const featureIndex = this._selectedFeatureIndex;
+        this._clearEditSelection();
+        this._updateActionButtons();
+
+        bus.emit('draw:featureDeleted', {
+            layerId: this._targetLayerId,
+            featureIndex
+        });
+
+        this._setHint('Feature deleted.');
+        logger.info('Draw', `Deleted feature at index ${featureIndex}`);
+    }
+
+    _updateActionButtons() {
+        if (!this._toolbar) return;
+        const delBtn = this._toolbar.querySelector('.draw-delete-btn');
+        if (delBtn) delBtn.style.display = this._selectedFeatureIndex !== null ? '' : 'none';
+    }
+
+    // ============================
+    // Undo last vertex
+    // ============================
+
+    _undoLastVertex() {
+        if (!this._tool || this._tool === 'point' || this._tool === 'select' || this._tool === 'rectangle') return;
+        if (this._vertices.length === 0) return;
+
+        this._vertices.pop();
+        if (this._vertexMarkers.length > 0) {
+            const m = this._vertexMarkers.pop();
+            try { m.remove(); } catch (_) {}
+        }
+        this._updatePreviewLine();
+        this._updateFinishBtn();
+        this._updateUndoBtn();
+
+        const n = this._vertices.length;
+        if (n === 0) {
+            this._setHint('Click to start drawing.');
+        } else {
+            this._setHint(`${n} vertex${n > 1 ? 'es' : ''} placed.`);
+        }
+    }
+
+    _updateUndoBtn() {
+        if (!this._toolbar) return;
+        const undoBtn = this._toolbar.querySelector('.draw-undo-btn');
+        if (undoBtn) {
+            const isDrawing = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length > 0;
+            undoBtn.style.display = isDrawing ? '' : 'none';
+        }
+    }
+
+    // ============================
+    // Rectangle tool
+    // ============================
+
+    _onRectClick(e) {
+        if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+        e._drawHandled = true;
+
+        if (this._finishing) return;
+
+        const coord = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this._rectCorner1) {
+            this._rectCorner1 = coord;
+            this._setHint('Click to set opposite corner.');
+        } else {
+            const c1 = this._rectCorner1;
+            const c2 = coord;
+            this._rectCorner1 = null;
+            this._removeRectPreview();
+
+            const minX = Math.min(c1[0], c2[0]);
+            const maxX = Math.max(c1[0], c2[0]);
+            const minY = Math.min(c1[1], c2[1]);
+            const maxY = Math.max(c1[1], c2[1]);
+
+            const rectCoords = [
+                [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]
+            ];
+
+            this._createFeature('Polygon', [rectCoords]);
+        }
+    }
+
+    _onRectMove(e) {
+        if (!this._rectCorner1) return;
+        this._updateRectPreview(e.lngLat);
+    }
+
+    _updateRectPreview(lngLat) {
+        this._removeRectPreview();
+        if (!this._rectCorner1) return;
+
+        const c1 = this._rectCorner1;
+        const c2 = [lngLat.lng, lngLat.lat];
+        const minX = Math.min(c1[0], c2[0]);
+        const maxX = Math.max(c1[0], c2[0]);
+        const minY = Math.min(c1[1], c2[1]);
+        const maxY = Math.max(c1[1], c2[1]);
+
+        const coords = [[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]];
+
+        const srcId = _nextDrawId('rect-preview');
+        this._rectPreviewSourceId = srcId;
+
+        this.map.addSource(srcId, {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } }
+        });
+
+        const lineId = srcId + '-outline';
+        this.map.addLayer({
+            id: lineId, type: 'line', source: srcId,
+            paint: {
+                'line-color': DRAW_STYLE.lineColor,
+                'line-width': DRAW_STYLE.lineWidth,
+                'line-dasharray': DRAW_STYLE.lineDasharray
+            }
+        });
+
+        const fillId = srcId + '-fill';
+        this.map.addLayer({
+            id: fillId, type: 'fill', source: srcId,
+            paint: { 'fill-color': DRAW_STYLE.fillColor, 'fill-opacity': DRAW_STYLE.fillOpacity }
+        });
+
+        this._rectPreviewLayerIds = [lineId, fillId];
+    }
+
+    _removeRectPreview() {
+        for (const lid of this._rectPreviewLayerIds) {
+            if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
+        }
+        this._rectPreviewLayerIds = [];
+        if (this._rectPreviewSourceId) {
+            if (this.map?.getSource(this._rectPreviewSourceId)) this.map.removeSource(this._rectPreviewSourceId);
+            this._rectPreviewSourceId = null;
+        }
+    }
+
+    // ============================
+    // Circle tool
+    // ============================
+
+    _onCircleClick(e) {
+        if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent._drawHandled = true; }
+        e._drawHandled = true;
+        if (this._finishing) return;
+
+        const coord = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this._circleCenter) {
+            this._circleCenter = coord;
+            this._setHint('Move to set radius, then click to finish.');
+        } else {
+            const center = turf.point(this._circleCenter);
+            const edge = turf.point(coord);
+            const radius = turf.distance(center, edge, { units: 'kilometers' });
+            if (radius < 0.001) return; // too small
+
+            const circle = turf.circle(this._circleCenter, radius, { steps: 64, units: 'kilometers' });
+            this._circleCenter = null;
+            this._removeCirclePreview();
+            this._createFeature('Polygon', circle.geometry.coordinates);
+        }
+    }
+
+    _onCircleMove(e) {
+        if (!this._circleCenter) return;
+        this._updateCirclePreview(e.lngLat);
+    }
+
+    _updateCirclePreview(lngLat) {
+        this._removeCirclePreview();
+        if (!this._circleCenter) return;
+
+        const center = turf.point(this._circleCenter);
+        const edge = turf.point([lngLat.lng, lngLat.lat]);
+        const radius = turf.distance(center, edge, { units: 'kilometers' });
+        if (radius < 0.0001) return;
+
+        const circle = turf.circle(this._circleCenter, radius, { steps: 64, units: 'kilometers' });
+
+        const srcId = _nextDrawId('circle-preview');
+        this._circlePreviewSourceId = srcId;
+
+        this.map.addSource(srcId, { type: 'geojson', data: circle });
+
+        const lineId = srcId + '-outline';
+        this.map.addLayer({
+            id: lineId, type: 'line', source: srcId,
+            paint: { 'line-color': DRAW_STYLE.lineColor, 'line-width': DRAW_STYLE.lineWidth, 'line-dasharray': DRAW_STYLE.lineDasharray }
+        });
+
+        const fillId = srcId + '-fill';
+        this.map.addLayer({
+            id: fillId, type: 'fill', source: srcId,
+            paint: { 'fill-color': DRAW_STYLE.fillColor, 'fill-opacity': DRAW_STYLE.fillOpacity }
+        });
+
+        this._circlePreviewLayerIds = [lineId, fillId];
+    }
+
+    _removeCirclePreview() {
+        for (const lid of this._circlePreviewLayerIds) {
+            if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
+        }
+        this._circlePreviewLayerIds = [];
+        if (this._circlePreviewSourceId) {
+            if (this.map?.getSource(this._circlePreviewSourceId)) this.map.removeSource(this._circlePreviewSourceId);
+            this._circlePreviewSourceId = null;
+        }
+    }
+
+    // ============================
+    // Sector (pie wedge) tool
+    // ============================
+
+    _onSectorClick(e) {
+        if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent._drawHandled = true; }
+        e._drawHandled = true;
+        if (this._finishing) return;
+
+        const coord = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this._sectorCenter) {
+            // Step 1: set center
+            this._sectorCenter = coord;
+            this._setHint('Click to set radius and start angle.');
+        } else if (this._sectorRadius === null) {
+            // Step 2: set radius + start angle
+            const center = turf.point(this._sectorCenter);
+            const edge = turf.point(coord);
+            const radius = turf.distance(center, edge, { units: 'kilometers' });
+            if (radius < 0.001) return;
+            this._sectorRadius = radius;
+            this._sectorStartAngle = turf.bearing(center, edge);
+            this._setHint('Move to set sweep, then click to finish sector.');
+        } else {
+            // Step 3: set end angle and create
+            const center = turf.point(this._sectorCenter);
+            const edge = turf.point(coord);
+            const endAngle = turf.bearing(center, edge);
+            const sectorCoords = this._buildSectorCoords(this._sectorCenter, this._sectorRadius, this._sectorStartAngle, endAngle);
+
+            this._sectorCenter = null;
+            this._sectorRadius = null;
+            this._sectorStartAngle = null;
+            this._removeSectorPreview();
+            this._createFeature('Polygon', [sectorCoords]);
+        }
+    }
+
+    _onSectorMove(e) {
+        if (!this._sectorCenter) return;
+        this._updateSectorPreview(e.lngLat);
+    }
+
+    _updateSectorPreview(lngLat) {
+        this._removeSectorPreview();
+        if (!this._sectorCenter) return;
+
+        const coord = [lngLat.lng, lngLat.lat];
+        const center = turf.point(this._sectorCenter);
+        const edge = turf.point(coord);
+        let geojson;
+
+        if (this._sectorRadius === null) {
+            // Preview: just a radius line from center to cursor
+            const radius = turf.distance(center, edge, { units: 'kilometers' });
+            if (radius < 0.0001) return;
+            geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: [this._sectorCenter, coord] } };
+        } else {
+            // Preview: the sector wedge
+            const endAngle = turf.bearing(center, edge);
+            const coords = this._buildSectorCoords(this._sectorCenter, this._sectorRadius, this._sectorStartAngle, endAngle);
+            geojson = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } };
+        }
+
+        const srcId = _nextDrawId('sector-preview');
+        this._sectorPreviewSourceId = srcId;
+        this.map.addSource(srcId, { type: 'geojson', data: geojson });
+
+        const lineId = srcId + '-outline';
+        this.map.addLayer({
+            id: lineId, type: 'line', source: srcId,
+            paint: { 'line-color': DRAW_STYLE.lineColor, 'line-width': DRAW_STYLE.lineWidth, 'line-dasharray': DRAW_STYLE.lineDasharray }
+        });
+        this._sectorPreviewLayerIds = [lineId];
+
+        if (this._sectorRadius !== null) {
+            const fillId = srcId + '-fill';
+            this.map.addLayer({
+                id: fillId, type: 'fill', source: srcId,
+                paint: { 'fill-color': DRAW_STYLE.fillColor, 'fill-opacity': DRAW_STYLE.fillOpacity }
+            });
+            this._sectorPreviewLayerIds.push(fillId);
+        }
+    }
+
+    _removeSectorPreview() {
+        for (const lid of this._sectorPreviewLayerIds) {
+            if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
+        }
+        this._sectorPreviewLayerIds = [];
+        if (this._sectorPreviewSourceId) {
+            if (this.map?.getSource(this._sectorPreviewSourceId)) this.map.removeSource(this._sectorPreviewSourceId);
+            this._sectorPreviewSourceId = null;
+        }
+    }
+
+    /**
+     * Build a closed polygon ring for a sector (pie wedge).
+     * Angles are Turf bearings (-180 to 180, north = 0, clockwise positive).
+     */
+    _buildSectorCoords(center, radiusKm, startBearing, endBearing) {
+        const steps = 48;
+        // Normalize bearings to 0–360
+        let s = ((startBearing % 360) + 360) % 360;
+        let e = ((endBearing % 360) + 360) % 360;
+        // Sweep clockwise from start to end
+        let sweep = e - s;
+        if (sweep <= 0) sweep += 360;
+
+        const coords = [center]; // start at center
+        for (let i = 0; i <= steps; i++) {
+            const bearing = s + (sweep * i / steps);
+            const pt = turf.destination(center, radiusKm, bearing, { units: 'kilometers' });
+            coords.push(pt.geometry.coordinates);
+        }
+        coords.push(center); // close back to center
+        return coords;
+    }
+
+    // ============================
     // Feature creation
     // ============================
 
     _finishDraw() {
-        this._finishing = true;
         if (this._tool === 'line' && this._vertices.length >= 2) {
             const coords = this._vertices.map(v => [v.lng, v.lat]);
             this._createFeature('LineString', coords);
@@ -469,10 +1055,11 @@ class DrawManager {
             coords.push(coords[0]);
             this._createFeature('Polygon', [coords]);
         }
-        this._finishing = false;
     }
 
     _createFeature(type, coordinates) {
+        this._finishing = true;
+
         const feature = {
             type: 'Feature',
             properties: {},
@@ -494,10 +1081,18 @@ class DrawManager {
 
         if (this._tool === 'point') {
             this._setHint('Point placed! Click again to add another.');
+            this.map.getCanvas().style.cursor = 'crosshair';
+            this._finishing = false;
         } else {
-            const currentTool = this._tool;
-            this.cancelDraw();
-            this.startTool(currentTool);
+            this._vertices = [];
+            this._vertexMarkers = [];
+            this._rectCorner1 = null;
+            this._updateFinishBtn();
+            this._updateUndoBtn();
+            this._setHint('Click to start a new shape.');
+            this.map.getCanvas().style.cursor = 'crosshair';
+            // Keep _finishing true briefly to block stray click events
+            setTimeout(() => { this._finishing = false; }, 300);
         }
     }
 }

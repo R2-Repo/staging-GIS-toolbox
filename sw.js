@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.31.8';
+const CACHE_VERSION = '1.31.10';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -139,7 +139,7 @@ self.addEventListener('install', (event) => {
     );
 });
 
-// Activate: delete old caches
+// Activate: delete old caches, then notify all open tabs to reload
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((keys) => {
@@ -150,6 +150,11 @@ self.addEventListener('activate', (event) => {
             );
         }).then(() => {
             return self.clients.claim();
+        }).then(() => {
+            // Tell every open tab that a new version is active
+            return self.clients.matchAll({ type: 'window' }).then((clients) => {
+                clients.forEach((client) => client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION }));
+            });
         })
     );
 });

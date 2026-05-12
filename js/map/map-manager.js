@@ -121,6 +121,9 @@ class MapManager {
         this.map.dragRotate.disable();
         this.map.touchZoomRotate.disableRotation();
 
+        // Snappier wheel zoom (MapLibre default wheel rate is 1/450)
+        this.map.scrollZoom.setWheelZoomRate(1 / 200);
+
         this.map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
         this.map.on('error', (e) => {

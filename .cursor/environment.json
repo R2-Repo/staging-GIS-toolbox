@@ -1,0 +1,17 @@
+{
+  "name": "gis-toolbox-static",
+  "install": "echo 'No dependencies to install (static HTML/JS site).'",
+  "ports": [
+    {
+      "name": "static-preview",
+      "port": 4173
+    }
+  ],
+  "terminals": [
+    {
+      "name": "static-server",
+      "command": "python3 -m http.server 4173 --bind 0.0.0.0",
+      "description": "Serves the repository root. Use forwarded port 4173 to open index.html in a browser for smoke tests."
+    }
+  ]
+}

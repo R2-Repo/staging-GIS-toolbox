@@ -506,7 +506,11 @@ class MapManager {
             }
         }
 
-        logger.info('Map', 'Layer added', { name: dataset.name, features: features.length });
+        logger.info('Map', 'Layer added', {
+            name: dataset.name,
+            featureCount: dataset.geojson.features.length,
+            renderParts: taggedFeatures.length
+        });
         bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
     }
 

@@ -1,11 +1,12 @@
 /**
  * KMZ exporter — zip of KML + optionally images, with styling & folders
  */
+import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { exportKML, geometryToKML, escapeXml } from './kml-exporter.js';
 
 export async function exportKMZ(dataset, options = {}, task) {
     if (typeof JSZip === 'undefined') {
-        throw new Error('JSZip library not loaded');
+        throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
     task?.updateProgress(20, 'Generating KML...');
@@ -32,8 +33,7 @@ export async function exportKMZ(dataset, options = {}, task) {
             const blob = _dataUrlToBlob(att.dataUrl);
             if (blob) {
                 filesFolder.file(att.zipName, blob);
-                // Replace inline data URL with relative file path in KML
-                kmlText = kmlText.replaceAll(att.dataUrl, `files/${att.zipName}`);
+                kmlText = _replaceDataUrlWithZipPath(kmlText, att.dataUrl, `files/${att.zipName}`);
             }
         }
     }
@@ -120,7 +120,9 @@ ${placemarks.join('\n')}
  */
 export async function exportMultiLayerKMZ(layers, options = {}, task) {
     const { exportMultiLayerKML } = await import('./kml-exporter.js');
-    if (typeof JSZip === 'undefined') throw new Error('JSZip library not loaded');
+    if (typeof JSZip === 'undefined') {
+        throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
+    }
 
     task?.updateProgress(20, 'Generating multi-layer KML...');
     const kmlResult = await exportMultiLayerKML(layers, options, task);
@@ -141,7 +143,7 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
             const blob = _dataUrlToBlob(att.dataUrl);
             if (blob) {
                 filesFolder.file(att.zipName, blob);
-                kmlText = kmlText.replaceAll(att.dataUrl, `files/${att.zipName}`);
+                kmlText = _replaceDataUrlWithZipPath(kmlText, att.dataUrl, `files/${att.zipName}`);
             }
         }
     }
@@ -157,6 +159,16 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
 
     task?.updateProgress(100, 'Done');
     return { blob };
+}
+
+/**
+ * Replace a data URL only in common KML embedding contexts (src=, <href>) to avoid corrupting other text.
+ */
+function _replaceDataUrlWithZipPath(kmlText, dataUrl, zipPath) {
+    const esc = dataUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let out = kmlText.replace(new RegExp(`src="${esc}"`, 'g'), `src="${zipPath}"`);
+    out = out.replace(new RegExp(`<href>\\s*${esc}\\s*</href>`, 'gi'), `<href>${zipPath}</href>`);
+    return out;
 }
 
 /**
@@ -196,13 +208,24 @@ function _dataUrlToBlob(dataUrl) {
 
 function buildDescTable(props) {
     if (!props) return '';
+    const cellVal = (v) => {
+        if (v && typeof v === 'object' && v._att) return null;
+        if (v != null && typeof v === 'object') {
+            try {
+                return JSON.stringify(v);
+            } catch {
+                return '(object)';
+            }
+        }
+        return String(v);
+    };
     return '<table>' + Object.entries(props)
         .filter(([k, v]) => v != null && v !== '' && !k.startsWith('_'))
         .map(([k, v]) => {
             if (v && typeof v === 'object' && v._att) {
                 return `<tr><td><b>${escapeXml(k)}</b></td><td>📎 ${escapeXml(v.name || 'attachment')}</td></tr>`;
             }
-            return `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(String(v))}</td></tr>`;
+            return `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(cellVal(v))}</td></tr>`;
         })
         .join('') + '</table>';
 }

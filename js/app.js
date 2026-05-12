@@ -11,7 +11,7 @@ import {
 } from './core/state.js';
 import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from './core/data-model.js';
 import { importFile, importFiles } from './import/importer.js';
-import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, setExportMapManager } from './export/exporter.js';
+import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
 import { showToast, showErrorToast } from './ui/toast.js';
 import { showModal, confirm, showProgressModal } from './ui/modals.js';
@@ -322,6 +322,16 @@ async function handleFileImport(files, fenceBbox = null) {
             const fenceNote = fenceBbox && totalFiltered > 0 ? ` (${totalFiltered} features outside fence excluded)` : '';
             showToast(`Imported ${expanded.length} layer(s)${fenceNote}`, 'success');
             refreshUI();
+        }
+        for (const ds of expanded) {
+            if (ds._importWarning) {
+                showToast(ds._importWarning, 'warning');
+            }
+        }
+        for (const ds of expanded) {
+            if (ds._networkLinkHrefs?.length) {
+                await _promptNetworkLinkAfterImport(ds);
+            }
         }
         if (errors.length > 0) {
             for (const err of errors) {
@@ -4048,6 +4058,73 @@ async function openArcGISImporter() {
     });
 }
 
+function _escapeHtmlModal(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/**
+ * After importing KML with NetworkLink but no features, offer best-effort fetch of http(s) links.
+ */
+async function _promptNetworkLinkAfterImport(dataset) {
+    const hrefs = dataset._networkLinkHrefs || [];
+    if (!hrefs.length) return;
+
+    const list = hrefs.map(h =>
+        `<li style="word-break:break-all;font-size:11px;">${_escapeHtmlModal(h)}</li>`
+    ).join('');
+
+    const html = `<p>This KML references external content via <strong>NetworkLink</strong>. In the browser, only URLs that allow cross-origin access can be loaded automatically; many public servers block this.</p>
+        <ul style="max-height:180px;overflow:auto;margin:8px 0;padding-left:18px;">${list}</ul>
+        <p class="text-xs text-muted">Only <code>http:</code> / <code>https:</code> links are fetched here. Paths inside a KMZ are not resolved from this dialog.</p>`;
+
+    await showModal('Network links in KML', html, {
+        width: '520px',
+        footer: `<button type="button" class="btn btn-secondary nl-dismiss">Not now</button>
+                 <button type="button" class="btn btn-primary nl-fetch">Fetch HTTP(S) links</button>`,
+        onMount: (overlay, close) => {
+            overlay.querySelector('.nl-dismiss').onclick = () => close();
+            overlay.querySelector('.nl-fetch').onclick = async () => {
+                const btn = overlay.querySelector('.nl-fetch');
+                btn.disabled = true;
+                btn.textContent = 'Fetching…';
+                try {
+                    const { mergeNetworkLinksIntoDataset } = await import('./import/kml-networklink.js');
+                    const { TaskRunner } = await import('./core/task-runner.js');
+                    const task = new TaskRunner('Network links', 'Import');
+                    const { failures, skippedRelative, addedFeatures, totalFeatures } =
+                        await mergeNetworkLinksIntoDataset(dataset, hrefs, task);
+
+                    const layerIdx = getLayers().indexOf(dataset);
+                    mapManager.removeLayer(dataset.id);
+                    mapManager.addLayer(dataset, Math.max(0, layerIdx), { fit: totalFeatures > 0 });
+                    refreshUI();
+
+                    let msg = `Merged network links: ${addedFeatures} new feature(s); ${totalFeatures} total in layer.`;
+                    if (skippedRelative.length) {
+                        msg += ` Skipped ${skippedRelative.length} relative URL(s).`;
+                    }
+                    if (failures.length) {
+                        showToast(`${msg} ${failures.length} link(s) failed (see log).`, 'warning');
+                        failures.forEach(f => logger.warn('Import', 'NetworkLink fetch failed', { href: f.href, reason: f.reason }));
+                    } else if (skippedRelative.length) {
+                        showToast(msg, 'warning');
+                    } else {
+                        showToast(msg, 'success');
+                    }
+                } catch (e) {
+                    showErrorToast(handleError(e, 'Import', 'networklink'));
+                } finally {
+                    close();
+                }
+            };
+        }
+    });
+}
+
 // ============================
 // Export handler
 // ============================
@@ -4063,17 +4140,22 @@ async function doExport(format) {
         if (choice === 'active') {
             // fall through to single-layer export below
         } else if (Array.isArray(choice)) {
-            // Multi-layer export
+            // Multi-layer export — honor chosen format (KML vs KMZ)
             try {
                 const layerData = choice.map(ds => ({
                     dataset: ds,
                     style: mapManager.getLayerStyle(ds.id) || {}
                 }));
                 const fname = choice.length === allLayers.length ? 'All_Layers' : choice.map(l => l.name).join('_').slice(0, 60);
-                await exportMultiLayerKMZFile(layerData, { filename: fname });
-                showToast(`Exported ${choice.length} layers as KMZ`, 'success');
+                if (format === 'kml') {
+                    await exportMultiLayerKMLFile(layerData, { filename: fname });
+                    showToast(`Exported ${choice.length} layers as KML`, 'success');
+                } else {
+                    await exportMultiLayerKMZFile(layerData, { filename: fname });
+                    showToast(`Exported ${choice.length} layers as KMZ`, 'success');
+                }
             } catch (e) {
-                showErrorToast(handleError(e, 'Export', 'multi-kmz'));
+                showErrorToast(handleError(e, 'Export', 'multi-kml-kmz'));
             }
             return;
         }
@@ -4111,14 +4193,15 @@ async function _showKmzExportPicker(allLayers, activeLayer, format) {
         </label>`;
     }).join('');
 
+    const ext = format === 'kml' ? 'kml' : 'kmz';
     const html = `
-        <p style="margin-bottom:12px;">Export <strong>${activeLayer.name}</strong> only, or select layers to combine into a single ${fmtLabel} with a folder per layer.</p>
+        <p style="margin-bottom:12px;">Export <strong>${activeLayer.name}</strong> only, or select layers to combine into a single <strong>.${ext}</strong> with one folder per layer.</p>
         <div class="merge-layer-list" id="kmz-layer-list">${checkboxes}</div>`;
 
     return showModal(`Export ${fmtLabel}`, html, {
         footer: `<button class="btn btn-secondary cancel-btn">Cancel</button>
-                 <button class="btn btn-secondary active-only-btn">Active Layer Only</button>
-                 <button class="btn btn-primary multi-btn">Export Selected as Folders</button>`,
+                 <button class="btn btn-secondary active-only-btn">Active layer only</button>
+                 <button class="btn btn-primary multi-btn">Export selected (multi-folder)</button>`,
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close(null);
             overlay.querySelector('.active-only-btn').onclick = () => close('active');
@@ -4855,7 +4938,7 @@ function showToolInfo() {
                 ['Fields Panel', 'View, search, select/deselect, rename, or add new fields on the active layer.'],
                 ['Field Types', 'Text, Number, Boolean, Date, and Attach Photo. Photo fields let you attach images to individual features with inline previews. Photos are embedded when exported as KML/KMZ only.'],
                 ['Feature Selection', 'Click the ✦ Select button to enter selection mode. Click features to select them (cyan highlight). Shift+click to add/remove. Ctrl+drag to box-select. Tools operate on selected features when a selection exists, or all features when nothing is selected.'],
-                ['Merge Layers', 'Select which layers to combine into a single layer. A source_file field is added so you can tell which features came from which original layer. Useful for exporting multiple layers into one KMZ with folders.'],
+                ['Merge Layers', 'Select which layers to combine into a single layer. A source_file field is added so you can tell which features came from which original layer. Useful for exporting multiple layers into one KML or KMZ with folders.'],
                 ['Data Table', 'View the raw attribute table for the active layer.']
             ]
         },
@@ -4938,8 +5021,8 @@ function showToolInfo() {
                 ['GeoJSON', 'Export spatial data as a .geojson file.'],
                 ['CSV', 'Export attributes as a comma-separated .csv file.'],
                 ['Excel', 'Export attributes as an .xlsx spreadsheet.'],
-                ['KML', 'Export spatial data as a .kml file (Google Earth). Layer styles are preserved.'],
-                ['KMZ', 'Export as .kmz (compressed KML) with styles. When 2+ layers exist, choose to export just the active layer or select multiple layers — each becomes its own folder in the KMZ with its own styling. Can also include embedded photos.'],
+                ['KML', 'Export spatial data as a .kml file (Google Earth). Layer styles are preserved. With two or more layers, you can export a single multi-folder .kml.'],
+                ['KMZ', 'Export as .kmz (compressed KML) with styles. With two or more layers, you can export a single multi-folder .kmz (same folder-per-layer behavior as KML). Can include embedded photos.'],
                 ['JSON', 'Export raw data as a .json file.'],
                 ['Shapefile', 'Export spatial data as a zipped Shapefile (.shp).']
             ]
@@ -4957,7 +5040,7 @@ function showToolInfo() {
             title: 'Workflows',
             tools: [
                 ['Multi-Layer KMZ', 'Import your layers, style each one independently, then Export → KMZ. A picker lets you select which layers to include — each becomes its own folder in the KMZ with its own styling. No merge needed.'],
-                ['Merge → Export', 'Use Merge Layers to combine selected layers into one. The merged layer gets a source_file field tracking each feature\'s origin. When exported as KML/KMZ, features are auto-grouped into folders by source layer name.'],
+                ['Merge → Export', 'Use Merge Layers to combine selected layers into one. The merged layer gets a source_file field tracking each feature\'s origin. When exported as KML or KMZ, features are auto-grouped into folders by source layer name.'],
                 ['Mixed Geometry', 'When you import a file with mixed geometry types (points + lines + polygons), they are automatically split into separate layers so you can style each type independently.']
             ]
         },

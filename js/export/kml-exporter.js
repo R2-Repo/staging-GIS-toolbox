@@ -74,14 +74,33 @@ function _buildPlacemark(f, idx, styleUrl) {
     </Placemark>`;
 }
 
+function _geometryCategories(geom) {
+    const s = new Set();
+    if (!geom) return s;
+    if (geom.type === 'GeometryCollection') {
+        for (const g of geom.geometries || []) {
+            for (const c of _geometryCategories(g)) s.add(c);
+        }
+        return s;
+    }
+    if (geom.type === 'Point' || geom.type === 'MultiPoint') s.add('point');
+    else if (geom.type === 'LineString' || geom.type === 'MultiLineString') s.add('line');
+    else if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') s.add('polygon');
+    return s;
+}
+
+function _primaryGeomGroup(geom) {
+    const cats = _geometryCategories(geom);
+    if (cats.has('point')) return 'point';
+    if (cats.has('line')) return 'line';
+    if (cats.has('polygon')) return 'polygon';
+    return 'polygon';
+}
+
 function _hasMultipleGeomTypes(features) {
     const cats = new Set();
     for (const f of features) {
-        const t = f.geometry?.type;
-        if (!t) continue;
-        if (t === 'Point' || t === 'MultiPoint') cats.add('point');
-        else if (t === 'LineString' || t === 'MultiLineString') cats.add('line');
-        else if (t === 'Polygon' || t === 'MultiPolygon') cats.add('polygon');
+        for (const c of _geometryCategories(f.geometry)) cats.add(c);
         if (cats.size > 1) return true;
     }
     return false;
@@ -90,11 +109,8 @@ function _hasMultipleGeomTypes(features) {
 function _groupByGeomType(features) {
     const groups = { point: [], line: [], polygon: [] };
     for (const f of features) {
-        const t = f.geometry?.type;
-        if (!t) continue;
-        if (t === 'Point' || t === 'MultiPoint') groups.point.push(f);
-        else if (t === 'LineString' || t === 'MultiLineString') groups.line.push(f);
-        else groups.polygon.push(f);
+        const g = _primaryGeomGroup(f.geometry);
+        groups[g].push(f);
     }
     return groups;
 }
@@ -156,12 +172,31 @@ function _kmlStyleEl(id, s, includeIcon) {
  * Convert hex color (#RRGGBB) + opacity (0-1) to KML AABBGGRR format
  */
 function _hexToKmlColor(hex, opacity) {
-    const h = hex.replace('#', '');
+    let h = String(hex || '#2563eb').replace('#', '').trim();
+    if (h.length === 3 && /^[0-9a-fA-F]{3}$/.test(h)) {
+        h = h.split('').map(c => c + c).join('');
+    }
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) {
+        h = '2563eb';
+    }
     const r = h.substring(0, 2);
     const g = h.substring(2, 4);
     const b = h.substring(4, 6);
     const a = Math.round((opacity ?? 1) * 255).toString(16).padStart(2, '0');
     return `${a}${b}${g}${r}`.toLowerCase();
+}
+
+function _formatDescriptionValue(v) {
+    if (v == null) return '';
+    if (typeof v === 'object') {
+        if (v._att) return v.name || 'attachment';
+        try {
+            return JSON.stringify(v);
+        } catch {
+            return '(object)';
+        }
+    }
+    return String(v);
 }
 
 function buildDescription(props) {
@@ -173,7 +208,6 @@ function buildDescription(props) {
     const rows = Object.entries(props)
         .filter(([k, v]) => v != null && v !== '' && !k.startsWith('_'))
         .map(([k, v]) => {
-            // Handle attachment objects
             if (v && typeof v === 'object' && v._att) {
                 const isImage = v.type?.startsWith('image/');
                 if (isImage && v.dataUrl) {
@@ -181,7 +215,7 @@ function buildDescription(props) {
                 }
                 return `<tr><td><b>${escapeXml(k)}</b></td><td>📎 ${escapeXml(v.name || 'attachment')}</td></tr>`;
             }
-            return `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(String(v))}</td></tr>`;
+            return `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(_formatDescriptionValue(v))}</td></tr>`;
         })
         .join('');
     return `${imgHtml}<table>${rows}</table>`;
@@ -212,6 +246,12 @@ function geometryToKML(geom) {
                     `<${i === 0 ? 'outerBoundaryIs' : 'innerBoundaryIs'}><LinearRing><coordinates>${ring.map(c => `${c[0]},${c[1]},${c[2] || 0}`).join(' ')}</coordinates></LinearRing></${i === 0 ? 'outerBoundaryIs' : 'innerBoundaryIs'}>`
                 ).join('')}</Polygon>`
             ).join('')}</MultiGeometry>`;
+        case 'GeometryCollection': {
+            const parts = (geom.geometries || []).map(g => geometryToKML(g)).filter(Boolean);
+            if (parts.length === 0) return '';
+            if (parts.length === 1) return parts[0];
+            return `<MultiGeometry>${parts.join('')}</MultiGeometry>`;
+        }
         default:
             return '';
     }

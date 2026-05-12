@@ -4,13 +4,19 @@
  */
 import { createSpatialDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { collectNetworkLinkHrefs } from './kml-networklink.js';
 
-export async function importKML(file, task) {
+/**
+ * @param {File|string} file - File or KML string (e.g. from KMZ)
+ * @param {import('../core/task-runner.js').TaskRunner} task
+ * @param {{ sourceFileName?: string }} [meta]
+ */
+export async function importKML(file, task, meta = {}) {
     task.updateProgress(20, 'Reading KML...');
 
     let text;
     if (typeof file === 'string') {
-        text = file; // Already text (from KMZ extraction)
+        text = file;
     } else {
         text = await file.text();
     }
@@ -27,7 +33,6 @@ export async function importKML(file, task) {
         });
     }
 
-    // Use toGeoJSON library (loaded via CDN)
     if (typeof toGeoJSON === 'undefined') {
         throw new AppError('toGeoJSON library not loaded', ErrorCategory.PARSE_FAILED);
     }
@@ -39,24 +44,39 @@ export async function importKML(file, task) {
         throw new AppError('Failed to convert KML to GeoJSON: ' + e.message, ErrorCategory.PARSE_FAILED);
     }
 
-    if (!geojson.features || geojson.features.length === 0) {
-        throw new AppError('KML file contains no features', ErrorCategory.PARSE_FAILED);
+    if (!geojson || !Array.isArray(geojson.features)) {
+        geojson = { type: 'FeatureCollection', features: [] };
     }
+
+    const networkHrefs = collectNetworkLinkHrefs(kmlDoc);
+    const featCount = geojson.features.length;
 
     task.updateProgress(80, 'Extracting styles...');
 
-    // Extract KML styles — toGeoJSON puts them in feature properties
-    const kmlStyle = _extractKmlStyle(geojson.features);
+    const kmlStyle = featCount > 0 ? _extractKmlStyle(geojson.features) : null;
 
     task.updateProgress(90, 'Building dataset...');
-    const name = typeof file === 'string' ? 'KML_Layer' : file.name.replace(/\.(kml|xml)$/i, '');
-    const dataset = createSpatialDataset(name, geojson, {
-        file: typeof file === 'string' ? 'extracted.kml' : file.name,
+    const defaultName = typeof file === 'string'
+        ? (meta.sourceFileName || 'KML_Layer').replace(/\.(kml|xml|kmz)$/i, '')
+        : file.name.replace(/\.(kml|xml)$/i, '');
+    const sourceFile = typeof file === 'string'
+        ? (meta.sourceFileName || 'extracted.kml')
+        : file.name;
+
+    const dataset = createSpatialDataset(defaultName, geojson, {
+        file: sourceFile,
         format: 'kml'
     });
 
-    // Attach extracted style so the app can apply it on addLayer
     if (kmlStyle) dataset._kmlStyle = kmlStyle;
+
+    if (featCount === 0 && networkHrefs.length > 0) {
+        dataset._networkLinkHrefs = networkHrefs;
+        dataset._importWarning =
+            'KML has no direct features but contains network links. You can try resolving them (CORS may block some URLs).';
+    } else if (featCount === 0) {
+        dataset._importWarning = 'KML contains no placemarks or geometries. An empty layer was created.';
+    }
 
     return dataset;
 }
@@ -70,7 +90,6 @@ function _extractKmlStyle(features) {
     let strokeColor = null, fillColor = null;
     let strokeWidth = null, strokeOpacity = null, fillOpacity = null;
 
-    // Sample from first features that have style properties
     for (const f of features) {
         const p = f.properties || {};
         if (!strokeColor && p.stroke) strokeColor = p.stroke;
@@ -78,11 +97,9 @@ function _extractKmlStyle(features) {
         if (strokeWidth == null && p['stroke-width'] != null) strokeWidth = parseFloat(p['stroke-width']);
         if (strokeOpacity == null && p['stroke-opacity'] != null) strokeOpacity = parseFloat(p['stroke-opacity']);
         if (fillOpacity == null && p['fill-opacity'] != null) fillOpacity = parseFloat(p['fill-opacity']);
-        // Once we have all properties, stop scanning
         if (strokeColor && fillColor && strokeWidth != null && strokeOpacity != null && fillOpacity != null) break;
     }
 
-    // Only return if we found any style info
     if (!strokeColor && !fillColor && strokeWidth == null) return null;
 
     const style = {};

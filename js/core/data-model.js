@@ -217,6 +217,26 @@ export function applyFieldSelection(features, schema) {
 }
 
 /**
+ * Expand a feature whose geometry is a GeometryCollection into one feature per child geometry.
+ * Nested GeometryCollections are flattened recursively.
+ * @param {import('geojson').Feature} feature
+ * @returns {import('geojson').Feature[]}
+ */
+export function flattenFeatureGeometryCollections(feature) {
+    const g = feature.geometry;
+    if (!g || g.type !== 'GeometryCollection') return [feature];
+    const parts = g.geometries || [];
+    if (parts.length === 0) return [];
+    return parts.flatMap(child => {
+        if (!child) return [];
+        if (child.type === 'GeometryCollection') {
+            return flattenFeatureGeometryCollections({ ...feature, geometry: child });
+        }
+        return [{ ...feature, geometry: child }];
+    });
+}
+
+/**
  * Merge multiple spatial datasets into one
  */
 export function mergeDatasets(datasets, addSourceField = true) {
@@ -254,13 +274,14 @@ export function splitByGeometryType(dataset) {
     const groups = { point: [], line: [], polygon: [] };
     const labels = { point: 'Points', line: 'Lines', polygon: 'Polygons' };
 
-    for (const f of features) {
+    const flatFeatures = features.flatMap(f => flattenFeatureGeometryCollections(f));
+    for (const f of flatFeatures) {
         const t = f.geometry?.type;
         if (!t) continue;
         if (t === 'Point' || t === 'MultiPoint') groups.point.push(f);
         else if (t === 'LineString' || t === 'MultiLineString') groups.line.push(f);
         else if (t === 'Polygon' || t === 'MultiPolygon') groups.polygon.push(f);
-        else groups.polygon.push(f); // GeometryCollection → polygon bucket
+        // Unknown types (e.g. future GeoJSON extensions) are skipped rather than mis-bucketed.
     }
 
     const populated = Object.entries(groups).filter(([, feats]) => feats.length > 0);
@@ -279,5 +300,5 @@ export function splitByGeometryType(dataset) {
 export default {
     createSpatialDataset, createTableDataset, tableToSpatial, spatialToTable,
     analyzeSchema, analyzeTableSchema, getSelectedFields, applyFieldSelection,
-    mergeDatasets, splitByGeometryType
+    mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections
 };

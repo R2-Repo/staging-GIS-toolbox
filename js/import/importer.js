@@ -12,6 +12,26 @@ import { importKMZ } from './kmz-importer.js';
 import { importShapefile } from './shapefile-importer.js';
 import { importJSON } from './json-importer.js';
 
+function _xmlTextLooksLikeKml(text) {
+    const head = text.trim().slice(0, 12000);
+    if (/<kml[\s/>]/i.test(head)) return true;
+    if (/http:\/\/www\.opengis\.net\/kml\/2\.[0-3]/i.test(head)) return true;
+    if (/urn:googleearth:documentation:/i.test(head)) return true;
+    return false;
+}
+
+async function importXML(file, task) {
+    const text = await file.text();
+    if (!_xmlTextLooksLikeKml(text)) {
+        throw new AppError(
+            'This XML file does not appear to be KML. Expected a root <kml> element (OGC KML namespace).',
+            ErrorCategory.UNSUPPORTED_FORMAT,
+            { fileName: file.name }
+        );
+    }
+    return importKML(text, task, { sourceFileName: file.name });
+}
+
 const FORMAT_MAP = {
     'geojson': importGeoJSON,
     'json': importJSON,
@@ -23,7 +43,7 @@ const FORMAT_MAP = {
     'kml': importKML,
     'kmz': importKMZ,
     'zip': importShapefile, // Assume zipped shapefile
-    'xml': importKML // try KML parser first
+    'xml': importXML
 };
 
 export function detectFormat(file) {

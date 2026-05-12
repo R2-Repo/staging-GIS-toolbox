@@ -1,0 +1,27 @@
+---
+description: GIS Toolbox stack, layout, and editing conventions
+globs:
+alwaysApply: true
+---
+
+# GIS Toolbox — project rules
+
+## Stack
+
+- Static site: `index.html` loads ES module entry `js/app.js`.
+- No npm/build pipeline in-repo; do not introduce one unless explicitly requested.
+- Map: MapLibre (CDN in HTML). GIS workflows, import/export, and a visual pipeline editor live under `js/`.
+
+## Where to change what
+
+- App bootstrap and global UI wiring: `js/app.js` (large file — search for feature-specific handlers before adding sprawling logic).
+- Shared state and layers: `js/core/state.js`, `js/core/data-model.js`.
+- New import/export formats: `js/import/` or `js/export/` plus registration in the importer/exporter entry modules.
+- Pipeline nodes: `js/workflow/nodes/` and related palette/engine files.
+- Styling: `css/`; mobile behavior also uses `css/mobile.css` and responsive patterns in JS.
+
+## Quality bar
+
+- Preserve existing error handling (`handleError`, toasts, logger).
+- Match surrounding code style (semicolons, quote style, comment density).
+- After map or import/export changes, sanity-check in a browser via a local static server (`python3 -m http.server` from repo root).

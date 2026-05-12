@@ -1,0 +1,16 @@
+# Cursor indexing / @-context: keep noise and machine-local paths out of agent context.
+# (Does not replace .gitignore for version control.)
+
+.git/
+**/.git/
+
+# Editor and swap debris
+*.swp
+*.swo
+*~
+
+# Local dependency trees if someone runs npm/yarn experimentally
+node_modules/
+
+# Backup files — prefer deleting over editing
+**/*.bak

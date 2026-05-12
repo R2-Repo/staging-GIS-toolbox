@@ -218,7 +218,9 @@ export function applyFieldSelection(features, schema) {
 
 /**
  * Expand a feature whose geometry is a GeometryCollection into one feature per child geometry.
- * Nested GeometryCollections are flattened recursively.
+ * Nested GeometryCollections are flattened recursively. When a Placemark splits into multiple
+ * parts (typical KML MultiGeometry), the GeoJSON `id` is omitted on those parts so MapLibre does
+ * not receive many features with the same id (which can suppress line rendering).
  * @param {import('geojson').Feature} feature
  * @returns {import('geojson').Feature[]}
  */
@@ -227,12 +229,24 @@ export function flattenFeatureGeometryCollections(feature) {
     if (!g || g.type !== 'GeometryCollection') return [feature];
     const parts = g.geometries || [];
     if (parts.length === 0) return [];
+    // One child: unwrap but keep a single GeoJSON id (still one map feature).
+    if (parts.length === 1) {
+        const only = parts[0];
+        if (!only) return [];
+        if (only.type === 'GeometryCollection') {
+            return flattenFeatureGeometryCollections({ ...feature, geometry: only });
+        }
+        return [{ ...feature, geometry: only }];
+    }
+    // KML MultiGeometry → many parts share the same Placemark id. MapLibre's GeoJSON
+    // tiling treats duplicate feature ids badly (lines can disappear); drop id here.
+    const { id: _dropDuplicatePlacemarkId, ...featureSansId } = feature;
     return parts.flatMap(child => {
         if (!child) return [];
         if (child.type === 'GeometryCollection') {
-            return flattenFeatureGeometryCollections({ ...feature, geometry: child });
+            return flattenFeatureGeometryCollections({ ...featureSansId, geometry: child });
         }
-        return [{ ...feature, geometry: child }];
+        return [{ ...featureSansId, geometry: child }];
     });
 }
 

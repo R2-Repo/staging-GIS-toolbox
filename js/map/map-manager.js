@@ -579,14 +579,18 @@ class MapManager {
         const source = this.map?.getSource(entry.sourceId);
         if (!source) return;
 
-        const features = dataset.geojson.features.filter(f => f.geometry).map(f => {
-            const origIndex = dataset.geojson.features.indexOf(f);
-            return {
-                ...f,
-                properties: { ...(f.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
-            };
-        });
-        const geojson = { type: 'FeatureCollection', features };
+        const taggedFeatures = [];
+        for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
+            const f = dataset.geojson.features[origIndex];
+            if (!f.geometry) continue;
+            for (const part of flattenFeatureGeometryCollections(f)) {
+                taggedFeatures.push({
+                    ...part,
+                    properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+                });
+            }
+        }
+        const geojson = { type: 'FeatureCollection', features: taggedFeatures };
         source.setData(geojson);
         entry.geojson = geojson;
     }

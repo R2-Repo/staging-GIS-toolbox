@@ -29,10 +29,9 @@ const LAYER_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0
 
 const POINT_SYMBOL_NAMES = ['circle', 'square', 'triangle', 'diamond', 'star', 'pin'];
 
-/** MapLibre filter: feature geometry type is one of the given GeoJSON types */
+/** MapLibre filter (boolean expression): geometry-type is one of the given GeoJSON types */
 function _geomTypesFilter(types) {
-    if (types.length === 1) return ['==', '$type', types[0]];
-    return ['any', ...types.map(t => ['==', '$type', t])];
+    return ['in', ['geometry-type'], ['literal', types]];
 }
 
 /** Create an SVG string for a given point symbol shape */
@@ -1938,7 +1937,7 @@ class MapManager {
                     id: this._measureLayerId,
                     type: 'line',
                     source: this._measureSourceId,
-                    filter: ['==', '$type', 'LineString'],
+                    filter: ['in', ['geometry-type'], ['literal', ['LineString']]],
                     paint: {
                         'line-color': '#ff6600',
                         'line-width': 2.5,
@@ -1949,7 +1948,7 @@ class MapManager {
                     id: this._measureNodeLayerId,
                     type: 'circle',
                     source: this._measureSourceId,
-                    filter: ['==', '$type', 'Point'],
+                    filter: ['in', ['geometry-type'], ['literal', ['Point']]],
                     paint: {
                         'circle-radius': 4.5,
                         'circle-color': '#ff6600',

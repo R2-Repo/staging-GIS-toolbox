@@ -216,6 +216,10 @@ export function applyFieldSelection(features, schema) {
     });
 }
 
+function _isGeometryCollection(geom) {
+    return !!(geom && typeof geom.type === 'string' && geom.type.toLowerCase() === 'geometrycollection');
+}
+
 /**
  * Expand a feature whose geometry is a GeometryCollection into one feature per child geometry.
  * Nested GeometryCollections are flattened recursively. When a Placemark splits into multiple
@@ -226,14 +230,14 @@ export function applyFieldSelection(features, schema) {
  */
 export function flattenFeatureGeometryCollections(feature) {
     const g = feature.geometry;
-    if (!g || g.type !== 'GeometryCollection') return [feature];
+    if (!_isGeometryCollection(g)) return [feature];
     const parts = g.geometries || [];
     if (parts.length === 0) return [];
     // One child: unwrap but keep a single GeoJSON id (still one map feature).
     if (parts.length === 1) {
         const only = parts[0];
         if (!only) return [];
-        if (only.type === 'GeometryCollection') {
+        if (_isGeometryCollection(only)) {
             return flattenFeatureGeometryCollections({ ...feature, geometry: only });
         }
         return [{ ...feature, geometry: only }];
@@ -243,11 +247,22 @@ export function flattenFeatureGeometryCollections(feature) {
     const { id: _dropDuplicatePlacemarkId, ...featureSansId } = feature;
     return parts.flatMap(child => {
         if (!child) return [];
-        if (child.type === 'GeometryCollection') {
+        if (_isGeometryCollection(child)) {
             return flattenFeatureGeometryCollections({ ...featureSansId, geometry: child });
         }
         return [{ ...featureSansId, geometry: child }];
     });
+}
+
+/**
+ * Explode every GeometryCollection in a FeatureCollection into simple geometries (one feature per part).
+ * @param {import('geojson').FeatureCollection} fc
+ * @returns {import('geojson').FeatureCollection}
+ */
+export function explodeGeometryCollectionsInFeatureCollection(fc) {
+    if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) return fc;
+    const features = fc.features.flatMap(f => flattenFeatureGeometryCollections(f));
+    return { ...fc, features };
 }
 
 /**
@@ -314,5 +329,6 @@ export function splitByGeometryType(dataset) {
 export default {
     createSpatialDataset, createTableDataset, tableToSpatial, spatialToTable,
     analyzeSchema, analyzeTableSchema, getSelectedFields, applyFieldSelection,
-    mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections
+    mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections,
+    explodeGeometryCollectionsInFeatureCollection
 };

@@ -2,7 +2,7 @@
  * NetworkLink helpers — detect & optionally merge linked KML (best effort; CORS often blocks).
  */
 import { AppError, ErrorCategory } from '../core/error-handler.js';
-import { analyzeSchema } from '../core/data-model.js';
+import { analyzeSchema, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
 
 const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -133,7 +133,7 @@ export async function mergeNetworkLinksIntoDataset(dataset, hrefs, task) {
         }
     }
 
-    const fc = { type: 'FeatureCollection', features: merged };
+    const fc = explodeGeometryCollectionsInFeatureCollection({ type: 'FeatureCollection', features: merged });
     dataset.geojson = fc;
     dataset.schema = analyzeSchema(fc);
     delete dataset._networkLinkHrefs;

@@ -114,15 +114,20 @@ class MapManager {
             attributionControl: true,
             maxPitch: 85,
             dragRotate: false,
-            touchZoomRotate: true
+            touchZoomRotate: true,
+            // Keep parent-zoom tiles visible while zooming in so motion feels smooth
+            // (default true cancels them and details pop in abruptly).
+            cancelPendingTileRequestsWhileZooming: false
         });
 
         // Disable right-click rotate and touch rotation (keeps zoom gestures)
         this.map.dragRotate.disable();
         this.map.touchZoomRotate.disableRotation();
 
-        // Snappier wheel zoom (MapLibre default wheel rate is 1/450)
-        this.map.scrollZoom.setWheelZoomRate(1 / 200);
+        // Scroll zoom: MapLibre uses setWheelZoomRate for mouse wheels and setZoomRate
+        // for trackpads / small deltas — setting only the wheel rate leaves laptops unchanged.
+        this.map.scrollZoom.setZoomRate(1 / 48);
+        this.map.scrollZoom.setWheelZoomRate(1 / 110);
 
         this.map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 

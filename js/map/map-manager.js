@@ -4,6 +4,7 @@
  */
 import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
+import { flattenFeatureGeometryCollections } from '../core/data-model.js';
 
 const BASEMAPS = {
     voyager: {
@@ -27,6 +28,12 @@ const BASEMAPS = {
 const LAYER_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
 
 const POINT_SYMBOL_NAMES = ['circle', 'square', 'triangle', 'diamond', 'star', 'pin'];
+
+/** MapLibre filter: feature geometry type is one of the given GeoJSON types */
+function _geomTypesFilter(types) {
+    if (types.length === 1) return ['==', '$type', types[0]];
+    return ['any', ...types.map(t => ['==', '$type', t])];
+}
 
 /** Create an SVG string for a given point symbol shape */
 function _makeSymbolSVG(shape, color, fillColor, size, opacity) {
@@ -327,20 +334,31 @@ class MapManager {
 
         if (!stored) this._layerStyles.set(dataset.id, { ...sty });
 
-        const features = dataset.geojson.features.filter(f => f.geometry);
-        if (features.length === 0) {
-            logger.info('Map', 'No geometries to display', { layer: dataset.name });
-            return;
+        const taggedFeatures = [];
+        for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
+            const f = dataset.geojson.features[origIndex];
+            if (!f.geometry) continue;
+            for (const part of flattenFeatureGeometryCollections(f)) {
+                taggedFeatures.push({
+                    ...part,
+                    properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+                });
+            }
         }
 
-        // Tag features with index and dataset id
-        const taggedFeatures = features.map(f => {
-            const origIndex = dataset.geojson.features.indexOf(f);
-            return {
-                ...f,
-                properties: { ...(f.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
-            };
-        });
+        if (taggedFeatures.length === 0) {
+            const sourceId = `src-${dataset.id}`;
+            this.map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            this.dataLayers.set(dataset.id, {
+                sourceId,
+                layerIds: [],
+                geojson: { type: 'FeatureCollection', features: [] }
+            });
+            this._layerNames.set(dataset.id, dataset.name);
+            logger.info('Map', 'No geometries to display', { layer: dataset.name });
+            bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
+            return;
+        }
 
         const geojson = { type: 'FeatureCollection', features: taggedFeatures };
         const sourceId = `src-${dataset.id}`;
@@ -358,7 +376,7 @@ class MapManager {
             const fillId = `${dataset.id}-fill`;
             this.map.addLayer({
                 id: fillId, type: 'fill', source: sourceId,
-                filter: ['==', '$type', 'Polygon'],
+                filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
                 paint: { 'fill-color': sty.fillColor, 'fill-opacity': sty.fillOpacity }
             });
             layerIds.push(fillId);
@@ -366,7 +384,7 @@ class MapManager {
             const outlineId = `${dataset.id}-outline`;
             this.map.addLayer({
                 id: outlineId, type: 'line', source: sourceId,
-                filter: ['==', '$type', 'Polygon'],
+                filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
                 paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
             });
             layerIds.push(outlineId);
@@ -377,7 +395,7 @@ class MapManager {
             const lineId = `${dataset.id}-line`;
             this.map.addLayer({
                 id: lineId, type: 'line', source: sourceId,
-                filter: ['==', '$type', 'LineString'],
+                filter: _geomTypesFilter(['LineString', 'MultiLineString']),
                 paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
             });
             layerIds.push(lineId);
@@ -390,7 +408,7 @@ class MapManager {
                 const ptId = `${dataset.id}-point`;
                 this.map.addLayer({
                     id: ptId, type: 'circle', source: sourceId,
-                    filter: ['==', '$type', 'Point'],
+                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
                     paint: {
                         'circle-radius': sty.pointSize,
                         'circle-color': sty.fillColor,
@@ -405,7 +423,7 @@ class MapManager {
                 const ptId = `${dataset.id}-point`;
                 this.map.addLayer({
                     id: ptId, type: 'symbol', source: sourceId,
-                    filter: ['==', '$type', 'Point'],
+                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
                     layout: {
                         'icon-image': imgName,
                         'icon-size': 1,
@@ -473,8 +491,8 @@ class MapManager {
         this.dataLayers.set(dataset.id, { sourceId, layerIds, geojson });
         this._layerNames.set(dataset.id, dataset.name);
 
-        if (features.length > 10000) {
-            logger.warn('Map', 'Large dataset — rendering may be slow', { count: features.length });
+        if (dataset.geojson.features.length > 10000) {
+            logger.warn('Map', 'Large dataset — rendering may be slow', { count: dataset.geojson.features.length });
         }
 
         if (fit) {
@@ -769,43 +787,61 @@ class MapManager {
         this.clearHighlight();
         const info = this.dataLayers.get(layerId);
         if (!info) return;
-        const feature = info.geojson.features.find(f => f.properties?._featureIndex === featureIndex);
-        if (!feature) return;
+        const matches = info.geojson.features.filter(f => f.properties?._featureIndex === featureIndex);
+        if (matches.length === 0) return;
 
         this._highlightedInfo = { layerId, featureIndex };
         const hlSrcId = 'highlight-source';
 
         if (this.map.getSource(hlSrcId)) {
-            this.map.getSource(hlSrcId).setData({ type: 'FeatureCollection', features: [feature] });
+            this.map.getSource(hlSrcId).setData({ type: 'FeatureCollection', features: matches });
         } else {
-            this.map.addSource(hlSrcId, { type: 'geojson', data: { type: 'FeatureCollection', features: [feature] } });
+            this.map.addSource(hlSrcId, { type: 'geojson', data: { type: 'FeatureCollection', features: matches } });
         }
 
-        const gType = feature.geometry?.type;
-        if (gType === 'Point' || gType === 'MultiPoint') {
+        const hasHlPoint = matches.some(f => {
+            const t = f.geometry?.type;
+            return t === 'Point' || t === 'MultiPoint';
+        });
+        const hasHlLine = matches.some(f => {
+            const t = f.geometry?.type;
+            return t === 'LineString' || t === 'MultiLineString';
+        });
+        const hasHlPoly = matches.some(f => {
+            const t = f.geometry?.type;
+            return t === 'Polygon' || t === 'MultiPolygon';
+        });
+
+        if (hasHlPoint) {
             if (!this.map.getLayer('highlight-circle')) {
                 this.map.addLayer({
                     id: 'highlight-circle', type: 'circle', source: hlSrcId,
+                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
                     paint: { 'circle-radius': 10, 'circle-color': '#fbbf24', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-opacity': 1 }
                 });
             }
-        } else if (gType === 'LineString' || gType === 'MultiLineString') {
+        }
+        if (hasHlLine) {
             if (!this.map.getLayer('highlight-line')) {
                 this.map.addLayer({
                     id: 'highlight-line', type: 'line', source: hlSrcId,
+                    filter: _geomTypesFilter(['LineString', 'MultiLineString']),
                     paint: { 'line-color': '#fbbf24', 'line-width': 4, 'line-opacity': 1 }
                 });
             }
-        } else if (gType === 'Polygon' || gType === 'MultiPolygon') {
+        }
+        if (hasHlPoly) {
             if (!this.map.getLayer('highlight-fill')) {
                 this.map.addLayer({
                     id: 'highlight-fill', type: 'fill', source: hlSrcId,
+                    filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
                     paint: { 'fill-color': '#fbbf24', 'fill-opacity': 0.35 }
                 });
             }
-            if (!this.map.getLayer('highlight-line')) {
+            if (!this.map.getLayer('highlight-outline')) {
                 this.map.addLayer({
-                    id: 'highlight-line', type: 'line', source: hlSrcId,
+                    id: 'highlight-outline', type: 'line', source: hlSrcId,
+                    filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
                     paint: { 'line-color': '#fbbf24', 'line-width': 4, 'line-opacity': 1 }
                 });
             }
@@ -813,7 +849,7 @@ class MapManager {
     }
 
     clearHighlight() {
-        for (const lid of ['highlight-fill', 'highlight-line', 'highlight-circle']) {
+        for (const lid of ['highlight-fill', 'highlight-line', 'highlight-circle', 'highlight-outline']) {
             if (this.map?.getLayer(lid)) this.map.removeLayer(lid);
         }
         if (this.map?.getSource('highlight-source')) {
@@ -1377,15 +1413,19 @@ class MapManager {
         const layerIds = [];
 
         const fillId = srcId + '-fill';
-        this.map.addLayer({ id: fillId, type: 'fill', source: srcId, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.25 } });
+        this.map.addLayer({ id: fillId, type: 'fill', source: srcId, filter: _geomTypesFilter(['Polygon', 'MultiPolygon']), paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.25 } });
         layerIds.push(fillId);
 
+        const outlineId = srcId + '-outline';
+        this.map.addLayer({ id: outlineId, type: 'line', source: srcId, filter: _geomTypesFilter(['Polygon', 'MultiPolygon']), paint: { 'line-color': '#d4a24e', 'line-width': 3 } });
+        layerIds.push(outlineId);
+
         const lineId = srcId + '-line';
-        this.map.addLayer({ id: lineId, type: 'line', source: srcId, paint: { 'line-color': '#d4a24e', 'line-width': 3 } });
+        this.map.addLayer({ id: lineId, type: 'line', source: srcId, filter: _geomTypesFilter(['LineString', 'MultiLineString']), paint: { 'line-color': '#d4a24e', 'line-width': 3 } });
         layerIds.push(lineId);
 
         const circleId = srcId + '-circle';
-        this.map.addLayer({ id: circleId, type: 'circle', source: srcId, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 8, 'circle-color': '#d4a24e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+        this.map.addLayer({ id: circleId, type: 'circle', source: srcId, filter: _geomTypesFilter(['Point', 'MultiPoint']), paint: { 'circle-radius': 8, 'circle-color': '#d4a24e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
         layerIds.push(circleId);
 
         const entry = { srcId, layerIds };
@@ -1550,7 +1590,7 @@ class MapManager {
 
     _renderSelectionHighlights(layerId) {
         const selSrcId = `selection-${layerId}`;
-        for (const lid of [`${selSrcId}-fill`, `${selSrcId}-line`, `${selSrcId}-circle`]) {
+        for (const lid of [`${selSrcId}-fill`, `${selSrcId}-outline`, `${selSrcId}-line`, `${selSrcId}-circle`]) {
             if (this.map.getLayer(lid)) this.map.removeLayer(lid);
         }
         if (this.map.getSource(selSrcId)) this.map.removeSource(selSrcId);
@@ -1564,9 +1604,10 @@ class MapManager {
         if (selectedFeatures.length === 0) return;
 
         this.map.addSource(selSrcId, { type: 'geojson', data: { type: 'FeatureCollection', features: selectedFeatures } });
-        this.map.addLayer({ id: `${selSrcId}-fill`, type: 'fill', source: selSrcId, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.35 } });
-        this.map.addLayer({ id: `${selSrcId}-line`, type: 'line', source: selSrcId, paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
-        this.map.addLayer({ id: `${selSrcId}-circle`, type: 'circle', source: selSrcId, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 8, 'circle-color': '#00e5ff', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-opacity': 1 } });
+        this.map.addLayer({ id: `${selSrcId}-fill`, type: 'fill', source: selSrcId, filter: _geomTypesFilter(['Polygon', 'MultiPolygon']), paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.35 } });
+        this.map.addLayer({ id: `${selSrcId}-outline`, type: 'line', source: selSrcId, filter: _geomTypesFilter(['Polygon', 'MultiPolygon']), paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
+        this.map.addLayer({ id: `${selSrcId}-line`, type: 'line', source: selSrcId, filter: _geomTypesFilter(['LineString', 'MultiLineString']), paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
+        this.map.addLayer({ id: `${selSrcId}-circle`, type: 'circle', source: selSrcId, filter: _geomTypesFilter(['Point', 'MultiPoint']), paint: { 'circle-radius': 8, 'circle-color': '#00e5ff', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-opacity': 1 } });
     }
 
     getSelectedIndices(layerId) { return this._selections.get(layerId) ? [...this._selections.get(layerId)] : []; }
@@ -1582,12 +1623,12 @@ class MapManager {
         if (layerId) {
             this._selections.delete(layerId);
             const selSrcId = `selection-${layerId}`;
-            for (const l of [`${selSrcId}-fill`, `${selSrcId}-line`, `${selSrcId}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
+            for (const l of [`${selSrcId}-fill`, `${selSrcId}-outline`, `${selSrcId}-line`, `${selSrcId}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
             if (this.map?.getSource(selSrcId)) this.map.removeSource(selSrcId);
         } else {
             for (const lid of this._selections.keys()) {
                 const ss = `selection-${lid}`;
-                for (const l of [`${ss}-fill`, `${ss}-line`, `${ss}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
+                for (const l of [`${ss}-fill`, `${ss}-outline`, `${ss}-line`, `${ss}-circle`]) { if (this.map?.getLayer(l)) this.map.removeLayer(l); }
                 if (this.map?.getSource(ss)) this.map.removeSource(ss);
             }
             this._selections.clear();

@@ -171,6 +171,22 @@ Fixture KML/KMZ files + manual checklist (or future scripted checks) for import/
 
 ---
 
+## Implementation status (in-repo)
+
+Tracked against milestones **M1–M5** (partial where noted):
+
+| Milestone | Items delivered |
+|-----------|-------------------|
+| **M1** | **A1** MapLibre filters include `MultiLineString` / `MultiPolygon` / `MultiPoint`; line, fill, outline, selection, temp, and highlight layers updated. **A2** `GeometryCollection` exploded for map display; `splitByGeometryType` flattens GC instead of mis-bucketing; empty spatial layers register an empty GeoJSON source. **D1** `geometryToKML` supports `GeometryCollection` via `MultiGeometry`. |
+| **M2** | **A3** Multi-layer export branches on KML vs KMZ (`exportMultiLayerKMLFile`). **F1** Picker copy and guided tour text describe `.kml` vs `.kmz` multi-folder behavior. |
+| **M3** | **B2** Zero-feature KML yields empty layer + warning (no hard error). **E1** `collectNetworkLinkHrefs`. **E2** / **E5a–b** Modal explains CORS; optional client fetch merges http(s) links into the layer (`kml-networklink.js`). |
+| **M4** | **B1** v1: relative `<href>` inside KMZ resolved to `blob:` URLs when the file exists in the archive. **B4** Main KML choice: root `doc.kml`, nested `doc.kml`, then shallow-path / largest-entry heuristic with log line. |
+| **M5 (partial)** | **B3** `.xml` import sniffs for KML before parse. **D2** `_hexToKmlColor` accepts 3-digit hex and invalid fallback. **D3** KMZ attachment URL replacement scoped to `src="…"` and `<href>…</href>`. **D4** KMZ exporter uses `AppError` when JSZip missing. **F2** KML/KMZ description cells stringify plain objects safely. Exporter grouping accounts for `GeometryCollection` when choosing geometry folders. |
+
+**Deferred / not in this pass:** C1 richer KML Style/StyleMap; explicit C2 workflow-cache style carry (datasets already retain `_kmlStyle` when cached); NetworkLink recursion depth; **F3** fixtures; **G**; optional backend proxy **E5c**.
+
+---
+
 ## How to run implementation (agents / chats)
 
 1. **Use this file as SSOT** — Do not depend on long chat transcripts; link or read `docs/kml-kmz-roadmap.md`.

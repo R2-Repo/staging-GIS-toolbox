@@ -7,7 +7,7 @@ import { TaskRunner } from '../core/task-runner.js';
 import { exportGeoJSON } from './geojson-exporter.js';
 import { exportCSV } from './csv-exporter.js';
 import { exportExcel } from './excel-exporter.js';
-import { exportKML } from './kml-exporter.js';
+import { exportKML, exportMultiLayerKML } from './kml-exporter.js';
 import { exportKMZ, exportMultiLayerKMZ } from './kmz-exporter.js';
 import { exportJSON } from './json-exporter.js';
 import { exportShapefile } from './shapefile-exporter.js';
@@ -164,6 +164,27 @@ export async function exportMultiLayerKMZFile(layers, options = {}) {
     });
 }
 
+/**
+ * Export multiple layers as one multi-folder KML document.
+ * @param {Array<{dataset, style}>} layers
+ * @param {object} options - { filename }
+ */
+export async function exportMultiLayerKMLFile(layers, options = {}) {
+    const task = new TaskRunner('Export Multi-Layer KML', 'Exporter');
+    return task.run(async (t) => {
+        t.updateProgress(10, 'Preparing layers...');
+        const result = await exportMultiLayerKML(layers, options, t);
+
+        logger.info('Exporter', 'Multi-layer KML export complete', {
+            layers: layers.length, size: result.text?.length
+        });
+
+        const filename = (options.filename || 'export') + '.kml';
+        downloadBlob(new Blob([result.text], { type: result.mimeType || 'application/vnd.google-earth.kml+xml' }), filename);
+        return { filename, size: result.text?.length };
+    });
+}
+
 export function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -177,4 +198,4 @@ export function downloadBlob(blob, filename) {
     }, 100);
 }
 
-export default { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, downloadBlob };
+export default { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, downloadBlob };

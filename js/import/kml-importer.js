@@ -2,7 +2,7 @@
  * KML importer using toGeoJSON library
  * Preserves KML inline styles (stroke, fill, icon) as dataset._kmlStyle
  */
-import { createSpatialDataset } from '../core/data-model.js';
+import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { collectNetworkLinkHrefs } from './kml-networklink.js';
 
@@ -47,6 +47,10 @@ export async function importKML(file, task, meta = {}) {
     if (!geojson || !Array.isArray(geojson.features)) {
         geojson = { type: 'FeatureCollection', features: [] };
     }
+
+    // KML MultiGeometry → GeoJSON GeometryCollection; explode at import so the layer
+    // schema and all map/dataprep paths see plain LineString / Polygon features.
+    geojson = explodeGeometryCollectionsInFeatureCollection(geojson);
 
     const networkHrefs = collectNetworkLinkHrefs(kmlDoc);
     const featCount = geojson.features.length;
@@ -106,8 +110,14 @@ function _extractKmlStyle(features) {
     if (strokeColor) style.strokeColor = strokeColor;
     if (fillColor) style.fillColor = fillColor;
     else if (strokeColor) style.fillColor = strokeColor;
-    if (strokeWidth != null && !isNaN(strokeWidth)) style.strokeWidth = strokeWidth;
-    if (strokeOpacity != null && !isNaN(strokeOpacity)) style.strokeOpacity = strokeOpacity;
+    if (strokeWidth != null && !isNaN(strokeWidth)) {
+        // KML often carries width 0; MapLibre draws nothing visible at 0px.
+        style.strokeWidth = strokeWidth > 0 ? strokeWidth : 1;
+    }
+    // stroke-opacity 0 is common when outline is disabled in KML; keep map default visibility.
+    if (strokeOpacity != null && !isNaN(strokeOpacity) && strokeOpacity > 0) {
+        style.strokeOpacity = strokeOpacity;
+    }
     if (fillOpacity != null && !isNaN(fillOpacity)) style.fillOpacity = fillOpacity;
 
     return style;

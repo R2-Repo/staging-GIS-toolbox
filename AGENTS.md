@@ -1,6 +1,6 @@
 # Agent instructions — GIS Toolbox
 
-This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). There is **no build step** and **no `package.json`**; the app is loaded as native ES modules from `index.html`.
+This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). The **shipped app** has **no build step**: ES modules load from `index.html`. **Dev-only**: `package.json` exists for **Vitest** (`npm test`), not for bundling the site.
 
 ## Layout (quick map)
 
@@ -17,12 +17,19 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `css/` | `main.css`, `mobile.css`, `workflow.css` |
 | `pipelines/` | Saved pipeline JSON + `index.json` |
 | `manifest.json`, `sw.js` | PWA manifest and service worker |
+| `tests/` | Vitest specs (`*.test.js`) |
+| [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
+
+## Agent workflow
+
+- Cursor rules: [.cursor/rules/agent-workflow.mdc](.cursor/rules/agent-workflow.mdc) (test-first, concise replies, update `HANDOFF.md`).
+- End substantive work with an updated **HANDOFF.md**.
 
 ## Conventions
 
 - Prefer **small, focused changes**; match existing patterns in nearby files (imports, naming, error handling via `handleError` / toasts).
 - Use **ES modules** (`import`/`export`); keep paths explicit (e.g. `./core/logger.js`).
-- **Do not** add a bundler or Node-only runtime requirement unless the project explicitly moves that direction.
+- **Do not** add a bundler or any Node-only requirement **for loading/running the shipped site** unless agreed; dev-only tooling (e.g. Vitest) is fine.
 - Avoid committing **secrets** (API keys, tokens). Use environment-specific config or user-supplied values, not hardcoded credentials.
 - Remove stray **`.bak`** files rather than committing them.
 
@@ -36,7 +43,12 @@ python3 -m http.server 8080
 
 Open `http://localhost:8080/` (browsers restrict some APIs on `file://`, so always use a local server).
 
-There is no automated test suite in-repo today; verify behavior in the browser after substantive UI or map changes.
+```bash
+npm install   # once, for Vitest
+npm test
+```
+
+Supplement with browser checks after substantive map/UI changes (Vitest runs in Node; it does not replace manual map verification).
 
 ## Cursor Cloud Agents
 

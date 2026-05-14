@@ -8,5 +8,5 @@ desktop.ini
 *.swp
 *.swo
 
-# Dependencies (none needed — this is a pure static site)
+# Dev-only test tooling (Vitest); shipped site stays static
 node_modules/

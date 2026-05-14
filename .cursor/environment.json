@@ -1,6 +1,6 @@
 {
   "name": "gis-toolbox-static",
-  "install": "echo 'No dependencies to install (static HTML/JS site).'",
+  "install": "npm install",
   "ports": [
     {
       "name": "static-preview",

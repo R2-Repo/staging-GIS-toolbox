@@ -8,8 +8,8 @@ alwaysApply: true
 
 ## Stack
 
-- Static site: `index.html` loads ES module entry `js/app.js`.
-- No npm/build pipeline in-repo; do not introduce one unless explicitly requested.
+- Static site: `index.html` loads ES module entry `js/app.js` — **no bundler** for shipping the app unless explicitly requested.
+- **Tests**: minimal Node tooling only — `npm test` (Vitest). Do not add a bundler or runtime dependency for the browser app unless asked.
 - Map: MapLibre (CDN in HTML). GIS workflows, import/export, and a visual pipeline editor live under `js/`.
 
 ## Where to change what
@@ -24,4 +24,4 @@ alwaysApply: true
 
 - Preserve existing error handling (`handleError`, toasts, logger).
 - Match surrounding code style (semicolons, quote style, comment density).
-- After map or import/export changes, sanity-check in a browser via a local static server (`python3 -m http.server` from repo root).
+- After behavior changes, run `npm test`; after map or import/export changes, also sanity-check in a browser (`python3 -m http.server` from repo root).

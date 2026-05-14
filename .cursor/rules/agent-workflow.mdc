@@ -1,0 +1,30 @@
+---
+description: Agent tone, test-first workflow, and session handoffs
+alwaysApply: true
+---
+
+# Agent workflow — GIS Toolbox
+
+## Responses
+
+- Default **short**: status, decisions, files touched, commands run. Skip preamble, hedging, and long summaries.
+- Expand detail **only** when the user asks or debugging needs evidence.
+
+## Test-first (TDD)
+
+When implementing or fixing behavior:
+
+1. **Plan** briefly (what to prove, edge cases).
+2. **Write or extend automated tests** that fail without the change (`tests/**/*.test.js`; run `npm test`).
+3. **Implement** until tests pass.
+4. Treat work as **incomplete** until `npm test` is green (unless the task is docs-only or explicitly non-code).
+
+Pure logic belongs in unit tests under `tests/`. Map/UI flows may still need a manual browser check; say so in `HANDOFF.md` under **Verification**.
+
+## Handoffs
+
+Before ending a substantive session (feature, refactor, bugfix):
+
+- Update **[HANDOFF.md](HANDOFF.md)** at repo root: date, goal, branch, changes, test commands/results, known issues, **Next** for the following agent.
+
+Pick up work by **reading `HANDOFF.md` first**.

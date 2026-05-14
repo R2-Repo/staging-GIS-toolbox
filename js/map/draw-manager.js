@@ -106,7 +106,7 @@ class DrawManager {
                     <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,12 1,12" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
                     <span>Polygon</span>
                 </button>
-                <button class="draw-tool-btn" data-tool="rectangle" title="Draw rectangle">
+                <button class="draw-tool-btn" data-tool="rectangle" title="Rectangle (click and drag on the map)">
                     <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3" rx="1"/></svg>
                     <span>Rect</span>
                 </button>
@@ -219,18 +219,21 @@ class DrawManager {
             return;
         }
 
-        // Rectangle mode — click two corners
+        // Rectangle mode — same drag gesture as GIS widgets / clip rectangle
         if (tool === 'rectangle') {
             this._rectCorner1 = null;
+            this._removeRectPreview();
             this.map.getCanvas().style.cursor = 'crosshair';
-            this._setHint('Click to set first corner of rectangle.');
-            this._clickHandler = (e) => this._onRectClick(e);
-            this._moveHandler = (e) => this._onRectMove(e);
-            this._escHandler = (e) => { if (e.key === 'Escape') this.cancelDraw(); };
-            this.map.on('click', this._clickHandler);
-            this.map.on('mousemove', this._moveHandler);
+            this._setHint('Click and drag on the map to draw a rectangle.');
+            this._escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    mapManager.cancelInteraction();
+                    this.cancelDraw();
+                }
+            };
             document.addEventListener('keydown', this._escHandler);
             logger.info('Draw', 'Started tool: rectangle');
+            void this._runDelegatedRectangleDraw();
             return;
         }
 
@@ -318,6 +321,7 @@ class DrawManager {
     }
 
     cancelDraw() {
+        mapManager.cancelInteraction();
         this._clearPreview();
         this._clearEditSelection();
         this._removeRectPreview();
@@ -353,6 +357,25 @@ class DrawManager {
         if (this._contextHandler) { this.map?.off('contextmenu', this._contextHandler); this._contextHandler = null; }
         if (this._escHandler) { document.removeEventListener('keydown', this._escHandler); this._escHandler = null; }
         if (this._enterHandler) { document.removeEventListener('keydown', this._enterHandler); this._enterHandler = null; }
+    }
+
+    /**
+     * Rectangle aligned with MapManager drag-rectangle (widgets / clip).
+     */
+    async _runDelegatedRectangleDraw() {
+        try {
+            const bbox = await mapManager.startRectangleDraw('Click and drag to draw rectangle. Esc cancels.');
+            if (this._tool !== 'rectangle' || !this._toolbar) return;
+            if (!bbox) {
+                this._setHint('Rectangle cancelled — drag on the map to draw again.');
+                return;
+            }
+            const [w, s, east, n] = bbox;
+            const rectCoords = [[w, s], [east, s], [east, n], [w, n], [w, s]];
+            this._createFeature('Polygon', [rectCoords]);
+        } catch (err) {
+            logger.warn('Draw', 'Rectangle draw failed', { error: err?.message });
+        }
     }
 
     // ============================
@@ -756,86 +779,8 @@ class DrawManager {
     }
 
     // ============================
-    // Rectangle tool
+    // Rectangle preview cleanup (drag rectangle uses MapManager — no live preview here)
     // ============================
-
-    _onRectClick(e) {
-        if (e.originalEvent) {
-            e.originalEvent.stopPropagation();
-            e.originalEvent._drawHandled = true;
-        }
-        e._drawHandled = true;
-
-        if (this._finishing) return;
-
-        const coord = [e.lngLat.lng, e.lngLat.lat];
-
-        if (!this._rectCorner1) {
-            this._rectCorner1 = coord;
-            this._setHint('Click to set opposite corner.');
-        } else {
-            const c1 = this._rectCorner1;
-            const c2 = coord;
-            this._rectCorner1 = null;
-            this._removeRectPreview();
-
-            const minX = Math.min(c1[0], c2[0]);
-            const maxX = Math.max(c1[0], c2[0]);
-            const minY = Math.min(c1[1], c2[1]);
-            const maxY = Math.max(c1[1], c2[1]);
-
-            const rectCoords = [
-                [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]
-            ];
-
-            this._createFeature('Polygon', [rectCoords]);
-        }
-    }
-
-    _onRectMove(e) {
-        if (!this._rectCorner1) return;
-        this._updateRectPreview(e.lngLat);
-    }
-
-    _updateRectPreview(lngLat) {
-        this._removeRectPreview();
-        if (!this._rectCorner1) return;
-
-        const c1 = this._rectCorner1;
-        const c2 = [lngLat.lng, lngLat.lat];
-        const minX = Math.min(c1[0], c2[0]);
-        const maxX = Math.max(c1[0], c2[0]);
-        const minY = Math.min(c1[1], c2[1]);
-        const maxY = Math.max(c1[1], c2[1]);
-
-        const coords = [[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]];
-
-        const srcId = _nextDrawId('rect-preview');
-        this._rectPreviewSourceId = srcId;
-
-        this.map.addSource(srcId, {
-            type: 'geojson',
-            data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } }
-        });
-
-        const lineId = srcId + '-outline';
-        this.map.addLayer({
-            id: lineId, type: 'line', source: srcId,
-            paint: {
-                'line-color': DRAW_STYLE.lineColor,
-                'line-width': DRAW_STYLE.lineWidth,
-                'line-dasharray': DRAW_STYLE.lineDasharray
-            }
-        });
-
-        const fillId = srcId + '-fill';
-        this.map.addLayer({
-            id: fillId, type: 'fill', source: srcId,
-            paint: { 'fill-color': DRAW_STYLE.fillColor, 'fill-opacity': DRAW_STYLE.fillOpacity }
-        });
-
-        this._rectPreviewLayerIds = [lineId, fillId];
-    }
 
     _removeRectPreview() {
         for (const lid of this._rectPreviewLayerIds) {

@@ -13,6 +13,8 @@
  */
 import { WidgetBase } from './widget-base.js';
 import logger from '../core/logger.js';
+import { computeFeatureDistance, metersToDisplayUnits } from '../tools/feature-distance.js';
+import { buildBBoxIndexEntries, bboxPreFilterByRadius, getFeatureBBox, minBBoxSeparationMeters } from '../tools/spatial-bbox.js';
 
 /* ── Unit conversion helpers ── */
 const UNIT_LABELS = [
@@ -22,102 +24,8 @@ const UNIT_LABELS = [
     { value: 'kilometers', label: 'Kilometers', abbr: 'km' },
 ];
 
-/** Convert meters to the requested unit */
-function metersTo(m, unit) {
-    switch (unit) {
-        case 'feet':       return m * 3.28084;
-        case 'kilometers': return m / 1000;
-        case 'miles':      return m * 0.000621371;
-        default:           return m; // meters
-    }
-}
-
 function unitAbbr(unit) {
     return UNIT_LABELS.find(u => u.value === unit)?.abbr ?? unit;
-}
-
-/* ── Representative point helpers ── */
-
-/** Return a representative [lng, lat] for any geometry depending on method. */
-function representativePoint(feature, method = 'centroid') {
-    try {
-        if (!feature?.geometry) return null;
-        const g = feature.geometry;
-        if (g.type === 'Point') return g.coordinates;
-        if (method === 'centroid') {
-            const c = turf.centroid(feature);
-            return c.geometry.coordinates;
-        }
-        // center-of-mass
-        const c = turf.centerOfMass(feature);
-        return c.geometry.coordinates;
-    } catch { return null; }
-}
-
-/* ── Distance computation ── */
-
-/**
- * Compute distance in meters between a source feature and a target feature.
- * Returns { distance (m), nearestCoord [lng,lat] or null }.
- */
-function computeDistance(srcFeature, tgtFeature, srcRepMethod) {
-    try {
-        const sg = srcFeature.geometry;
-        const tg = tgtFeature.geometry;
-        if (!sg || !tg) return { distance: Infinity, nearestCoord: null };
-
-        // Source representative point
-        let srcPt;
-        if (sg.type === 'Point') {
-            srcPt = turf.point(sg.coordinates);
-        } else {
-            const c = representativePoint(srcFeature, srcRepMethod);
-            if (!c) return { distance: Infinity, nearestCoord: null };
-            srcPt = turf.point(c);
-        }
-
-        // Target handling
-        if (tg.type === 'Point') {
-            const d = turf.distance(srcPt, tgtFeature, { units: 'meters' });
-            return { distance: d, nearestCoord: tg.coordinates };
-        }
-
-        if (tg.type === 'LineString' || tg.type === 'MultiLineString') {
-            const snapped = turf.nearestPointOnLine(tgtFeature, srcPt, { units: 'meters' });
-            return {
-                distance: snapped.properties.dist,              // meters by default
-                nearestCoord: snapped.geometry.coordinates
-            };
-        }
-
-        if (tg.type === 'Polygon' || tg.type === 'MultiPolygon') {
-            // If point inside polygon → distance 0
-            if (turf.booleanPointInPolygon(srcPt, tgtFeature)) {
-                return { distance: 0, nearestCoord: srcPt.geometry.coordinates };
-            }
-            // Distance to polygon boundary — approximate via exterior ring sampling
-            try {
-                const line = turf.polygonToLine(tgtFeature);
-                const snapped = turf.nearestPointOnLine(line, srcPt, { units: 'meters' });
-                return {
-                    distance: snapped.properties.dist,
-                    nearestCoord: snapped.geometry.coordinates
-                };
-            } catch {
-                // Fallback: centroid distance
-                const c = turf.centroid(tgtFeature);
-                const d = turf.distance(srcPt, c, { units: 'meters' });
-                return { distance: d, nearestCoord: c.geometry.coordinates };
-            }
-        }
-
-        // Geometry collection or other — centroid fallback
-        const c = turf.centroid(tgtFeature);
-        const d = turf.distance(srcPt, c, { units: 'meters' });
-        return { distance: d, nearestCoord: c.geometry.coordinates };
-    } catch {
-        return { distance: Infinity, nearestCoord: null };
-    }
 }
 
 /* ================================================================
@@ -614,7 +522,7 @@ export class ProximityJoinWidget extends WidgetBase {
                 row[m.newFieldName] = match ? (match.feature.properties?.[m.targetField] ?? null) : null;
             }
             if (this._writeDistance) {
-                row['nearest_distance'] = match ? parseFloat(metersTo(match.distance, this._units).toFixed(2)) : null;
+                row['nearest_distance'] = match ? parseFloat(metersToDisplayUnits(match.distance, this._units).toFixed(2)) : null;
             }
             rows.push(row);
         }
@@ -665,7 +573,7 @@ export class ProximityJoinWidget extends WidgetBase {
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
         // Build target bbox index for pre-filtering
-        const tgtIndex = this._buildBboxIndex(tgtFeatures);
+        const tgtIndex = buildBBoxIndexEntries(tgtFeatures);
 
         // Stats
         let matched = 0, unmatched = 0;
@@ -692,7 +600,7 @@ export class ProximityJoinWidget extends WidgetBase {
                         // reasonable range of source feature bbox
                         let candidates = tgtFeatures;
                         if (maxRadiusM > 0 && maxRadiusM < Infinity) {
-                            candidates = this._bboxPreFilter(sf, tgtIndex, tgtFeatures, maxRadiusM);
+                            candidates = bboxPreFilterByRadius(sf, tgtIndex, tgtFeatures, maxRadiusM);
                         }
 
                         const match = this._findNearest(sf, candidates, maxRadiusM);
@@ -701,7 +609,7 @@ export class ProximityJoinWidget extends WidgetBase {
 
                         if (match) {
                             matched++;
-                            const distInUnits = metersTo(match.distance, this._units);
+                            const distInUnits = metersToDisplayUnits(match.distance, this._units);
                             distances.push(distInUnits);
 
                             // Copy mapped fields
@@ -801,60 +709,25 @@ export class ProximityJoinWidget extends WidgetBase {
     _findNearest(srcFeature, targets, maxRadiusM) {
         let best = null;
         let bestDist = Infinity;
+        const ba = getFeatureBBox(srcFeature);
 
         for (let i = 0; i < targets.length; i++) {
             const tf = targets[i];
             if (!tf?.geometry) continue;
-            const result = computeDistance(srcFeature, tf, this._repMethod);
-            if (result.distance < bestDist) {
-                bestDist = result.distance;
-                best = { feature: tf, distance: result.distance, coord: result.nearestCoord, index: i };
+            const bb = getFeatureBBox(tf);
+            if (ba && bb && bestDist !== Infinity && minBBoxSeparationMeters(ba, bb) >= bestDist) {
+                continue;
+            }
+            const result = computeFeatureDistance(srcFeature, tf, this._repMethod);
+            if (result.distanceMeters < bestDist) {
+                bestDist = result.distanceMeters;
+                best = { feature: tf, distance: result.distanceMeters, coord: result.nearestCoord, index: i };
             }
         }
 
         if (!best) return null;
         if (maxRadiusM > 0 && maxRadiusM < Infinity && best.distance > maxRadiusM) return null;
         return best;
-    }
-
-    /**
-     * Build a simple bbox index for target features.
-     * Returns array of { minX, minY, maxX, maxY, idx }.
-     */
-    _buildBboxIndex(features) {
-        return features.map((f, i) => {
-            try {
-                const bbox = turf.bbox(f);
-                return { minX: bbox[0], minY: bbox[1], maxX: bbox[2], maxY: bbox[3], idx: i };
-            } catch {
-                return null;
-            }
-        }).filter(Boolean);
-    }
-
-    /**
-     * Pre-filter target features by bbox proximity to the source feature.
-     * Uses a buffer around the source bbox in degrees (rough approximation).
-     */
-    _bboxPreFilter(srcFeature, tgtIndex, tgtFeatures, maxRadiusM) {
-        try {
-            const srcBbox = turf.bbox(srcFeature);
-            // Approximate buffer in degrees (~111km per degree)
-            const bufDeg = (maxRadiusM / 111000) * 1.5; // 1.5× safety factor
-            const sMinX = srcBbox[0] - bufDeg;
-            const sMinY = srcBbox[1] - bufDeg;
-            const sMaxX = srcBbox[2] + bufDeg;
-            const sMaxY = srcBbox[3] + bufDeg;
-
-            const candidates = [];
-            for (const entry of tgtIndex) {
-                if (entry.maxX < sMinX || entry.minX > sMaxX || entry.maxY < sMinY || entry.minY > sMaxY) continue;
-                candidates.push(tgtFeatures[entry.idx]);
-            }
-            return candidates.length > 0 ? candidates : tgtFeatures; // fallback to all if filter too aggressive
-        } catch {
-            return tgtFeatures;
-        }
     }
 
     /* ================================================================

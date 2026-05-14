@@ -4,6 +4,15 @@
 import logger from '../core/logger.js';
 import { createSpatialDataset } from '../core/data-model.js';
 import { TaskRunner } from '../core/task-runner.js';
+import { computeFeatureDistance, metersToDisplayUnits } from './feature-distance.js';
+import { pointToLineDistanceAny, nearestPointOnLineAny } from './line-geojson.js';
+import {
+    getFeatureBBox,
+    getBBoxAny,
+    bboxOverlap,
+    minBBoxSeparationMeters,
+    NEAREST_JOIN_SORT_THRESHOLD
+} from './spatial-bbox.js';
 
 const LARGE_DATASET_WARNING = 50000;
 
@@ -76,6 +85,7 @@ export async function clipFeatures(dataset, clipGeometry) {
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const clipped = [];
+        const clipBox = getBBoxAny(clipGeometry);
 
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
@@ -86,6 +96,11 @@ export async function clipFeatures(dataset, clipGeometry) {
 
             const f = features[i];
             if (!f.geometry) continue;
+
+            const fb = getFeatureBBox(f);
+            if (clipBox && fb && !bboxOverlap(clipBox, fb)) {
+                continue;
+            }
 
             try {
                 if (f.geometry.type === 'Point') {
@@ -126,7 +141,10 @@ export async function dissolveFeatures(dataset, field) {
     const task = new TaskRunner('Dissolve', 'GISTools');
     return task.run(async (t) => {
         t.updateProgress(30, 'Dissolving...');
-        const dissolved = turf.dissolve(dataset.geojson, { propertyName: field });
+        const trimmed = field != null ? String(field).trim() : '';
+        const dissolved = trimmed
+            ? turf.dissolve(dataset.geojson, { propertyName: trimmed })
+            : turf.dissolve(dataset.geojson);
         return createSpatialDataset(`${dataset.name}_dissolved`, dissolved, { format: 'derived' });
     });
 }
@@ -186,6 +204,10 @@ export function distance(point1, point2, units = 'kilometers') {
  */
 export function pointToLineDistance(point, line, units = 'kilometers') {
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+    const g = line.geometry;
+    if (g && (g.type === 'LineString' || g.type === 'MultiLineString')) {
+        return pointToLineDistanceAny(point, line, units);
+    }
     return turf.pointToLineDistance(point, line, { units });
 }
 
@@ -202,6 +224,8 @@ export async function bboxClipFeatures(dataset, bbox) {
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const clipped = [];
+        const clipBox = Array.isArray(bbox) && bbox.length >= 4 ? bbox : null;
+
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
             if (i % 100 === 0) {
@@ -209,6 +233,12 @@ export async function bboxClipFeatures(dataset, bbox) {
                 await new Promise(r => setTimeout(r, 0));
             }
             if (!features[i].geometry) continue;
+
+            const fb = getFeatureBBox(features[i]);
+            if (clipBox && fb && !bboxOverlap(clipBox, fb)) {
+                continue;
+            }
+
             try {
                 const c = turf.bboxClip(features[i], bbox);
                 if (c && c.geometry && c.geometry.coordinates && c.geometry.coordinates.length > 0) {
@@ -451,6 +481,10 @@ export function nearestPoint(targetPoint, pointsDataset) {
  */
 export function nearestPointOnLine(lineFeature, point, units = 'kilometers') {
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+    const g = lineFeature.geometry;
+    if (g && g.type === 'MultiLineString') {
+        return nearestPointOnLineAny(point, lineFeature, units);
+    }
     return turf.nearestPointOnLine(lineFeature, point, { units });
 }
 
@@ -459,6 +493,22 @@ export function nearestPointOnLine(lineFeature, point, units = 'kilometers') {
  */
 export function nearestPointToLine(pointsFC, lineFeature, units = 'kilometers') {
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+    const g = lineFeature.geometry;
+    if (g?.type === 'MultiLineString') {
+        let best = null;
+        let bestD = Infinity;
+        for (const coords of g.coordinates) {
+            const seg = turf.lineString(coords);
+            const cand = turf.nearestPointToLine(pointsFC, seg, { units });
+            const d = cand.properties.dist ?? Infinity;
+            if (d < bestD) {
+                bestD = d;
+                best = cand;
+            }
+        }
+        if (!best) throw new Error('Empty MultiLineString');
+        return best;
+    }
     return turf.nearestPointToLine(pointsFC, lineFeature, { units });
 }
 
@@ -519,6 +569,8 @@ export async function spatialJoinPointsInPolygons(pointsDataset, polygonsDataset
             ? joinFields
             : Object.keys(polygons[0]?.properties || {});
 
+        const polyBoxes = polygons.map(p => getFeatureBBox(p));
+
         const enriched = [];
         for (let i = 0; i < points.length; i++) {
             t.throwIfCancelled();
@@ -532,7 +584,13 @@ export async function spatialJoinPointsInPolygons(pointsDataset, polygonsDataset
             let matched = false;
 
             if (pt.geometry && pt.geometry.type === 'Point') {
-                for (const poly of polygons) {
+                const [lng, lat] = pt.geometry.coordinates;
+                for (let pi = 0; pi < polygons.length; pi++) {
+                    const pb = polyBoxes[pi];
+                    if (pb && (lng < pb[0] || lng > pb[2] || lat < pb[1] || lat > pb[3])) {
+                        continue;
+                    }
+                    const poly = polygons[pi];
                     try {
                         if (turf.booleanPointInPolygon(pt, poly)) {
                             for (const field of polyFields) {
@@ -600,11 +658,7 @@ export async function nearestJoin(datasetA, datasetB, joinFields = [], units = '
             ? joinFields
             : Object.keys(featuresB[0]?.properties || {});
 
-        // Pre-compute centroids for B
-        const centroidsB = featuresB.map(f => {
-            if (!f.geometry) return null;
-            return f.geometry.type === 'Point' ? f : turf.centroid(f);
-        });
+        const bboxB = featuresB.map(f => getFeatureBBox(f));
 
         const enriched = [];
         for (let i = 0; i < featuresA.length; i++) {
@@ -618,21 +672,43 @@ export async function nearestJoin(datasetA, datasetB, joinFields = [], units = '
             const props = { ...fA.properties };
 
             if (fA.geometry) {
-                const ptA = fA.geometry.type === 'Point' ? fA : turf.centroid(fA);
-                let minDist = Infinity;
-                let nearestIdx = -1;
-
-                for (let j = 0; j < centroidsB.length; j++) {
-                    if (!centroidsB[j]) continue;
-                    const d = turf.distance(ptA, centroidsB[j], { units });
-                    if (d < minDist) { minDist = d; nearestIdx = j; }
+                const ba = getFeatureBBox(fA);
+                let indices = featuresB.map((_, j) => j);
+                const useSortedEarlyExit = ba && featuresB.length >= NEAREST_JOIN_SORT_THRESHOLD;
+                if (useSortedEarlyExit) {
+                    indices.sort((j1, j2) => {
+                        const b1 = bboxB[j1];
+                        const b2 = bboxB[j2];
+                        const s1 = b1 ? minBBoxSeparationMeters(ba, b1) : 0;
+                        const s2 = b2 ? minBBoxSeparationMeters(ba, b2) : 0;
+                        return s1 - s2;
+                    });
                 }
 
-                if (nearestIdx >= 0) {
+                let minDm = Infinity;
+                let nearestIdx = -1;
+
+                for (const j of indices) {
+                    const fB = featuresB[j];
+                    if (!fB?.geometry) continue;
+                    const bb = bboxB[j];
+                    if (ba && bb && minDm !== Infinity && minBBoxSeparationMeters(ba, bb) >= minDm) {
+                        if (useSortedEarlyExit) break;
+                        continue;
+                    }
+                    const { distanceMeters } = computeFeatureDistance(fA, fB, 'centroid');
+                    if (distanceMeters < minDm) {
+                        minDm = distanceMeters;
+                        nearestIdx = j;
+                    }
+                }
+
+                if (nearestIdx >= 0 && minDm !== Infinity) {
+                    const distDisplay = metersToDisplayUnits(minDm, units);
                     for (const field of bFields) {
                         props['nearest_' + field] = featuresB[nearestIdx].properties?.[field] ?? null;
                     }
-                    props['nearest_distance'] = Math.round(minDist * 1000) / 1000;
+                    props['nearest_distance'] = Math.round(distDisplay * 1000) / 1000;
                     props['nearest_distance_units'] = units;
                 }
             }
@@ -684,16 +760,21 @@ export async function intersectLayers(datasetA, datasetB) {
         }
 
         const results = [];
-        let count = 0;
+        let pairVisited = 0;
         const total = polysA.length * polysB.length;
+        const bboxB = polysB.map(p => getFeatureBBox(p));
 
         for (let i = 0; i < polysA.length; i++) {
+            const ba = getFeatureBBox(polysA[i]);
             for (let j = 0; j < polysB.length; j++) {
                 t.throwIfCancelled();
-                count++;
-                if (count % 500 === 0) {
-                    t.updateProgress(Math.round((count / total) * 90), `Intersecting ${count}/${total}`);
+                pairVisited++;
+                if (pairVisited % 500 === 0) {
+                    t.updateProgress(Math.round((pairVisited / total) * 90), `Intersect pairs ${pairVisited}/${total}`);
                     await new Promise(r => setTimeout(r, 0));
+                }
+                if (ba && bboxB[j] && !bboxOverlap(ba, bboxB[j])) {
+                    continue;
                 }
                 try {
                     const ix = turf.intersect(turf.featureCollection([polysA[i], polysB[j]]));
@@ -747,6 +828,8 @@ export async function differenceLayers(datasetA, datasetB) {
         if (polysA.length === 0) throw new Error('Layer A has no polygon features');
 
         const results = [];
+        const bboxBList = polysB.map(p => getFeatureBBox(p));
+
         for (let i = 0; i < polysA.length; i++) {
             t.throwIfCancelled();
             if (i % 50 === 0) {
@@ -755,10 +838,15 @@ export async function differenceLayers(datasetA, datasetB) {
             }
 
             let current = polysA[i];
-            for (const pb of polysB) {
+            for (let j = 0; j < polysB.length; j++) {
                 if (!current) break;
+                const cb = getFeatureBBox(current);
+                const bb = bboxBList[j];
+                if (cb && bb && !bboxOverlap(cb, bb)) {
+                    continue;
+                }
                 try {
-                    current = turf.difference(turf.featureCollection([current, pb]));
+                    current = turf.difference(turf.featureCollection([current, polysB[j]]));
                 } catch (_) { /* skip on error */ }
             }
 
@@ -798,6 +886,9 @@ export async function summarizeWithin(polygonsDataset, pointsDataset, sumField, 
 
         if (polygons.length === 0) throw new Error('Polygon layer has no polygon features');
 
+        const polyBoxes = polygons.map(p => getFeatureBBox(p));
+        const ptBoxes = points.map(p => getFeatureBBox(p));
+
         const enriched = [];
         for (let i = 0; i < polygons.length; i++) {
             t.throwIfCancelled();
@@ -807,9 +898,15 @@ export async function summarizeWithin(polygonsDataset, pointsDataset, sumField, 
             }
 
             const poly = polygons[i];
+            const pb = polyBoxes[i];
             const contained = [];
 
-            for (const pt of points) {
+            for (let k = 0; k < points.length; k++) {
+                const pt = points[k];
+                const tb = ptBoxes[k];
+                if (pb && tb && !bboxOverlap(pb, tb)) {
+                    continue;
+                }
                 try {
                     if (turf.booleanPointInPolygon(pt, poly)) contained.push(pt);
                 } catch (_) { /* skip */ }

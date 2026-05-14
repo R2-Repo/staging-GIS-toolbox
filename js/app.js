@@ -23,6 +23,7 @@ import { arcgisImporter } from './arcgis/rest-importer.js';
 import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
+import { findFirstLineStringFeature, listLineStringFeatures } from './tools/line-geojson.js';
 
 import drawManager from './map/draw-manager.js';
 import sessionStore from './core/session-store.js';
@@ -1081,7 +1082,7 @@ function renderDataPrepTools() {
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Measurement</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDistanceTool()">📏 Distance</button><span class="geo-tip">Measure the straight-line distance between any two points you click on the map.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDistanceTool()">📏 Distance</button><span class="geo-tip">Straight-line distance between two clicks (great-circle). For path length along several clicks, use the map ruler control (Measure).</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBearingTool()">🧭 Bearing</button><span class="geo-tip">Find the compass direction (in degrees) from one point to another on the map.</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDestinationTool()">📌 Destination</button><span class="geo-tip">Given a start point, distance, and compass direction, find where you'd end up.</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openAlongTool()">📍 Along</button><span class="geo-tip">Find a point at a specific distance along a line — like finding the 5-mile mark on a road.</span></span>
@@ -1112,7 +1113,7 @@ function renderDataPrepTools() {
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openCombine()">🔗 Combine</button><span class="geo-tip">Merge all features of the same type into one multi-feature (multiple Points → one MultiPoint).</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openUnion()">🔶 Union</button><span class="geo-tip">Merge all polygons into a single shape. Overlapping areas are dissolved together.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDissolve()">🫧 Dissolve</button><span class="geo-tip">Merge polygons that share the same attribute value into single shapes — like combining all counties in the same state.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDissolve()">🫧 Dissolve</button><span class="geo-tip">Merge polygons by a shared attribute, or merge all polygons into one when no field is chosen.</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openPointsWithinPolygon()">📍🔷 Pts in Poly</button><span class="geo-tip">Find which points fall inside which polygons — like counting how many stores are in each district.</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestPoint()">🎯 Nearest Pt</button><span class="geo-tip">Click the map to find the closest feature in a point layer to that location.</span></span>
                     <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestPointOnLine()">📍→ Snap</button><span class="geo-tip">Click near a line to find the closest point directly on that line (snaps to it).</span></span>
@@ -2875,7 +2876,7 @@ async function openAlongTool() {
         <div class="form-group"><label>Units</label>
             <select id="along-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>
         ${selNote}
-        <div class="info-box text-xs">Uses the first LineString feature${work.isSelection ? ' in the selection' : ' in the active layer'}.</div>`;
+        <div class="info-box text-xs">Uses the first LineString in the layer or selection (first part if MultiLineString).</div>`;
     showModal('Point Along Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Point</button>',
         onMount: (overlay, close) => {
@@ -2884,8 +2885,8 @@ async function openAlongTool() {
                 const dist = parseFloat(overlay.querySelector('#along-dist').value);
                 const units = overlay.querySelector('#along-units').value;
                 close();
-                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found in layer', 'warning');
+                const line = findFirstLineStringFeature(work.geojson);
+                if (!line) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
                     const pt = gisTools.pointAlong(line, dist, units);
                     mapManager.showTempFeature(pt, 15000);
@@ -2922,11 +2923,12 @@ async function openPointToLineDistanceTool() {
                 if (!lineLayer) return showToast('Line layer not found', 'warning');
                 const pt = await mapManager.startPointPick('Click a point to measure from');
                 if (!pt) return;
-                const line = lineLayer.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found', 'warning');
+                const lineWhole = lineLayer.geojson.features.find(f =>
+                    f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
-                    const d = gisTools.pointToLineDistance(turf.point(pt), line, units);
-                    const snap = gisTools.nearestPointOnLine(line, turf.point(pt), units);
+                    const d = gisTools.pointToLineDistance(turf.point(pt), lineWhole, units);
+                    const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), units);
                     const connector = turf.lineString([pt, snap.geometry.coordinates]);
                     mapManager.showTempFeature({type:'FeatureCollection',features:[turf.point(pt), snap, connector]}, 15000);
                     showToast(`Distance to line: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
@@ -3087,8 +3089,8 @@ async function openLineSliceAlong() {
                 const units = overlay.querySelector('#slice-units').value;
                 close();
                 const work = getWorkingFeatures(layer);
-                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found', 'warning');
+                const line = findFirstLineStringFeature(work.geojson);
+                if (!line) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
                     const sliced = gisTools.lineSliceAlong(line, start, stop, units);
                     sliced.properties = { ...line.properties, _sliceStart: start, _sliceStop: stop };
@@ -3118,8 +3120,8 @@ async function openLineSlice() {
                 const pts = await mapManager.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
                 if (!pts) return;
                 const work = getWorkingFeatures(layer);
-                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found', 'warning');
+                const line = findFirstLineStringFeature(work.geojson);
+                if (!line) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
                     const sliced = gisTools.lineSlice(turf.point(pts[0]), turf.point(pts[1]), line);
                     sliced.properties = { ...line.properties };
@@ -3158,8 +3160,8 @@ async function openLineIntersect() {
                 if (!l1 || !l2) return showToast('Select two layers', 'warning');
                 try {
                     const allPts = [];
-                    const lines1 = l1.geojson.features.filter(f => f.geometry?.type === 'LineString');
-                    const lines2 = l2.geojson.features.filter(f => f.geometry?.type === 'LineString');
+                    const lines1 = listLineStringFeatures(l1.geojson);
+                    const lines2 = listLineStringFeatures(l2.geojson);
                     for (const a of lines1) {
                         for (const b of lines2) {
                             const pts = gisTools.lineIntersect(a, b);
@@ -3263,11 +3265,14 @@ async function openDissolve() {
 
     const work = getWorkingFeatures(layer);
     const selNote = work.isSelection ? `<div class="info-box text-xs">Dissolving <strong>${work.count}</strong> selected features.</div>` : '';
-    const fields = (layer.schema?.fields || []).map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+    const fieldOpts = (layer.schema?.fields || []).map(f => `<option value="${f.name}">${f.name}</option>`).join('');
     const html = `
-        <p>Merge polygons that share the same value in a selected field into single polygons.</p>
+        <p>Merge polygons that share the same field value, or merge everything into one polygon.</p>
         <div class="form-group"><label>Dissolve field</label>
-            <select id="diss-field">${fields}</select></div>
+            <select id="diss-field">
+                <option value="">— Merge all polygons (no grouping field) —</option>
+                ${fieldOpts}
+            </select></div>
         ${selNote}`;
     showModal('Dissolve', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Dissolve</button>',
@@ -3279,7 +3284,8 @@ async function openDissolve() {
                 try {
                     const result = await gisTools.dissolveFeatures(getWorkingDataset(layer), field);
                     addResultLayer(result);
-                    showToast(`Dissolved by ${field}`, 'success');
+                    showToast(field ? `Dissolved by field "${field}"` : 'Dissolved all polygons into merged features', 'success');
+                    refreshUI();
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Dissolve'));
                 }
@@ -3392,10 +3398,11 @@ async function openNearestPointOnLine() {
                 if (!lineLayer) return;
                 const pt = await mapManager.startPointPick('Click the map to snap to the nearest line');
                 if (!pt) return;
-                const line = lineLayer.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found', 'warning');
+                const lineWhole = lineLayer.geojson.features.find(f =>
+                    f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
-                    const snap = gisTools.nearestPointOnLine(line, turf.point(pt));
+                    const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), 'kilometers');
                     const connector = turf.lineString([pt, snap.geometry.coordinates]);
                     mapManager.showTempFeature({type:'FeatureCollection',features:[snap, connector]}, 15000);
                     const distKm = snap.properties.dist;
@@ -3434,10 +3441,11 @@ async function openNearestPointToLine() {
                 const units = overlay.querySelector('#nptl-units').value;
                 close();
                 if (!ptsLayer || !lineLayer) return;
-                const line = lineLayer.geojson.features.find(f => f.geometry?.type === 'LineString');
-                if (!line) return showToast('No LineString found', 'warning');
+                const lineWhole = lineLayer.geojson.features.find(f =>
+                    f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
-                    const nearest = gisTools.nearestPointToLine(ptsLayer.geojson, line);
+                    const nearest = gisTools.nearestPointToLine(ptsLayer.geojson, lineWhole);
                     mapManager.showTempFeature(nearest, 15000);
                     const name = nearest.properties?.name || nearest.properties?.NAME || 'Unnamed';
                     const distKm = nearest.properties?.dist;

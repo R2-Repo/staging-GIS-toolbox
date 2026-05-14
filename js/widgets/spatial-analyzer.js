@@ -578,8 +578,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
         switch (this._spatialRelation) {
             case 'intersects':
-                if (type === 'Point') return turf.booleanPointInPolygon(feature, area);
-                if (type === 'MultiPoint') return feature.geometry.coordinates.some(c => turf.booleanPointInPolygon(turf.point(c), area));
+                if (type === 'Point') return turf.booleanIntersects(feature, area);
+                if (type === 'MultiPoint') return feature.geometry.coordinates.some(c =>
+                    turf.booleanIntersects(turf.point(c), area));
                 return turf.booleanIntersects(feature, area);
 
             case 'within':
@@ -623,209 +624,40 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
     async _drawPolygon() {
         if (!this.mapManager) return;
-        this.showToast?.('Click to place points, double-click to finish', 'info');
+        this.showToast?.('Click to place points, double-click or Enter to finish', 'info');
 
-        const map = this.mapManager.map;
-        if (!map) return;
-
-        // Disable double-click zoom so dblclick can finish the polygon
-        const hadDblClickZoom = map.doubleClickZoom.enabled();
-        map.doubleClickZoom.disable();
-
-        return new Promise((resolve) => {
-            const points = [];
-            let clickTimer = null;
-            const container = map.getContainer();
-            container.style.cursor = 'crosshair';
-
-            const banner = this.mapManager._showInteractionBanner?.(
-                'Click to add points. Double-click to finish the area.',
-                () => { cleanup(); resolve(); }
-            );
-
-            let previewSrcId = null;
-            let previewLayerIds = [];
-
-            const drawPreview = () => {
-                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
-                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
-                previewLayerIds = []; previewSrcId = null;
-
-                if (points.length < 2) return;
-
-                previewSrcId = `sa-poly-preview-${Date.now()}`;
-                const coords = points.map(p => [p[1], p[0]]);
-                if (points.length >= 3) {
-                    const closed = [...coords, coords[0]];
-                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] } } });
-                    const fillId = previewSrcId + '-fill';
-                    map.addLayer({ id: fillId, type: 'fill', source: previewSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
-                    const lineId = previewSrcId + '-line';
-                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                    previewLayerIds = [fillId, lineId];
-                } else {
-                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
-                    const lineId = previewSrcId + '-line';
-                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                    previewLayerIds = [lineId];
-                }
-            };
-
-            // Use a short timer to distinguish click from dblclick
-            const onClick = (e) => {
-                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; } // dblclick will handle
-                clickTimer = setTimeout(() => {
-                    clickTimer = null;
-                    points.push([e.lngLat.lat, e.lngLat.lng]);
-                    drawPreview();
-                }, 200);
-            };
-
-            const onDblClick = (e) => {
-                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent.preventDefault(); }
-                // Add the double-click point
-                points.push([e.lngLat.lat, e.lngLat.lng]);
-                finish();
-            };
-
-            const onKeydown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(); } };
-
-            const finish = () => {
-                if (points.length < 3) {
-                    this.showToast?.('Need at least 3 points to make an area', 'warning');
-                    cleanup(); resolve(); return;
-                }
-                const coords = points.map(p => [p[1], p[0]]);
-                coords.push(coords[0]); // close the ring
-                this._analysisArea = turf.polygon([coords]);
-                this._areaSource = 'draw';
-                this._areaLayerId = null;
-                this._areaFilters = [];
-                cleanup();
-                this._showAreaPreview();
-                this._refreshBody();
-                this._bindEvents();
-                resolve();
-            };
-
-            const cleanup = () => {
-                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                container.style.cursor = '';
-                map.off('click', onClick);
-                map.off('dblclick', onDblClick);
-                document.removeEventListener('keydown', onKeydown);
-                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
-                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
-                previewLayerIds = []; previewSrcId = null;
-                if (banner) banner.remove?.();
-                if (hadDblClickZoom) map.doubleClickZoom.enable();
-            };
-
-            map.on('click', onClick);
-            map.on('dblclick', onDblClick);
-            document.addEventListener('keydown', onKeydown);
+        const geom = await this.mapManager.startSketchPolygon({
+            bannerText: 'Click to add points. Double-click or Enter to finish the area.',
+            onInsufficientVertices: () => this.showToast?.('Need at least 3 points to make an area', 'warning')
         });
+        if (!geom) return;
+
+        this._analysisArea = turf.feature(geom);
+        this._areaSource = 'draw';
+        this._areaLayerId = null;
+        this._areaFilters = [];
+        this._showAreaPreview();
+        this._refreshBody();
+        this._bindEvents();
     }
 
     async _drawCircle() {
         if (!this.mapManager) return;
         this.showToast?.('Click center, then click to set radius', 'info');
 
-        const map = this.mapManager.map;
-        if (!map) return;
-
-        return new Promise((resolve) => {
-            let centerLngLat = null;
-            let circleSrcId = null;
-            let circleLayerIds = [];
-            const container = map.getContainer();
-            container.style.cursor = 'crosshair';
-
-            const banner = this.mapManager._showInteractionBanner?.(
-                'Click to place the center, then click again to set the radius. Esc to cancel.',
-                () => { cleanup(); resolve(); }
-            );
-
-            const onClick = (e) => {
-                if (!centerLngLat) {
-                    // First click = center
-                    centerLngLat = e.lngLat;
-                    if (banner) {
-                        const txt = banner.querySelector?.('span') || banner;
-                        if (txt.textContent !== undefined) txt.textContent = 'Move mouse to set radius, click to confirm.';
-                    }
-                } else {
-                    // Second click = set radius and finish
-                    const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
-                    const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
-                    const radiusM = turf.distance(from, to, { units: 'meters' });
-                    finish(centerLngLat, radiusM);
-                }
-            };
-
-            const onMouseMove = (e) => {
-                if (!centerLngLat) return;
-                const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
-                const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
-                const radiusM = turf.distance(from, to, { units: 'meters' });
-                updateCirclePreview(radiusM);
-            };
-
-            const updateCirclePreview = (radiusM) => {
-                let circlePoly;
-                try { circlePoly = turf.circle([centerLngLat.lng, centerLngLat.lat], radiusM / 1000, { units: 'kilometers', steps: 64 }); } catch { return; }
-                if (circleSrcId && map.getSource(circleSrcId)) {
-                    map.getSource(circleSrcId).setData(circlePoly);
-                } else {
-                    circleSrcId = `sa-circle-preview-${Date.now()}`;
-                    map.addSource(circleSrcId, { type: 'geojson', data: circlePoly });
-                    const fillId = circleSrcId + '-fill';
-                    map.addLayer({ id: fillId, type: 'fill', source: circleSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
-                    const lineId = circleSrcId + '-line';
-                    map.addLayer({ id: lineId, type: 'line', source: circleSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
-                    circleLayerIds = [fillId, lineId];
-                }
-            };
-
-            const onKeydown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(); } };
-
-            const finish = (c, radiusM) => {
-                if (radiusM < 1) {
-                    this.showToast?.('Radius too small', 'warning');
-                    cleanup(); resolve(); return;
-                }
-                // Convert circle to a 64-sided polygon via turf
-                try {
-                    this._analysisArea = turf.circle([c.lng, c.lat], radiusM / 1000, { units: 'kilometers', steps: 64 });
-                } catch {
-                    this._analysisArea = turf.buffer(turf.point([c.lng, c.lat]), radiusM / 1000, { units: 'kilometers', steps: 64 });
-                }
-                this._areaSource = 'draw';
-                this._areaLayerId = null;
-                this._areaFilters = [];
-                cleanup();
-                this._showAreaPreview();
-                this._refreshBody();
-                this._bindEvents();
-                resolve();
-            };
-
-            const cleanup = () => {
-                container.style.cursor = '';
-                map.off('click', onClick);
-                map.off('mousemove', onMouseMove);
-                document.removeEventListener('keydown', onKeydown);
-                for (const lid of circleLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
-                if (circleSrcId && map.getSource(circleSrcId)) map.removeSource(circleSrcId);
-                circleLayerIds = []; circleSrcId = null;
-                if (banner) banner.remove?.();
-            };
-
-            map.on('click', onClick);
-            map.on('mousemove', onMouseMove);
-            document.addEventListener('keydown', onKeydown);
+        const geom = await this.mapManager.startSketchCirclePolygon({
+            bannerText: 'Click center, then click for radius. Esc cancels.',
+            onRadiusTooSmall: () => this.showToast?.('Radius too small', 'warning')
         });
+        if (!geom) return;
+
+        this._analysisArea = turf.feature(geom);
+        this._areaSource = 'draw';
+        this._areaLayerId = null;
+        this._areaFilters = [];
+        this._showAreaPreview();
+        this._refreshBody();
+        this._bindEvents();
     }
 
     _useLayerAsArea(layerId) {

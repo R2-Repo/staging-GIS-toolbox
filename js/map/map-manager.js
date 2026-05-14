@@ -5,6 +5,7 @@
 import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
 import { flattenFeatureGeometryCollections } from '../core/data-model.js';
+import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled } from './map-interaction-utils.js';
 
 const BASEMAPS = {
     voyager: {
@@ -1165,6 +1166,22 @@ class MapManager {
     /** Whether an orbit animation is currently running */
     get isOrbiting() { return !!this._orbitCenter; }
 
+    _touchClientToLngLat(clientX, clientY) {
+        const rect = this.map.getContainer().getBoundingClientRect();
+        return this.map.unproject(new maplibregl.Point(clientX - rect.left, clientY - rect.top));
+    }
+
+    _finalizeDragBboxLngLat(start, endLL) {
+        const w = Math.min(start.lng, endLL.lng);
+        const s = Math.min(start.lat, endLL.lat);
+        const east = Math.max(start.lng, endLL.lng);
+        const n = Math.max(start.lat, endLL.lat);
+        if (!bboxDiagonalMeetsMinDragPx(w, s, east, n, (ll) => this.map.project(ll))) {
+            return null;
+        }
+        return [w, s, east, n];
+    }
+
     // ==========================================
     // Interactive Drawing / Selection System
     // ==========================================
@@ -1177,7 +1194,11 @@ class MapManager {
 
             const banner = this._showInteractionBanner(prompt, () => { cleanup(); resolve(null); });
 
-            const onClick = (e) => { cleanup(); resolve([e.lngLat.lng, e.lngLat.lat]); };
+            const onClick = (e) => {
+                markMapInteractionHandled(e);
+                cleanup();
+                resolve([e.lngLat.lng, e.lngLat.lat]);
+            };
             const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
 
             const cleanup = () => {
@@ -1206,6 +1227,7 @@ class MapManager {
             const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
 
             const onClick = (e) => {
+                markMapInteractionHandled(e);
                 const coord = [e.lngLat.lng, e.lngLat.lat];
                 const el = document.createElement('div');
                 el.style.cssText = 'width:14px;height:14px;background:#d4a24e;border:2px solid #fff;border-radius:50%;';
@@ -1245,23 +1267,59 @@ class MapManager {
 
             let startLngLat = null;
             const rectId = this._nextId('rect-draw');
+            const container = this.map.getContainer();
 
             this.map.addSource(rectId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             this.map.addLayer({ id: rectId + '-fill', type: 'fill', source: rectId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.15 } });
             this.map.addLayer({ id: rectId + '-line', type: 'line', source: rectId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
 
-            const onMouseDown = (e) => { startLngLat = e.lngLat; this.map.dragPan.disable(); };
+            const onMouseDown = (e) => {
+                startLngLat = e.lngLat;
+                this.map.dragPan.disable();
+            };
             const onMouseMove = (e) => { if (startLngLat) this._updateRectGeoJSON(rectId, startLngLat, e.lngLat); };
             const onMouseUp = (e) => {
                 if (!startLngLat) return;
+                markMapInteractionHandled(e);
+                const start = startLngLat;
+                startLngLat = null;
                 this.map.dragPan.enable();
-                const w = Math.min(startLngLat.lng, e.lngLat.lng), s = Math.min(startLngLat.lat, e.lngLat.lat);
-                const east = Math.max(startLngLat.lng, e.lngLat.lng), n = Math.max(startLngLat.lat, e.lngLat.lat);
+                const bbox = this._finalizeDragBboxLngLat(start, e.lngLat);
                 cleanup();
-                resolve([w, s, east, n]);
+                resolve(bbox);
             };
+
+            const onTouchStart = (e) => {
+                if (e.touches.length !== 1) return;
+                e.preventDefault();
+                startLngLat = this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY);
+                this.map.dragPan.disable();
+            };
+            const onTouchMove = (e) => {
+                if (!startLngLat || e.touches.length !== 1) return;
+                e.preventDefault();
+                const ll = this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY);
+                this._updateRectGeoJSON(rectId, startLngLat, ll);
+            };
+            const onTouchEnd = (e) => {
+                if (!startLngLat) return;
+                e.preventDefault();
+                const ll = this._touchClientToLngLat(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+                const start = startLngLat;
+                startLngLat = null;
+                this.map.dragPan.enable();
+                const bbox = this._finalizeDragBboxLngLat(start, ll);
+                cleanup();
+                resolve(bbox);
+            };
+
             const onKeyDown = (e) => {
-                if (e.key === 'Escape') { this.map.dragPan.enable(); cleanup(); resolve(null); }
+                if (e.key === 'Escape') {
+                    startLngLat = null;
+                    this.map.dragPan.enable();
+                    cleanup();
+                    resolve(null);
+                }
             };
 
             const cleanup = () => {
@@ -1269,6 +1327,9 @@ class MapManager {
                 this.map.off('mousedown', onMouseDown);
                 this.map.off('mousemove', onMouseMove);
                 this.map.off('mouseup', onMouseUp);
+                container.removeEventListener('touchstart', onTouchStart);
+                container.removeEventListener('touchmove', onTouchMove);
+                container.removeEventListener('touchend', onTouchEnd);
                 document.removeEventListener('keydown', onKeyDown);
                 if (this.map.getLayer(rectId + '-fill')) this.map.removeLayer(rectId + '-fill');
                 if (this.map.getLayer(rectId + '-line')) this.map.removeLayer(rectId + '-line');
@@ -1281,6 +1342,232 @@ class MapManager {
             this.map.on('mousedown', onMouseDown);
             this.map.on('mousemove', onMouseMove);
             this.map.on('mouseup', onMouseUp);
+            container.addEventListener('touchstart', onTouchStart, { passive: false });
+            container.addEventListener('touchmove', onTouchMove, { passive: false });
+            container.addEventListener('touchend', onTouchEnd, { passive: false });
+            document.addEventListener('keydown', onKeyDown);
+        });
+    }
+
+    /**
+     * Sketch a polygon by clicking vertices; double-click finishes without adding a duplicate vertex (draw-layer UX).
+     * @param {{ bannerText?: string, onInsufficientVertices?: () => void }} [opts]
+     * @returns {Promise<{ type: 'Polygon', coordinates: number[][][] } | null>}
+     */
+    startSketchPolygon(opts = {}) {
+        const { bannerText = 'Click to add vertices. Double-click to finish.', onInsufficientVertices } = opts;
+        return new Promise((resolve) => {
+            this._cancelInteraction();
+            const map = this.map;
+            const canvas = map.getCanvas();
+            canvas.style.cursor = 'crosshair';
+
+            const hadDblClickZoom = map.doubleClickZoom.enabled();
+            map.doubleClickZoom.disable();
+
+            const banner = this._showInteractionBanner(bannerText, () => { cleanup(); resolve(null); });
+
+            const points = [];
+            let clickTimer = null;
+            let previewSrcId = null;
+            let previewLayerIds = [];
+
+            const drawPreview = () => {
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = [];
+                previewSrcId = null;
+
+                if (points.length < 2) return;
+
+                previewSrcId = this._nextId('sketch-poly');
+                const coords = points.map(p => [p[0], p[1]]);
+                if (points.length >= 3) {
+                    const closed = [...coords, coords[0]];
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] } } });
+                    const fillId = previewSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: previewSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [fillId, lineId];
+                } else {
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [lineId];
+                }
+            };
+
+            const finishFromDblClick = () => {
+                if (points.length < 3) {
+                    if (typeof onInsufficientVertices === 'function') onInsufficientVertices();
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
+                const ring = points.map(p => [p[0], p[1]]);
+                ring.push(ring[0]);
+                const geom = { type: 'Polygon', coordinates: [ring] };
+                cleanup();
+                resolve(geom);
+            };
+
+            const onClick = (e) => {
+                markMapInteractionHandled(e);
+                if (clickTimer) clearTimeout(clickTimer);
+                clickTimer = setTimeout(() => {
+                    clickTimer = null;
+                    points.push([e.lngLat.lng, e.lngLat.lat]);
+                    drawPreview();
+                }, 90);
+            };
+
+            const onDblClick = (e) => {
+                markMapInteractionHandled(e);
+                if (e.originalEvent) {
+                    e.originalEvent.preventDefault();
+                    e.originalEvent.stopPropagation();
+                }
+                if (clickTimer) {
+                    clearTimeout(clickTimer);
+                    clickTimer = null;
+                }
+                finishFromDblClick();
+            };
+
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') { cleanup(); resolve(null); }
+                if (e.key === 'Enter' && points.length >= 3) { finishFromDblClick(); }
+            };
+
+            const cleanup = () => {
+                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+                map.off('click', onClick);
+                map.off('dblclick', onDblClick);
+                document.removeEventListener('keydown', onKeyDown);
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
+                canvas.style.cursor = '';
+                if (hadDblClickZoom) map.doubleClickZoom.enable();
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
+            this._interactionCleanup = cleanup;
+            map.on('click', onClick);
+            map.on('dblclick', onDblClick);
+            document.addEventListener('keydown', onKeyDown);
+        });
+    }
+
+    /**
+     * Two-click circle (center → radius point), Turf polygon output.
+     * @param {{ bannerText?: string, onRadiusTooSmall?: () => void }} [opts]
+     * @returns {Promise<{ type: 'Polygon' | 'MultiPolygon', coordinates: number[][][] | number[][][][] } | null>}
+     */
+    startSketchCirclePolygon(opts = {}) {
+        const { bannerText = 'Click center, then click to set radius. Esc cancels.', onRadiusTooSmall } = opts;
+        const turfLib = typeof globalThis !== 'undefined' ? globalThis.turf : null;
+        return new Promise((resolve) => {
+            if (!turfLib) {
+                logger.error('Map', 'Turf.js is required for startSketchCirclePolygon');
+                resolve(null);
+                return;
+            }
+
+            this._cancelInteraction();
+            const map = this.map;
+            const canvas = map.getCanvas();
+            canvas.style.cursor = 'crosshair';
+
+            const banner = this._showInteractionBanner(bannerText, () => { cleanup(); resolve(null); });
+
+            let centerLngLat = null;
+            let circleSrcId = null;
+            let circleLayerIds = [];
+
+            const updateCirclePreview = (radiusM) => {
+                if (!centerLngLat) return;
+                let circlePoly;
+                try {
+                    circlePoly = turfLib.circle([centerLngLat.lng, centerLngLat.lat], radiusM / 1000, { units: 'kilometers', steps: 64 });
+                } catch { return; }
+                if (circleSrcId && map.getSource(circleSrcId)) {
+                    map.getSource(circleSrcId).setData(circlePoly);
+                } else {
+                    circleSrcId = this._nextId('sketch-circle');
+                    map.addSource(circleSrcId, { type: 'geojson', data: circlePoly });
+                    const fillId = circleSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: circleSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+                    const lineId = circleSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: circleSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    circleLayerIds = [fillId, lineId];
+                }
+            };
+
+            const finish = (c, radiusM) => {
+                if (radiusM < 1) {
+                    if (typeof onRadiusTooSmall === 'function') onRadiusTooSmall();
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
+                let geom;
+                try {
+                    geom = turfLib.circle([c.lng, c.lat], radiusM / 1000, { units: 'kilometers', steps: 64 }).geometry;
+                } catch {
+                    try {
+                        geom = turfLib.buffer(turfLib.point([c.lng, c.lat]), radiusM / 1000, { units: 'kilometers', steps: 64 }).geometry;
+                    } catch {
+                        cleanup();
+                        resolve(null);
+                        return;
+                    }
+                }
+                cleanup();
+                resolve({ type: geom.type, coordinates: geom.coordinates });
+            };
+
+            const onClick = (e) => {
+                markMapInteractionHandled(e);
+                if (!centerLngLat) {
+                    centerLngLat = e.lngLat;
+                    const ht = banner?.querySelector?.('.interaction-text');
+                    if (ht) ht.textContent = 'Move the cursor, then click to set radius.';
+                } else {
+                    const from = turfLib.point([centerLngLat.lng, centerLngLat.lat]);
+                    const to = turfLib.point([e.lngLat.lng, e.lngLat.lat]);
+                    const radiusM = turfLib.distance(from, to, { units: 'meters' });
+                    finish(centerLngLat, radiusM);
+                }
+            };
+
+            const onMouseMove = (e) => {
+                if (!centerLngLat) return;
+                const from = turfLib.point([centerLngLat.lng, centerLngLat.lat]);
+                const to = turfLib.point([e.lngLat.lng, e.lngLat.lat]);
+                const radiusM = turfLib.distance(from, to, { units: 'meters' });
+                updateCirclePreview(radiusM);
+            };
+
+            const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
+
+            const cleanup = () => {
+                map.off('click', onClick);
+                map.off('mousemove', onMouseMove);
+                document.removeEventListener('keydown', onKeyDown);
+                for (const lid of circleLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (circleSrcId && map.getSource(circleSrcId)) map.removeSource(circleSrcId);
+                circleLayerIds = []; circleSrcId = null;
+                canvas.style.cursor = '';
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
+            this._interactionCleanup = cleanup;
+            map.on('click', onClick);
+            map.on('mousemove', onMouseMove);
             document.addEventListener('keydown', onKeyDown);
         });
     }
@@ -1328,32 +1615,56 @@ class MapManager {
                 this.map.addLayer({ id: fenceId + '-line', type: 'line', source: fenceId, paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-dasharray': [10, 6] } });
             }
 
-            const onMouseDown = (e) => { startLngLat = e.lngLat; this.map.dragPan.disable(); };
+            const onMouseDown = (e) => {
+                markMapInteractionHandled(e);
+                startLngLat = e.lngLat;
+                this.map.dragPan.disable();
+            };
             const onMouseMove = (e) => { if (startLngLat) this._updateRectGeoJSON(fenceId, startLngLat, e.lngLat); };
             const onMouseUp = (e) => {
                 if (!startLngLat) return;
+                markMapInteractionHandled(e);
+                const start = startLngLat;
+                startLngLat = null;
                 this.map.dragPan.enable();
-                const west = Math.min(startLngLat.lng, e.lngLat.lng), south = Math.min(startLngLat.lat, e.lngLat.lat);
-                const east = Math.max(startLngLat.lng, e.lngLat.lng), north = Math.max(startLngLat.lat, e.lngLat.lat);
+                const bbox = this._finalizeDragBboxLngLat(start, e.lngLat);
+                if (!bbox) {
+                    cleanup(true);
+                    resolve(null);
+                    return;
+                }
+                const [west, south, east, north] = bbox;
                 this._importFence = { west, south, east, north };
                 cleanup(false);
                 resolve([west, south, east, north]);
             };
 
             const container = this.map.getContainer();
-            const touchToLngLat = (touch) => {
-                const rect = container.getBoundingClientRect();
-                return this.map.unproject(new maplibregl.Point(touch.clientX - rect.left, touch.clientY - rect.top));
+            const onTouchStart = (e) => {
+                if (e.touches.length !== 1) return;
+                e.preventDefault();
+                startLngLat = this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY);
+                this.map.dragPan.disable();
             };
-            const onTouchStart = (e) => { if (e.touches.length === 1) { e.preventDefault(); startLngLat = touchToLngLat(e.touches[0]); this.map.dragPan.disable(); } };
-            const onTouchMove = (e) => { if (startLngLat && e.touches.length === 1) { e.preventDefault(); this._updateRectGeoJSON(fenceId, startLngLat, touchToLngLat(e.touches[0])); } };
+            const onTouchMove = (e) => {
+                if (!startLngLat || e.touches.length !== 1) return;
+                e.preventDefault();
+                this._updateRectGeoJSON(fenceId, startLngLat, this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY));
+            };
             const onTouchEnd = (e) => {
                 if (!startLngLat) return;
                 e.preventDefault();
-                const ll = touchToLngLat(e.changedTouches[0]);
+                const ll = this._touchClientToLngLat(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+                const start = startLngLat;
+                startLngLat = null;
                 this.map.dragPan.enable();
-                const west = Math.min(startLngLat.lng, ll.lng), south = Math.min(startLngLat.lat, ll.lat);
-                const east = Math.max(startLngLat.lng, ll.lng), north = Math.max(startLngLat.lat, ll.lat);
+                const bbox = this._finalizeDragBboxLngLat(start, ll);
+                if (!bbox) {
+                    cleanup(true);
+                    resolve(null);
+                    return;
+                }
+                const [west, south, east, north] = bbox;
                 this._importFence = { west, south, east, north };
                 cleanup(false);
                 resolve([west, south, east, north]);
@@ -1452,6 +1763,11 @@ class MapManager {
         if (this._interactionCleanup) { this._interactionCleanup(); this._interactionCleanup = null; }
     }
 
+    /** Cancel active map picks, drag-rectangles, or sketches (draw toolbar + widgets). */
+    cancelInteraction() {
+        this._cancelInteraction();
+    }
+
     _showInteractionBanner(text, onCancel) {
         const banner = document.createElement('div');
         banner.className = 'map-interaction-banner';
@@ -1463,6 +1779,10 @@ class MapManager {
         banner.querySelector('.interaction-cancel').onclick = onCancel;
         this.map.getContainer().appendChild(banner);
         return banner;
+    }
+
+    showInteractionBanner(text, onCancel) {
+        return this._showInteractionBanner(text, onCancel);
     }
 
     // ==========================================
@@ -1480,7 +1800,7 @@ class MapManager {
         this._selectionMode = true;
         this.map.getCanvas().style.cursor = 'pointer';
         const banner = this._showInteractionBanner(
-            'Selection mode — click features or Shift+drag to box select.',
+            'Selection mode — click features or Shift/Ctrl+drag to box select.',
             () => this.exitSelectionMode()
         );
         this._selectionBanner = banner;
@@ -1541,9 +1861,10 @@ class MapManager {
             const east = Math.max(startLngLat.lng, e.lngLat.lng), n = Math.max(startLngLat.lat, e.lngLat.lat);
             startLngLat = null;
 
-            const p1 = this.map.project([w, s]), p2 = this.map.project([east, n]);
-            const size = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-            if (size < 10) { this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] }); return; }
+            if (!bboxDiagonalMeetsMinDragPx(w, s, east, n, (ll) => this.map.project(ll))) {
+                this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] });
+                return;
+            }
 
             this._selectFeaturesInBounds([w, s, east, n], e.originalEvent?.shiftKey);
             setTimeout(() => { this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] }); }, 400);
@@ -1840,7 +2161,7 @@ class MapManager {
         // Toggle button
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.title = 'Measure Distance';
+        btn.title = 'Measure path distance — click the map to add vertices along a route (total length sum). Distinct from GIS Tools straight-line distance.';
         btn.className = 'measure-toggle';
         btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="22" height="10" rx="2"/><line x1="5" y1="7" x2="5" y2="12"/><line x1="9" y1="7" x2="9" y2="14"/><line x1="13" y1="7" x2="13" y2="12"/><line x1="17" y1="7" x2="17" y2="14"/><line x1="21" y1="7" x2="21" y2="12"/></svg>`;
 
@@ -1886,6 +2207,10 @@ class MapManager {
 
         // Recalculate total distance
         const recalc = () => {
+            if (typeof turf === 'undefined') {
+                readout.textContent = '—';
+                return;
+            }
             if (this._measurePoints.length < 2) {
                 readout.textContent = formatDist(0, this._measureUnit);
                 return;
@@ -1898,6 +2223,7 @@ class MapManager {
 
         // Update the map line source
         const updateLine = () => {
+            if (typeof turf === 'undefined') return;
             const src = this.map.getSource(this._measureSourceId);
             if (!src) return;
             const geojson = {

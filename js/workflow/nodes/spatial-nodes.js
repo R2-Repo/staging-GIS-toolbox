@@ -333,7 +333,9 @@ export class NearestJoinNode extends NodeBase {
         container.innerHTML = `
             <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">
                 For each <strong>Target</strong> feature, finds the nearest feature in
-                <strong>Join From</strong> and copies its attributes + distance.
+                <strong>Join From</strong> using shortest distance between geometries
+                (points, lines, polygon boundaries — same rules as the Proximity Join widget),
+                then copies its attributes plus distance.
             </p>
             <label class="wf-inspector-label">Fields to Join</label>
             <input class="wf-inspector-input" data-cfg="joinFields" value="${this.config.joinFields}"

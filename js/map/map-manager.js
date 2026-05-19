@@ -867,9 +867,16 @@ class MapManager {
     }
 
     fitToAll() {
+        this.fitToLayers([...this.dataLayers.keys()]);
+    }
+
+    /** Fit map view to the combined extent of the given layer ids. */
+    fitToLayers(layerIds) {
+        if (!this.map || !layerIds?.length) return;
         const allFeatures = [];
-        for (const info of this.dataLayers.values()) {
-            if (info.geojson?.features) allFeatures.push(...info.geojson.features);
+        for (const id of layerIds) {
+            const info = this.dataLayers.get(id);
+            if (info?.geojson?.features) allFeatures.push(...info.geojson.features);
         }
         if (allFeatures.length > 0) {
             try {

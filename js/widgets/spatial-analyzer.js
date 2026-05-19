@@ -10,6 +10,9 @@
  */
 import { WidgetBase } from './widget-base.js';
 import logger from '../core/logger.js';
+import { processInChunks } from '../core/task-runner.js';
+
+const ANALYSIS_CHUNK_SIZE = 100;
 
 /* -- Filter operator definitions -- */
 const FILTER_OPS = [
@@ -758,7 +761,13 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
         this._showSpinner('Analyzing features…');
 
-        setTimeout(() => {
+        this._runAnalysisAsync(targetLayer).catch((err) => {
+            this._hideSpinner();
+            this.showToast?.('Analysis error: ' + err.message, 'error');
+        });
+    }
+
+    async _runAnalysisAsync(targetLayer) {
         try {
         const preFilterCount = targetLayer.geojson.features.length;
         let features = [...targetLayer.geojson.features];
@@ -776,30 +785,32 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         let hasLines = false;
         let hasPolygons = false;
 
-        for (const f of features) {
-            if (!f.geometry) continue;
+        const hits = await processInChunks(features, ANALYSIS_CHUNK_SIZE, (f) => {
+            if (!f.geometry) return null;
             try {
-                const inside = this._checkSpatialRelation(f, area);
-
-                if (inside) {
-                    matched.push(f);
-                    const type = f.geometry.type;
-                    if (type === 'Point' || type === 'MultiPoint') stats.points++;
-                    else if (type === 'LineString' || type === 'MultiLineString') {
-                        stats.lines++;
-                        hasLines = true;
-                        try { totalLengthKm += turf.length(f, { units: 'kilometers' }); } catch {}
-                    } else if (type === 'Polygon' || type === 'MultiPolygon') {
-                        stats.polygons++;
-                        hasPolygons = true;
-                        try { totalAreaSqKm += turf.area(f) / 1e6; } catch {}
-                    }
-                }
+                if (this._checkSpatialRelation(f, area)) return f;
             } catch {
                 try {
                     const c = turf.centroid(f);
-                    if (turf.booleanPointInPolygon(c, area)) matched.push(f);
-                } catch {}
+                    if (turf.booleanPointInPolygon(c, area)) return f;
+                } catch { /* skip */ }
+            }
+            return null;
+        }, null);
+
+        for (const f of hits) {
+            if (!f) continue;
+            matched.push(f);
+            const type = f.geometry.type;
+            if (type === 'Point' || type === 'MultiPoint') stats.points++;
+            else if (type === 'LineString' || type === 'MultiLineString') {
+                stats.lines++;
+                hasLines = true;
+                try { totalLengthKm += turf.length(f, { units: 'kilometers' }); } catch {}
+            } else if (type === 'Polygon' || type === 'MultiPolygon') {
+                stats.polygons++;
+                hasPolygons = true;
+                try { totalAreaSqKm += turf.area(f) / 1e6; } catch {}
             }
         }
 
@@ -841,10 +852,8 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
         logger.info('SpatialAnalyzer', `Found ${matched.length}/${afterFilterCount} features in area (spatial: ${this._spatialRelation})`);
         } catch (err) {
-            this._hideSpinner();
-            this.showToast?.('Analysis error: ' + err.message, 'error');
+            throw err;
         }
-        }, 30);
     }
 
     /* ================================================================

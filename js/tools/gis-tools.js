@@ -3,7 +3,9 @@
  */
 import logger from '../core/logger.js';
 import { createSpatialDataset } from '../core/data-model.js';
-import { TaskRunner } from '../core/task-runner.js';
+import { TaskRunner, processInChunks, yieldToUI } from '../core/task-runner.js';
+
+const GIS_FEATURE_CHUNK_SIZE = 50;
 import { computeFeatureDistance, metersToDisplayUnits } from './feature-distance.js';
 import { pointToLineDistanceAny, nearestPointOnLineAny } from './line-geojson.js';
 import {
@@ -60,10 +62,29 @@ export async function simplifyFeatures(dataset, tolerance = 0.001) {
 
     const task = new TaskRunner('Simplify', 'GISTools');
     return task.run(async (t) => {
-        t.updateProgress(30, 'Simplifying geometries...');
+        t.updateProgress(10, 'Simplifying geometries...');
+        t.throwIfCancelled();
 
+        const features = dataset.geojson.features;
         const verticesBefore = countVertices(dataset.geojson);
-        const simplified = turf.simplify(dataset.geojson, { tolerance, highQuality: true });
+
+        const simplifiedFeatures = await processInChunks(
+            features,
+            GIS_FEATURE_CHUNK_SIZE,
+            (f) => {
+                if (!f?.geometry) return f;
+                try {
+                    return turf.simplify(f, { tolerance, highQuality: true });
+                } catch (e) {
+                    logger.warn('GISTools', 'Simplify failed for feature', { error: e.message });
+                    return f;
+                }
+            },
+            t
+        );
+
+        const simplified = { type: 'FeatureCollection', features: simplifiedFeatures };
+        t.throwIfCancelled();
         const verticesAfter = countVertices(simplified);
 
         logger.info('GISTools', 'Simplify complete', { verticesBefore, verticesAfter, reduction: `${Math.round((1 - verticesAfter / verticesBefore) * 100)}%` });
@@ -140,11 +161,42 @@ export async function dissolveFeatures(dataset, field) {
 
     const task = new TaskRunner('Dissolve', 'GISTools');
     return task.run(async (t) => {
-        t.updateProgress(30, 'Dissolving...');
+        t.updateProgress(10, 'Dissolving...');
+        t.throwIfCancelled();
         const trimmed = field != null ? String(field).trim() : '';
-        const dissolved = trimmed
-            ? turf.dissolve(dataset.geojson, { propertyName: trimmed })
-            : turf.dissolve(dataset.geojson);
+        const features = dataset.geojson.features.filter((f) => f?.geometry);
+
+        const groups = new Map();
+        if (trimmed) {
+            for (const f of features) {
+                const key = String(f.properties?.[trimmed] ?? '');
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(f);
+            }
+        } else {
+            groups.set('__all__', features);
+        }
+
+        const dissolvedFeatures = [];
+        let gi = 0;
+        const groupCount = groups.size;
+        for (const [, groupFeatures] of groups) {
+            t.throwIfCancelled();
+            t.updateProgress(
+                Math.round((gi / Math.max(groupCount, 1)) * 90),
+                `Dissolving group ${gi + 1}/${groupCount}...`
+            );
+            const fc = { type: 'FeatureCollection', features: groupFeatures };
+            const part = trimmed
+                ? turf.dissolve(fc, { propertyName: trimmed })
+                : turf.dissolve(fc);
+            if (part?.features) dissolvedFeatures.push(...part.features);
+            gi++;
+            if (gi % 3 === 0) await yieldToUI();
+        }
+
+        t.throwIfCancelled();
+        const dissolved = { type: 'FeatureCollection', features: dissolvedFeatures };
         return createSpatialDataset(`${dataset.name}_dissolved`, dissolved, { format: 'derived' });
     });
 }
@@ -303,8 +355,33 @@ export async function polygonSmoothFeatures(dataset, iterations = 1) {
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Polygon Smooth', 'GISTools');
     return task.run(async (t) => {
-        t.updateProgress(30, 'Smoothing polygons...');
-        const smoothed = turf.polygonSmooth(dataset.geojson, { iterations });
+        t.updateProgress(10, 'Smoothing polygons...');
+        t.throwIfCancelled();
+        const features = dataset.geojson.features;
+
+        const smoothedFeatures = await processInChunks(
+            features,
+            GIS_FEATURE_CHUNK_SIZE,
+            (f) => {
+                if (!f?.geometry) return f;
+                const gt = f.geometry.type;
+                if (gt !== 'Polygon' && gt !== 'MultiPolygon') return f;
+                try {
+                    const part = turf.polygonSmooth(
+                        { type: 'FeatureCollection', features: [f] },
+                        { iterations }
+                    );
+                    return part.features[0] || f;
+                } catch (e) {
+                    logger.warn('GISTools', 'Polygon smooth failed for feature', { error: e.message });
+                    return f;
+                }
+            },
+            t
+        );
+
+        t.throwIfCancelled();
+        const smoothed = { type: 'FeatureCollection', features: smoothedFeatures };
         return createSpatialDataset(`${dataset.name}_smooth`, smoothed, { format: 'derived' });
     });
 }

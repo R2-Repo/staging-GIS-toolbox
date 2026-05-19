@@ -11,6 +11,7 @@ import {
 } from './core/state.js';
 import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from './core/data-model.js';
 import { importFile, importFiles } from './import/importer.js';
+import { getActiveTask } from './core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
 import { showToast, showErrorToast } from './ui/toast.js';
@@ -275,27 +276,69 @@ function setupDragDrop() {
 // ============================
 // File import handler
 // ============================
-async function handleFileImport(files, fenceBbox = null) {
-    const progress = showProgressModal('Importing Files');
-    let currentTask = null;
+function throwIfTaskCancelled() {
+    if (getActiveTask()?.cancelled) {
+        const err = new Error('Operation cancelled');
+        err.cancelled = true;
+        throw err;
+    }
+}
 
-    bus.on('task:progress', (data) => {
-        progress.update(data.percent, data.step);
-    });
+/** Progress modal + cancel wired to the active TaskRunner (returns null if cancelled). */
+async function runWithTaskProgress(title, operation) {
+    const progress = showProgressModal(title);
+    const onProgress = (data) => progress.update(data.percent, data.step);
+    bus.on('task:progress', onProgress);
+    let userCancelled = false;
 
     progress.onCancel(() => {
-        if (currentTask) currentTask.cancel?.();
+        userCancelled = true;
+        getActiveTask()?.cancel();
         progress.close();
+        bus.off('task:progress', onProgress);
+        showToast('Operation cancelled', 'warning');
+    });
+
+    try {
+        const result = await operation();
+        if (!userCancelled) progress.close();
+        bus.off('task:progress', onProgress);
+        return userCancelled ? null : result;
+    } catch (e) {
+        if (!userCancelled) progress.close();
+        bus.off('task:progress', onProgress);
+        if (e?.cancelled || userCancelled) return null;
+        throw e;
+    }
+}
+
+async function handleFileImport(files, fenceBbox = null) {
+    const progress = showProgressModal('Importing Files');
+    const onProgress = (data) => progress.update(data.percent, data.step);
+    bus.on('task:progress', onProgress);
+    let userCancelled = false;
+
+    progress.onCancel(() => {
+        userCancelled = true;
+        getActiveTask()?.cancel();
+        progress.close();
+        bus.off('task:progress', onProgress);
         showToast('Import cancelled', 'warning');
     });
 
     try {
-        const { datasets, errors } = await importFiles(files);
-        progress.close();
+        const { datasets, errors, cancelled } = await importFiles(files);
+        if (!userCancelled) progress.close();
+        bus.off('task:progress', onProgress);
+
+        if (userCancelled || cancelled) return;
+
+        throwIfTaskCancelled();
 
         // Auto-split mixed-geometry datasets into separate layers
         const expanded = [];
         for (const ds of datasets) {
+            throwIfTaskCancelled();
             if (ds.type === 'spatial' && ds.schema?.geometryType === 'Mixed') {
                 expanded.push(...splitByGeometryType(ds));
             } else {
@@ -304,7 +347,9 @@ async function handleFileImport(files, fenceBbox = null) {
         }
 
         let totalFiltered = 0;
+        const importedLayerIds = [];
         for (const ds of expanded) {
+            throwIfTaskCancelled();
             if (fenceBbox) {
                 const before = ds.type === 'spatial' ? ds.geojson?.features?.length : 0;
                 filterDatasetByFence(ds, fenceBbox);
@@ -316,7 +361,12 @@ async function handleFileImport(files, fenceBbox = null) {
                 mapManager.setLayerStyle(ds.id, { ...ds._kmlStyle });
             }
             addLayer(ds);
-            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: true });
+            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: false });
+            importedLayerIds.push(ds.id);
+        }
+
+        if (importedLayerIds.length > 0) {
+            mapManager.fitToLayers(importedLayerIds);
         }
 
         if (expanded.length > 0) {
@@ -342,6 +392,8 @@ async function handleFileImport(files, fenceBbox = null) {
         }
     } catch (e) {
         progress.close();
+        bus.off('task:progress', onProgress);
+        if (e?.cancelled || userCancelled) return;
         const classified = handleError(e, 'Import', 'File import');
         showErrorToast(classified);
     }
@@ -625,12 +677,24 @@ function setupEventListeners() {
 // ============================
 // UI Refresh — rebuilds panels
 // ============================
-function refreshUI() {
+const REFRESH_UI_DEBOUNCE_MS = 150;
+let _refreshUITimer = null;
+
+function refreshUINow() {
     renderLayerList();
     renderFieldList();
     renderOutputPanel();
     renderMobileContent();
     updateToolbarState();
+}
+
+/** Debounced panel refresh — coalesces bursts during import / multi-layer updates. */
+function refreshUI() {
+    clearTimeout(_refreshUITimer);
+    _refreshUITimer = setTimeout(() => {
+        _refreshUITimer = null;
+        refreshUINow();
+    }, REFRESH_UI_DEBOUNCE_MS);
 }
 
 function updateToolbarState() {
@@ -2324,7 +2388,7 @@ async function openFilterBuilder(targetLayerId) {
                 };
             }
 
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.apply-btn').onclick = async () => {
                 const rules = Array.from(rulesContainer.querySelectorAll('[data-rule]')).map(el => ({
                     field: el.querySelector('.rule-field').value,
                     operator: el.querySelector('.rule-op').value,
@@ -2342,10 +2406,22 @@ async function openFilterBuilder(targetLayerId) {
                     layer._preFilterSnapshot = JSON.parse(JSON.stringify(layer.geojson));
                 }
 
-                const result = transforms.applyFilters(sourceFeatures, rules, logic);
+                let result;
+                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                    close();
+                    const filtered = await runWithTaskProgress('Filter', async () => {
+                        const { TaskRunner } = await import('./core/task-runner.js');
+                        const task = new TaskRunner('Filter', 'DataPrep');
+                        return task.run((t) => transforms.applyFiltersAsync(sourceFeatures, rules, logic, t));
+                    });
+                    if (filtered === null) return;
+                    result = filtered;
+                } else {
+                    result = transforms.applyFilters(sourceFeatures, rules, logic);
+                    close();
+                }
                 layer._activeFilter = { rules, logic };
                 applyTransform(`Filter (${result.length} results)`, result);
-                close();
             };
         }
     });
@@ -2423,13 +2499,28 @@ async function openJoinTool() {
             };
 
             overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.apply-btn').onclick = async () => {
                 const leftKey = overlay.querySelector('#join-left-key').value;
                 const rightKey = overlay.querySelector('#join-right-key').value;
                 const fieldsToJoin = Array.from(overlay.querySelectorAll('#join-fields-list input:checked')).map(el => el.value);
-                const { features: result, matched, unmatched } = transforms.joinData(getFeatures(), joinRows, leftKey, rightKey, fieldsToJoin);
+                const sourceFeatures = getFeatures();
+                let joinResult;
+                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                    close();
+                    joinResult = await runWithTaskProgress('Join', async () => {
+                        const { TaskRunner } = await import('./core/task-runner.js');
+                        const task = new TaskRunner('Join', 'DataPrep');
+                        return task.run((t) =>
+                            transforms.joinDataAsync(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin, t)
+                        );
+                    });
+                    if (joinResult === null) return;
+                } else {
+                    joinResult = transforms.joinData(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin);
+                    close();
+                }
+                const { features: result, matched, unmatched } = joinResult;
                 applyTransform(`Join (${matched} matched, ${unmatched} unmatched)`, result);
-                close();
             };
         }
     });
@@ -2531,7 +2622,10 @@ async function openBuffer() {
                 const units = overlay.querySelector('#buf-units').value;
                 close();
                 try {
-                    const result = await gisTools.bufferFeatures(getWorkingDataset(layer), dist, units);
+                    const result = await runWithTaskProgress('Buffer', () =>
+                        gisTools.bufferFeatures(getWorkingDataset(layer), dist, units)
+                    );
+                    if (!result) return;
                     addLayer(result);
                     mapManager.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast(`Buffer complete — new layer "${result.name}" created`, 'success');
@@ -2563,7 +2657,11 @@ async function openSimplify() {
                 const tol = parseFloat(overlay.querySelector('#simp-tol').value);
                 close();
                 try {
-                    const { dataset, stats } = await gisTools.simplifyFeatures(getWorkingDataset(layer), tol);
+                    const simplified = await runWithTaskProgress('Simplify', () =>
+                        gisTools.simplifyFeatures(getWorkingDataset(layer), tol)
+                    );
+                    if (!simplified) return;
+                    const { dataset, stats } = simplified;
                     addLayer(dataset);
                     mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                     showToast(`Simplified: ${stats.verticesBefore} → ${stats.verticesAfter} vertices`, 'success');
@@ -3021,7 +3119,10 @@ async function openPolygonSmooth() {
                 const iter = parseInt(overlay.querySelector('#smooth-iter').value);
                 close();
                 try {
-                    const result = await gisTools.polygonSmoothFeatures(getWorkingDataset(layer), iter);
+                    const result = await runWithTaskProgress('Polygon Smooth', () =>
+                        gisTools.polygonSmoothFeatures(getWorkingDataset(layer), iter)
+                    );
+                    if (!result) return;
                     addResultLayer(result);
                     showToast('Polygons smoothed', 'success');
                 } catch (e) {
@@ -3282,7 +3383,10 @@ async function openDissolve() {
                 const field = overlay.querySelector('#diss-field').value;
                 close();
                 try {
-                    const result = await gisTools.dissolveFeatures(getWorkingDataset(layer), field);
+                    const result = await runWithTaskProgress('Dissolve', () =>
+                        gisTools.dissolveFeatures(getWorkingDataset(layer), field)
+                    );
+                    if (!result) return;
                     addResultLayer(result);
                     showToast(field ? `Dissolved by field "${field}"` : 'Dissolved all polygons into merged features', 'success');
                     refreshUI();
@@ -3736,11 +3840,20 @@ async function processPhotoFiles(files, modalOverlay) {
     });
 
     const progress = showProgressModal('Processing Photos');
-    const taskRunner = { throwIfCancelled() {}, updateProgress(p, s) { progress.update(p, s); } };
+    const onPhotoProgress = (data) => progress.update(data.percent, data.step);
+    bus.on('task:progress', onPhotoProgress);
+    progress.onCancel(() => {
+        getActiveTask()?.cancel();
+        progress.close();
+        bus.off('task:progress', onPhotoProgress);
+        showToast('Photo processing cancelled', 'warning');
+    });
 
     try {
-        const result = await photoMapper._process(imageFiles, taskRunner);
+        const result = await photoMapper.processPhotos(imageFiles);
         progress.close();
+        bus.off('task:progress', onPhotoProgress);
+        if (!result) return;
 
         // Show results
         const resultsEl = modalOverlay.querySelector('#photo-results');
@@ -3990,19 +4103,19 @@ async function openArcGISImporter() {
                 progressPct.textContent = '0%';
                 progressText.textContent = `Connecting to ${name || 'layer'}...`;
 
-                const taskHandler = {
-                    throwIfCancelled() { if (this._cancelled) { const e = new Error('Cancelled'); e.cancelled = true; throw e; } },
-                    updateProgress(p, s) {
-                        if (progressBar) progressBar.style.width = p + '%';
-                        if (progressPct) progressPct.textContent = Math.round(p) + '%';
-                        if (progressText) progressText.textContent = s || '';
-                    },
-                    _cancelled: false
+                const { TaskRunner } = await import('./core/task-runner.js');
+                const arcgisTask = new TaskRunner(`Import ${name || 'layer'}`, 'ArcGIS');
+                const onArcgisProgress = (data) => {
+                    if (progressBar) progressBar.style.width = data.percent + '%';
+                    if (progressPct) progressPct.textContent = Math.round(data.percent) + '%';
+                    if (progressText) progressText.textContent = data.step || '';
                 };
+                bus.on('task:progress', onArcgisProgress);
 
                 overlay.querySelector('#arcgis-cancel').onclick = () => {
-                    taskHandler._cancelled = true;
+                    arcgisTask.cancel();
                     arcgisImporter.cancel();
+                    bus.off('task:progress', onArcgisProgress);
                     showToast('Download cancelled', 'warning');
                     progressEl.classList.add('hidden');
                 };
@@ -4013,15 +4126,22 @@ async function openArcGISImporter() {
                         outFields: '*', where: '1=1', returnGeometry: true
                     };
                     if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
-                    const dataset = await arcgisImporter.downloadFeatures(queryOpts, taskHandler);
+                    const dataset = await arcgisImporter.downloadFeatures(queryOpts, arcgisTask);
+                    bus.off('task:progress', onArcgisProgress);
 
-                    if (dataset) {
-                        addLayer(dataset);
-                        mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                        const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
-                        showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
-                        refreshUI();
+                    if (!dataset || arcgisTask.cancelled) {
+                        progressEl.classList.add('hidden');
+                        if (statusEl) {
+                            statusEl.textContent = 'Import';
+                            statusEl.disabled = false;
+                        }
+                        return;
                     }
+                    addLayer(dataset);
+                    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                    const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
+                    showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
+                    refreshUI();
                     if (statusEl) {
                         statusEl.textContent = '✅ Done';
                         statusEl.classList.remove('btn-primary');
@@ -4030,8 +4150,9 @@ async function openArcGISImporter() {
                     }
                     progressEl.classList.add('hidden');
                 } catch (e) {
+                    bus.off('task:progress', onArcgisProgress);
                     progressEl.classList.add('hidden');
-                    if (e.cancelled) return;
+                    if (e?.cancelled || arcgisTask.cancelled) return;
                     const classified = handleError(e, 'ArcGIS', 'Import');
                     showErrorToast(classified);
                     if (statusEl) {

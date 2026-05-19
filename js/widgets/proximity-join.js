@@ -15,6 +15,7 @@ import { WidgetBase } from './widget-base.js';
 import logger from '../core/logger.js';
 import { computeFeatureDistance, metersToDisplayUnits } from '../tools/feature-distance.js';
 import { buildBBoxIndexEntries, bboxPreFilterByRadius, getFeatureBBox, minBBoxSeparationMeters } from '../tools/spatial-bbox.js';
+import { getActiveTask } from '../core/task-runner.js';
 
 /* ── Unit conversion helpers ── */
 const UNIT_LABELS = [
@@ -53,6 +54,7 @@ export class ProximityJoinWidget extends WidgetBase {
         this._fieldMappings = [];             // [{ targetField, newFieldName }]
         this._results = null;                 // after run
         this._running = false;
+        this._cancelRequested = false;
         this._preview = null;
 
         // Injected deps
@@ -90,6 +92,7 @@ export class ProximityJoinWidget extends WidgetBase {
         this._fieldMappings = [];
         this._results = null;
         this._running = false;
+        this._cancelRequested = false;
         this._preview = null;
     }
 
@@ -269,6 +272,7 @@ export class ProximityJoinWidget extends WidgetBase {
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:12px;">
             <div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:widget-spin 0.8s linear infinite;"></div>
             <div id="pj-status" style="font-size:12px;color:var(--text-muted);text-align:center;">Initializing…</div>
+            <button type="button" class="btn btn-secondary btn-sm pj-cancel-run">Cancel</button>
         </div>
         <style>@keyframes widget-spin { to { transform: rotate(360deg); } }</style>`;
     }
@@ -391,6 +395,11 @@ export class ProximityJoinWidget extends WidgetBase {
             if (!btn) return;
             const id = btn.id;
 
+            if (btn.classList.contains('pj-cancel-run')) {
+                this._cancelRequested = true;
+                getActiveTask()?.cancel();
+                return;
+            }
             if (id === 'pj-add-mapping')       this._addMapping();
             else if (id === 'pj-preview')      this._runPreview();
             else if (id === 'pj-run')          this._runJoin();
@@ -565,6 +574,7 @@ export class ProximityJoinWidget extends WidgetBase {
         const total = featureIndices.length;
         logger.info('ProximityJoin', `Starting join: ${total} source × ${tgtFeatures.length} target features`);
 
+        this._cancelRequested = false;
         this._running = true;
         this._preview = null;
         this._refreshBody();
@@ -590,6 +600,12 @@ export class ProximityJoinWidget extends WidgetBase {
             return new Promise((resolve) => {
                 const processNext = () => {
                     const chunkEnd = Math.min(processed + CHUNK_SIZE, total);
+
+                    if (this._cancelRequested || getActiveTask()?.cancelled) {
+                        processed = total;
+                        resolve();
+                        return;
+                    }
 
                     for (; processed < chunkEnd; processed++) {
                         const srcIdx = featureIndices[processed];
@@ -657,6 +673,15 @@ export class ProximityJoinWidget extends WidgetBase {
 
         await processChunk();
 
+        if (this._cancelRequested || getActiveTask()?.cancelled) {
+            this._running = false;
+            this._cancelRequested = false;
+            this.showToast?.('Proximity join cancelled', 'warning');
+            this._refreshBody();
+            this._bindEvents();
+            return;
+        }
+
         // Warnings
         if (invalidGeom > 0) warnings.push(`${invalidGeom} feature(s) had invalid/missing geometry.`);
         if (unmatched > 0 && maxRadiusM < Infinity) {
@@ -670,6 +695,7 @@ export class ProximityJoinWidget extends WidgetBase {
 
         this._results = { total, matched, unmatched, minDist, maxDist, avgDist, warnings };
         this._running = false;
+        this._cancelRequested = false;
 
         logger.info('ProximityJoin', `Complete: ${matched} matched, ${unmatched} unmatched, avg dist ${this._fmt(avgDist)} ${unitAbbr(this._units)}`);
         this.showToast?.(`Proximity join complete — ${matched} matched, ${unmatched} unmatched`, matched === total ? 'success' : 'info');
@@ -692,6 +718,7 @@ export class ProximityJoinWidget extends WidgetBase {
             logger.error('ProximityJoin', 'Join failed', { error: err.message });
             this.showToast?.(`Proximity join failed: ${err.message}`, 'error');
             this._running = false;
+            this._cancelRequested = false;
             this._results = null;
             this._refreshBody();
             this._bindEvents();

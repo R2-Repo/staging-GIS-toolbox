@@ -2,7 +2,7 @@
  * Generic JSON importer — detects GeoJSON vs plain table
  * Auto-detects lat/lon columns and creates spatial datasets when possible
  */
-import { createSpatialDataset, createTableDataset, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
+import { createSpatialDataset, createTableDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { importGeoJSON } from './geojson-importer.js';
 
@@ -31,10 +31,10 @@ export async function importJSON(file, task) {
             geometry: convertEsriGeometry(f.geometry),
             properties: f.attributes || {}
         }));
-        const fc = explodeGeometryCollectionsInFeatureCollection({
+        const fc = await explodeGeometryCollectionsInFeatureCollectionAsync({
             type: 'FeatureCollection',
             features
-        });
+        }, task);
         return createSpatialDataset(
             file.name.replace(/\.json$/i, ''),
             fc,

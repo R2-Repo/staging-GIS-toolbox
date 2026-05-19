@@ -2,6 +2,11 @@
  * Canonical data model + schema metadata
  * All importers normalize into these forms
  */
+import { processInChunks } from './task-runner.js';
+
+/** Feature count above which explode uses chunked async processing when a task is provided. */
+export const EXPLODE_CHUNK_THRESHOLD = 100;
+export const EXPLODE_CHUNK_SIZE = 50;
 
 /**
  * @typedef {Object} FieldMeta
@@ -266,6 +271,25 @@ export function explodeGeometryCollectionsInFeatureCollection(fc) {
 }
 
 /**
+ * Explode GeometryCollections with cooperative scheduling (yields between chunks).
+ * @param {import('geojson').FeatureCollection} fc
+ * @param {import('./task-runner.js').TaskRunner|null} [task]
+ */
+export async function explodeGeometryCollectionsInFeatureCollectionAsync(fc, task = null) {
+    if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) return fc;
+    if (!task || fc.features.length < EXPLODE_CHUNK_THRESHOLD) {
+        return explodeGeometryCollectionsInFeatureCollection(fc);
+    }
+    const parts = await processInChunks(
+        fc.features,
+        EXPLODE_CHUNK_SIZE,
+        (f) => flattenFeatureGeometryCollections(f),
+        task
+    );
+    return { ...fc, features: parts.flat() };
+}
+
+/**
  * Merge multiple spatial datasets into one
  */
 export function mergeDatasets(datasets, addSourceField = true) {
@@ -330,5 +354,6 @@ export default {
     createSpatialDataset, createTableDataset, tableToSpatial, spatialToTable,
     analyzeSchema, analyzeTableSchema, getSelectedFields, applyFieldSelection,
     mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections,
-    explodeGeometryCollectionsInFeatureCollection
+    explodeGeometryCollectionsInFeatureCollection,
+    explodeGeometryCollectionsInFeatureCollectionAsync
 };

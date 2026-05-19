@@ -4,42 +4,69 @@ Keep this file current so the next session can continue without re-discovery.
 
 ## Latest
 
-- **Date**: 2026-05-13
-- **Goal**: GIS tools/widgets fixes + spatial pruning (bbox overlap / separation heuristics) for heavy tools
-- **Branch**: (local / unspecified)
-- **Summary**:
-  - **`nearestJoin`** ([js/tools/gis-tools.js](js/tools/gis-tools.js)): Uses shared **`computeFeatureDistance`** ([js/tools/feature-distance.js](js/tools/feature-distance.js)) aligned with Proximity Join (geometry-aware distances; MultiLineString targets handled).
-  - **Proximity Join** ([js/widgets/proximity-join.js](js/widgets/proximity-join.js)): Imports shared distance helpers; `center-of-mass` alias supported in feature-distance.
-  - **Line tools**: [js/tools/line-geojson.js](js/tools/line-geojson.js) (`findFirstLineStringFeature`, `listLineStringFeatures`, `pointToLineDistanceAny`, `nearestPointOnLineAny`); MultiLine support in `pointToLineDistance`, `nearestPointOnLine`, `nearestPointToLine` in gis-tools; Line intersect explodes MultiLineString ([js/app.js](js/app.js)).
-  - **Dissolve**: Empty field = dissolve all ([gis-tools](js/tools/gis-tools.js)); modal option + tip ([js/app.js](js/app.js)).
-  - **Map**: `cancelInteraction()`, `showInteractionBanner()` public ([js/map/map-manager.js](js/map/map-manager.js)); selection box-select uses **`bboxDiagonalMeetsMinDragPx`** like other drag rectangles; measure tool guards missing Turf; measure control tooltip distinguishes path length vs straight-line GIS Distance.
-  - **Draw toolbar rectangle**: Delegates to **`startRectangleDrag`** ([js/map/draw-manager.js](js/map/draw-manager.js)); `cancelDraw` calls `mapManager.cancelInteraction()`.
-  - **Bulk Update**: Uses **`showInteractionBanner`** ([js/widgets/bulk-update.js](js/widgets/bulk-update.js)).
-  - **Polygon sketch**: Click/debounce **90ms** ([js/map/map-manager.js](js/map/map-manager.js)).
-  - **Spatial analyzer**: Point **intersects** uses **`booleanIntersects`** ([js/widgets/spatial-analyzer.js](js/widgets/spatial-analyzer.js)).
-  - **Workflow** Nearest Join inspector text matches geometry behavior ([js/workflow/nodes/spatial-nodes.js](js/workflow/nodes/spatial-nodes.js)).
-  - **Spatial pruning / bbox helpers** ([js/tools/spatial-bbox.js](js/tools/spatial-bbox.js)): `getFeatureBBox`, overlap checks, `bboxPreFilterByRadius`, `buildBBoxIndexEntries`, nearest-join sort threshold. Used in **gis-tools** (`clipFeatures`, `bboxClipFeatures`, `spatialJoinPointsInPolygons`, `nearestJoin`, `intersectLayers`, `differenceLayers`, `summarizeWithin`) and **Proximity Join** (shared index + `_findNearest` lower-bound prune via `minBBoxSeparationMeters`).
-  - **Tests**: `vitest.config.js`, `tests/setup-turf.js`, `@turf/turf` devDependency; **spatial-bbox**, **feature-distance**, **line-geojson**, **gis-tools** specs.
+- **Date**: 2026-05-18
+- **Goal**: **Performance & reliability** — responsive UI, real cancel, test coverage (see full plan)
+- **Branch (next work)**: `cursor/performance-phase-1-8709`
+- **Plan doc**: [docs/PERFORMANCE_PLAN.md](docs/PERFORMANCE_PLAN.md) (phases 1–6, evidence, tests, starter prompt)
+- **Context**: Prior thread was **planning only** — no performance PR merged; no code from that thread unless committed separately.
+
+### What to build next (Phase 1 only)
+
+1. Fix **import cancel bug**: `app.js` declares `currentTask` but never assigns it; `importFile` in `importer.js` creates its own `TaskRunner` (~line 81).
+2. **Active task registry** or expose task from import so Cancel stops work.
+3. On cancel: **no** `addLayer` / no partial layers; use `ErrorCategory.CANCELLED` via `handleError`.
+4. Clean up `bus.on('task:progress')` leak on import modal close.
+5. Wire Cancel on ArcGIS download + heavy GIS progress where `TaskRunner` already exists.
+6. Add `tests/task-runner.test.js`, `tests/importer-cancel.test.js`.
+7. Optional housekeeping: delete `js/map/map-manager.js.bak` if still present.
+
+**Do not start** in Phase 1: Web Workers, rbush, incremental map updates, progressive import to map.
+
+### Prior shipped work (still relevant)
+
+- **Spatial pruning**: [js/tools/spatial-bbox.js](js/tools/spatial-bbox.js) — bbox overlap, `nearestJoin` sort threshold 64, used in gis-tools + Proximity Join.
+- **Proximity Join**: chunked `requestAnimationFrame` (`CHUNK_SIZE = 200`) — **reference pattern** for Phase 2.
+- **TaskRunner**: [js/core/task-runner.js](js/core/task-runner.js) — `cancel()`, `throwIfCancelled()`, `processInChunks` (unused elsewhere).
+- **Tests**: 28 passing — spatial-bbox, feature-distance, line-geojson, gis-tools (dissolve, nearestJoin, intersect, spatialJoin), map-interaction-utils, logger.
 
 ## Verification
 
-- **Vitest**: from repo root, `npm test` — expect **28** tests green. If `npm` is unavailable:  
-  `node node_modules/vitest/vitest.mjs run` (cwd = repo root).
-- **Browser**: Draw-layer rectangle drag; dissolve with and without field; line layers with MultiLineString on Along / Pt→Line / Line intersect / Nearest Pt on Line; map measure when Turf is loaded.
+- **Vitest**: `npm test` from repo root — expect **28+** tests green after Phase 1.
+- **Phase 1 manual**: Start import of a slow file → **Cancel** → no new layer; map still pans/zooms.
+- **Browser** (general): `python3 -m http.server 8080` → http://localhost:8080/
 
 ## Known issues / risks
 
-- **`js/map/map-manager.js.bak`**: Delete manually if still present (sandbox denied removal here).
-- **nearestJoin** remains worst-case **O(n×m)** on geometry checks; bbox ordering + early exit reduce typical cost. Very large layers may still need chunking like Proximity Join.
+- **Import cancel broken** (verified): `currentTask` never set in `handleFileImport`.
+- **nearestJoin** worst-case O(n×m); bbox heuristics help, spatial index is Phase 4.
+- **Monolithic Turf** on simplify/dissolve/polygonSmooth — UI blocks until return (`gis-tools.js`).
+- **No workers** in repo yet; CDN-only libs in `index.html`.
+- **`js/map/map-manager.js.bak`**: stray backup — delete when convenient.
+- **`package-lock.json`**: may be dirty locally (unrelated); do not commit unless dependency change intentional.
 
-## Next
+## Next (after Phase 1)
 
-- Optional: delete dead `_onRectClick` / `_onRectMove` helpers in draw-manager (rectangle now delegated).
-- Browser smoke: Proximity Join vs workflow Nearest Join on the same small fixtures; heavy layers (clip/intersect/summarize-within) after bbox pruning.
+- Phase 2: `processInChunks` adoption, debounce `refreshUI`, PJ/spatial-analyzer cancel + chunking — [docs/PERFORMANCE_PLAN.md](docs/PERFORMANCE_PLAN.md)
+- Phase 3+: workers for KML/KMZ/shapefile parse (requires CDN-in-worker or vendor strategy)
 
 ---
 
-_Archive older bullets here when stale (optional):_
+## New agent — copy/paste prompt
 
-- 2026-05-13: `map-interaction-utils`, sketch polygons/circles, widget delegation — see git history.
-- 2026-05-13: Earlier handoff-only scaffold (Vitest + rules).
+```
+Read HANDOFF.md, docs/PERFORMANCE_PLAN.md, and AGENTS.md.
+
+Implement Phase 1 only: fix import cancel (currentTask), active task wiring,
+cancel guards before addLayer, ArcGIS/GIS cancel where applicable,
+tests/task-runner.test.js and tests/importer-cancel.test.js.
+
+Test-first; npm test green; branch cursor/performance-phase-1-8709;
+commit, push, draft PR. Do not implement workers, spatial index, or map chunking.
+```
+
+---
+
+_Archive_
+
+- 2026-05-13: GIS tools/widgets, spatial pruning, Proximity Join alignment — see git history.
+- 2026-05-13: Vitest scaffold + rules.

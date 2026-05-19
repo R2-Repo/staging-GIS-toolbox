@@ -19,6 +19,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `manifest.json`, `sw.js` | PWA manifest and service worker |
 | `tests/` | Vitest specs (`*.test.js`) |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
+| [docs/PERFORMANCE_PLAN.md](docs/PERFORMANCE_PLAN.md) | Performance/reliability roadmap (phases 1–6, tests, cancel fix) |
 
 ## Agent workflow
 

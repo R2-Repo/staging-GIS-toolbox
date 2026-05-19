@@ -61,9 +61,11 @@ export async function simplifyFeatures(dataset, tolerance = 0.001) {
     const task = new TaskRunner('Simplify', 'GISTools');
     return task.run(async (t) => {
         t.updateProgress(30, 'Simplifying geometries...');
+        t.throwIfCancelled();
 
         const verticesBefore = countVertices(dataset.geojson);
         const simplified = turf.simplify(dataset.geojson, { tolerance, highQuality: true });
+        t.throwIfCancelled();
         const verticesAfter = countVertices(simplified);
 
         logger.info('GISTools', 'Simplify complete', { verticesBefore, verticesAfter, reduction: `${Math.round((1 - verticesAfter / verticesBefore) * 100)}%` });
@@ -141,10 +143,12 @@ export async function dissolveFeatures(dataset, field) {
     const task = new TaskRunner('Dissolve', 'GISTools');
     return task.run(async (t) => {
         t.updateProgress(30, 'Dissolving...');
+        t.throwIfCancelled();
         const trimmed = field != null ? String(field).trim() : '';
         const dissolved = trimmed
             ? turf.dissolve(dataset.geojson, { propertyName: trimmed })
             : turf.dissolve(dataset.geojson);
+        t.throwIfCancelled();
         return createSpatialDataset(`${dataset.name}_dissolved`, dissolved, { format: 'derived' });
     });
 }
@@ -304,7 +308,9 @@ export async function polygonSmoothFeatures(dataset, iterations = 1) {
     const task = new TaskRunner('Polygon Smooth', 'GISTools');
     return task.run(async (t) => {
         t.updateProgress(30, 'Smoothing polygons...');
+        t.throwIfCancelled();
         const smoothed = turf.polygonSmooth(dataset.geojson, { iterations });
+        t.throwIfCancelled();
         return createSpatialDataset(`${dataset.name}_smooth`, smoothed, { format: 'derived' });
     });
 }

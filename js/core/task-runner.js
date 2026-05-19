@@ -7,6 +7,12 @@ import { handleError, ErrorCategory } from './error-handler.js';
 import bus from './event-bus.js';
 
 let taskCounter = 0;
+let activeTask = null;
+
+/** Currently running TaskRunner, if any (for UI cancel wiring). */
+export function getActiveTask() {
+    return activeTask;
+}
 
 export class TaskRunner {
     constructor(name, module) {
@@ -48,11 +54,19 @@ export class TaskRunner {
     async run(fn) {
         this.state = 'running';
         const timer = logger.timed(this.module, this.name);
+        const prevActive = activeTask;
+        activeTask = this;
         bus.emit('task:start', { id: this.id, name: this.name });
 
         try {
             this.updateProgress(0, 'Starting...');
             const result = await fn(this);
+            if (this.cancelled) {
+                this.state = 'cancelled';
+                timer.end({ status: 'cancelled' });
+                bus.emit('task:cancelled', { id: this.id, name: this.name });
+                return null;
+            }
             this.state = 'completed';
             this.updateProgress(100, 'Done');
             timer.end({ status: 'completed' });
@@ -70,6 +84,7 @@ export class TaskRunner {
             bus.emit('task:error', { id: this.id, name: this.name, error: classified });
             throw error;
         } finally {
+            if (activeTask === this) activeTask = prevActive;
             bus.emit('task:end', { id: this.id, name: this.name, state: this.state });
         }
     }

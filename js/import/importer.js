@@ -2,7 +2,7 @@
  * Import registry — detects format and dispatches to the right importer
  */
 import logger from '../core/logger.js';
-import { TaskRunner } from '../core/task-runner.js';
+import { TaskRunner, getActiveTask } from '../core/task-runner.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { importGeoJSON } from './geojson-importer.js';
 import { importCSV } from './csv-importer.js';
@@ -60,7 +60,7 @@ export function detectFormat(file) {
     return null;
 }
 
-export async function importFile(file) {
+export async function importFile(file, options = {}) {
     const format = detectFormat(file);
     if (!format) {
         throw new AppError(
@@ -78,7 +78,7 @@ export async function importFile(file) {
         );
     }
 
-    const task = new TaskRunner(`Import ${file.name}`, 'Importer');
+    const task = options.task || new TaskRunner(`Import ${file.name}`, 'Importer');
     return task.run(async (t) => {
         t.updateProgress(10, `Reading ${file.name}...`);
         logger.info('Importer', 'Starting import', { file: file.name, format, size: file.size });
@@ -107,20 +107,34 @@ export async function importFile(file) {
 export async function importFiles(files) {
     const results = [];
     const errors = [];
+    let cancelled = false;
+
     for (const file of files) {
+        if (getActiveTask()?.cancelled) {
+            cancelled = true;
+            break;
+        }
         try {
             const ds = await importFile(file);
+            if (ds === null) {
+                cancelled = true;
+                break;
+            }
             if (ds) {
                 // An importer may return an array of datasets (e.g. multi-layer shapefile)
                 if (Array.isArray(ds)) results.push(...ds);
                 else results.push(ds);
             }
         } catch (e) {
+            if (e?.cancelled || getActiveTask()?.cancelled) {
+                cancelled = true;
+                break;
+            }
             errors.push({ file: file.name, error: e });
             logger.error('Importer', 'File import failed', { file: file.name, error: e.message });
         }
     }
-    return { datasets: results, errors };
+    return { datasets: results, errors, cancelled };
 }
 
 export default { importFile, importFiles, detectFormat };

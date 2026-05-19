@@ -347,6 +347,7 @@ async function handleFileImport(files, fenceBbox = null) {
         }
 
         let totalFiltered = 0;
+        const importedLayerIds = [];
         for (const ds of expanded) {
             throwIfTaskCancelled();
             if (fenceBbox) {
@@ -360,7 +361,12 @@ async function handleFileImport(files, fenceBbox = null) {
                 mapManager.setLayerStyle(ds.id, { ...ds._kmlStyle });
             }
             addLayer(ds);
-            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: true });
+            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: false });
+            importedLayerIds.push(ds.id);
+        }
+
+        if (importedLayerIds.length > 0) {
+            mapManager.fitToLayers(importedLayerIds);
         }
 
         if (expanded.length > 0) {
@@ -671,12 +677,24 @@ function setupEventListeners() {
 // ============================
 // UI Refresh — rebuilds panels
 // ============================
-function refreshUI() {
+const REFRESH_UI_DEBOUNCE_MS = 150;
+let _refreshUITimer = null;
+
+function refreshUINow() {
     renderLayerList();
     renderFieldList();
     renderOutputPanel();
     renderMobileContent();
     updateToolbarState();
+}
+
+/** Debounced panel refresh — coalesces bursts during import / multi-layer updates. */
+function refreshUI() {
+    clearTimeout(_refreshUITimer);
+    _refreshUITimer = setTimeout(() => {
+        _refreshUITimer = null;
+        refreshUINow();
+    }, REFRESH_UI_DEBOUNCE_MS);
 }
 
 function updateToolbarState() {
@@ -2370,7 +2388,7 @@ async function openFilterBuilder(targetLayerId) {
                 };
             }
 
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.apply-btn').onclick = async () => {
                 const rules = Array.from(rulesContainer.querySelectorAll('[data-rule]')).map(el => ({
                     field: el.querySelector('.rule-field').value,
                     operator: el.querySelector('.rule-op').value,
@@ -2388,10 +2406,22 @@ async function openFilterBuilder(targetLayerId) {
                     layer._preFilterSnapshot = JSON.parse(JSON.stringify(layer.geojson));
                 }
 
-                const result = transforms.applyFilters(sourceFeatures, rules, logic);
+                let result;
+                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                    close();
+                    const filtered = await runWithTaskProgress('Filter', async () => {
+                        const { TaskRunner } = await import('./core/task-runner.js');
+                        const task = new TaskRunner('Filter', 'DataPrep');
+                        return task.run((t) => transforms.applyFiltersAsync(sourceFeatures, rules, logic, t));
+                    });
+                    if (filtered === null) return;
+                    result = filtered;
+                } else {
+                    result = transforms.applyFilters(sourceFeatures, rules, logic);
+                    close();
+                }
                 layer._activeFilter = { rules, logic };
                 applyTransform(`Filter (${result.length} results)`, result);
-                close();
             };
         }
     });
@@ -2469,13 +2499,28 @@ async function openJoinTool() {
             };
 
             overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.apply-btn').onclick = async () => {
                 const leftKey = overlay.querySelector('#join-left-key').value;
                 const rightKey = overlay.querySelector('#join-right-key').value;
                 const fieldsToJoin = Array.from(overlay.querySelectorAll('#join-fields-list input:checked')).map(el => el.value);
-                const { features: result, matched, unmatched } = transforms.joinData(getFeatures(), joinRows, leftKey, rightKey, fieldsToJoin);
+                const sourceFeatures = getFeatures();
+                let joinResult;
+                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                    close();
+                    joinResult = await runWithTaskProgress('Join', async () => {
+                        const { TaskRunner } = await import('./core/task-runner.js');
+                        const task = new TaskRunner('Join', 'DataPrep');
+                        return task.run((t) =>
+                            transforms.joinDataAsync(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin, t)
+                        );
+                    });
+                    if (joinResult === null) return;
+                } else {
+                    joinResult = transforms.joinData(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin);
+                    close();
+                }
+                const { features: result, matched, unmatched } = joinResult;
                 applyTransform(`Join (${matched} matched, ${unmatched} unmatched)`, result);
-                close();
             };
         }
     });

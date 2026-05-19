@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as turf from '@turf/turf';
 import {
+    simplifyFeatures,
     dissolveFeatures,
     nearestJoin,
     intersectLayers,
@@ -8,6 +9,22 @@ import {
 } from '../js/tools/gis-tools.js';
 import { createSpatialDataset } from '../js/core/data-model.js';
 import { computeFeatureDistance } from '../js/tools/feature-distance.js';
+
+describe('simplifyFeatures', () => {
+    it('simplifies each feature in a multi-feature collection', async () => {
+        const fc = {
+            type: 'FeatureCollection',
+            features: [
+                turf.polygon([[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]]),
+                turf.polygon([[[3, 0], [5, 0], [5, 2], [3, 2], [3, 0]]])
+            ]
+        };
+        const ds = createSpatialDataset('test_simp', fc, { format: 'test' });
+        const { dataset, stats } = await simplifyFeatures(ds, 0.01);
+        expect(dataset.geojson.features).toHaveLength(2);
+        expect(stats.verticesAfter).toBeLessThanOrEqual(stats.verticesBefore);
+    });
+});
 
 describe('dissolveFeatures', () => {
     it('dissolves all polygons when field is empty', async () => {

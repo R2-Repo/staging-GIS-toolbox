@@ -2,7 +2,7 @@
  * KML importer using toGeoJSON library
  * Preserves KML inline styles (stroke, fill, icon) as dataset._kmlStyle
  */
-import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
+import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { collectNetworkLinkHrefs } from './kml-networklink.js';
 
@@ -50,7 +50,7 @@ export async function importKML(file, task, meta = {}) {
 
     // KML MultiGeometry → GeoJSON GeometryCollection; explode at import so the layer
     // schema and all map/dataprep paths see plain LineString / Polygon features.
-    geojson = explodeGeometryCollectionsInFeatureCollection(geojson);
+    geojson = await explodeGeometryCollectionsInFeatureCollectionAsync(geojson, task);
 
     const networkHrefs = collectNetworkLinkHrefs(kmlDoc);
     const featCount = geojson.features.length;

@@ -1,7 +1,7 @@
 /**
  * GeoJSON importer
  */
-import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
+import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 
 export async function importGeoJSON(file, task) {
@@ -37,7 +37,7 @@ export async function importGeoJSON(file, task) {
         ...((f.id != null) ? { id: f.id } : {})
     }));
 
-    fc = explodeGeometryCollectionsInFeatureCollection(fc);
+    fc = await explodeGeometryCollectionsInFeatureCollectionAsync(fc, task);
 
     task.updateProgress(90, 'Building dataset...');
     return createSpatialDataset(

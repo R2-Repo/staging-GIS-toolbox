@@ -3,6 +3,10 @@
  * Each function operates on features[] or rows[] and returns a new copy
  */
 import logger from '../core/logger.js';
+import { processInChunks } from '../core/task-runner.js';
+
+export const DATAPREP_CHUNK_THRESHOLD = 500;
+export const DATAPREP_CHUNK_SIZE = 200;
 
 // ========== 1. Split Column ==========
 export function splitColumn(features, fieldName, options = {}) {
@@ -138,6 +142,25 @@ export function applyFilters(features, rules, logic = 'AND') {
     });
 }
 
+/** Cooperative filter for large layers (yields between chunks when task provided). */
+export async function applyFiltersAsync(features, rules, logic = 'AND', task = null) {
+    if (!task || features.length < DATAPREP_CHUNK_THRESHOLD) {
+        return applyFilters(features, rules, logic);
+    }
+    logger.info('DataPrep', 'Apply filters (chunked)', { rules: rules.length, logic, count: features.length });
+    const flags = await processInChunks(
+        features,
+        DATAPREP_CHUNK_SIZE,
+        (f) => {
+            const props = f.properties || {};
+            const results = rules.map(rule => evaluateRule(props, rule));
+            return logic === 'AND' ? results.every(Boolean) : results.some(Boolean);
+        },
+        task
+    );
+    return features.filter((_, i) => flags[i]);
+}
+
 function evaluateRule(props, rule) {
     const val = props[rule.field];
     const target = rule.value;
@@ -221,6 +244,45 @@ export function joinData(features, tableRows, leftKey, rightKey, fieldsToJoin) {
     });
 
     logger.info('DataPrep', 'Join complete', { matched, unmatched });
+    return { features: result, matched, unmatched };
+}
+
+/** Cooperative join for large layers (yields between chunks when task provided). */
+export async function joinDataAsync(features, tableRows, leftKey, rightKey, fieldsToJoin, task = null) {
+    if (!task || features.length < DATAPREP_CHUNK_THRESHOLD) {
+        return joinData(features, tableRows, leftKey, rightKey, fieldsToJoin);
+    }
+    logger.info('DataPrep', 'Join (chunked)', { count: features.length, fields: fieldsToJoin.length });
+
+    const lookup = new Map();
+    for (const row of tableRows) {
+        const key = String(row[rightKey] ?? '');
+        if (!lookup.has(key)) lookup.set(key, row);
+    }
+
+    let matched = 0;
+    let unmatched = 0;
+
+    const result = await processInChunks(
+        features,
+        DATAPREP_CHUNK_SIZE,
+        (f) => {
+            const key = String(f.properties?.[leftKey] ?? '');
+            const row = lookup.get(key);
+            const props = { ...f.properties };
+            if (row) {
+                matched++;
+                for (const field of fieldsToJoin) props[field] = row[field] ?? null;
+            } else {
+                unmatched++;
+                for (const field of fieldsToJoin) props[field] = null;
+            }
+            return { ...f, properties: props };
+        },
+        task
+    );
+
+    logger.info('DataPrep', 'Join complete (chunked)', { matched, unmatched });
     return { features: result, matched, unmatched };
 }
 

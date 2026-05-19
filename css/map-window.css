@@ -1,0 +1,80 @@
+/* Dual Screen — secondary map window */
+.map-window-body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #0f1117;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    color: #e8eaed;
+}
+
+.map-window-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #1c1c1e;
+    border-bottom: 1px solid #2d2d30;
+    flex-shrink: 0;
+}
+
+.map-window-title {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.map-window-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.map-window-main {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+.map-window-main #map-container {
+    position: absolute;
+    inset: 0;
+}
+
+.map-window-header .header-toggle {
+    display: inline-flex;
+    background: #2d2d30;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.map-window-header .header-toggle-option {
+    border: none;
+    background: transparent;
+    color: #9aa0a6;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.map-window-header .header-toggle-option.active {
+    background: #2563eb;
+    color: #fff;
+}
+
+.map-window-header .btn {
+    border: 1px solid #3d3d42;
+    background: #2d2d30;
+    color: #e8eaed;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.map-window-header .btn:hover {
+    background: #3d3d42;
+}

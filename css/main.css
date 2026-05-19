@@ -361,6 +361,44 @@ html, body {
     height: 100%;
     background: #121212;
 }
+
+/* Dual Screen Mode — primary layout (desktop) */
+.dual-screen-desktop-only { display: inline-flex; }
+@media (max-width: 767px) {
+    .dual-screen-desktop-only { display: none !important; }
+}
+.app-layout.dual-screen-active .panel-center {
+    display: none;
+}
+.app-layout.dual-screen-active .panel-left {
+    flex: 1;
+    max-width: none;
+    width: auto;
+}
+.app-layout.dual-screen-active .panel-right {
+    flex: 1;
+    max-width: none;
+    width: auto;
+}
+#map-container.dual-screen-map-hidden .maplibregl-map,
+#map-container.dual-screen-map-hidden .map-overlay {
+    visibility: hidden;
+    pointer-events: none;
+}
+.dual-screen-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+}
+.dual-screen-placeholder p { margin: 0 0 8px; }
+#btn-dual-screen.active {
+    background: var(--primary);
+    color: #fff;
+}
 #map-container .maplibregl-popup-content { max-width: 300px; max-height: 250px; overflow-y: auto; font-size: 12px; }
 #map-container .maplibregl-popup-content table { width: 100%; border-collapse: collapse; }
 #map-container .maplibregl-popup-content td,

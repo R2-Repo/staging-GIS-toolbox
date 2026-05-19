@@ -181,6 +181,22 @@ class MapManager {
         return this.map;
     }
 
+    /**
+     * Tear down MapLibre (Dual Screen Mode: map lives in secondary window).
+     */
+    destroy() {
+        this.stopCameraOrbit?.();
+        this._closePopup?.();
+        if (this.map) {
+            this.map.remove();
+            this.map = null;
+        }
+        this.dataLayers.clear();
+        this._layerNames.clear();
+        this.clusterGroups.clear();
+        this._selections.clear();
+    }
+
     // ==========================================
     // Style builder
     // ==========================================

@@ -14,6 +14,10 @@ import { importFile, importFiles } from './import/importer.js';
 import { getActiveTask } from './core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
+import dualScreenCoordinator from './dual-screen/coordinator.js';
+import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
+
+installDualScreenMapFacade(mapManager);
 import { showToast, showErrorToast } from './ui/toast.js';
 import { showModal, confirm, showProgressModal } from './ui/modals.js';
 import * as transforms from './dataprep/transforms.js';
@@ -480,6 +484,8 @@ function setupEventListeners() {
     });
     document.getElementById('btn-workflow')?.addEventListener('click', () => workflowOverlay.toggle());
 
+    setupDualScreenMode();
+
     // ArcGIS REST Import
     document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
     document.getElementById('btn-arcgis-mobile')?.addEventListener('click', openArcGISImporter);
@@ -672,6 +678,60 @@ function setupEventListeners() {
         toggleAGOLCompat();
         refreshUI();
     });
+}
+
+// ============================
+// Dual Screen Mode
+// ============================
+function setupDualScreenMode() {
+    const btn = document.getElementById('btn-dual-screen');
+    if (!btn) return;
+
+    dualScreenCoordinator.onStateChange((active) => {
+        applyDualScreenLayout(active);
+        btn.classList.toggle('active', active);
+        btn.title = active ? 'Exit Dual Screen Mode' : 'Open map in a second window (Dual Screen)';
+    });
+
+    bus.on('layers:changed', () => {
+        if (dualScreenCoordinator.isActive) dualScreenCoordinator.syncLayersChanged();
+    });
+
+    btn.addEventListener('click', () => {
+        if (getState().ui.isMobile) return;
+        if (dualScreenCoordinator.isActive) {
+            dualScreenCoordinator.deactivate();
+            return;
+        }
+        const ok = dualScreenCoordinator.activate();
+        if (!ok) {
+            showToast('Could not open Dual Screen map window. Allow pop-ups and try again.', 'error');
+        }
+    });
+}
+
+function applyDualScreenLayout(active) {
+    document.querySelector('.app-layout')?.classList.toggle('dual-screen-active', active);
+    document.body.classList.toggle('dual-screen-active', active);
+    document.getElementById('basemap-toggle')?.classList.toggle('hidden', active);
+    document.getElementById('dimension-toggle')?.classList.toggle('hidden', active);
+
+    const container = document.getElementById('map-container');
+    if (!container) return;
+
+    let placeholder = container.querySelector('.dual-screen-placeholder');
+    if (active) {
+        container.classList.add('dual-screen-map-hidden');
+        if (!placeholder) {
+            placeholder = document.createElement('div');
+            placeholder.className = 'dual-screen-placeholder';
+            placeholder.innerHTML = '<p>Map is open in <strong>Dual Screen</strong> window.</p><p class="text-sm text-muted">Use Exit Dual Screen in the map window or click Dual Screen here to return the map to this panel.</p>';
+            container.appendChild(placeholder);
+        }
+    } else {
+        container.classList.remove('dual-screen-map-hidden');
+        placeholder?.remove();
+    }
 }
 
 // ============================

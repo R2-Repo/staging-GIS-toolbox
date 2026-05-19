@@ -2,17 +2,19 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.31.12';
+const CACHE_VERSION = '1.31.13';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
     './',
     './index.html',
+    './map-window.html',
     './manifest.json',
 
     // Styles
     './css/main.css',
     './css/mobile.css',
+    './css/map-window.css',
 
     // Icons
     './icons/favicon.png',
@@ -36,6 +38,13 @@ const APP_FILES = [
     // Map
     './js/map/map-manager.js',
     './js/map/draw-manager.js',
+    './js/map-window.js',
+
+    // Dual Screen Mode
+    './js/dual-screen/protocol.js',
+    './js/dual-screen/channel.js',
+    './js/dual-screen/coordinator.js',
+    './js/dual-screen/map-facade.js',
 
     // UI
     './js/ui/modals.js',

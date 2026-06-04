@@ -11,6 +11,7 @@ import {
     boundsFromViewportPayload
 } from './protocol.js';
 import { setDualScreenActiveHint } from './storage-hint.js';
+import { isSecondaryMapWindowOpen, MAP_WINDOW_OPEN_FEATURES } from './window-open.js';
 
 const MAP_WINDOW_NAME = 'gis-toolbox-map';
 const MAP_WINDOW_PATH = 'map-window.html';
@@ -69,9 +70,8 @@ class DualScreenCoordinator {
             return false;
         }
 
-        const features = 'noopener,noreferrer';
-        this._mapWindow = window.open(MAP_WINDOW_PATH, MAP_WINDOW_NAME, features);
-        if (!this._mapWindow || this._mapWindow.closed) {
+        this._mapWindow = window.open(MAP_WINDOW_PATH, MAP_WINDOW_NAME, MAP_WINDOW_OPEN_FEATURES);
+        if (!isSecondaryMapWindowOpen(this._mapWindow)) {
             this._mapWindow = null;
             return false;
         }

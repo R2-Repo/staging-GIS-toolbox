@@ -10,6 +10,7 @@ import {
     buildSnapshotPayload,
     boundsFromViewportPayload
 } from './protocol.js';
+import { setDualScreenActiveHint } from './storage-hint.js';
 
 const MAP_WINDOW_NAME = 'gis-toolbox-map';
 const MAP_WINDOW_PATH = 'map-window.html';
@@ -28,6 +29,7 @@ class DualScreenCoordinator {
         this._handlers = {};
         /** @type {[number, number, number, number] | null} */
         this._fenceBbox = null;
+        this._deactivating = false;
     }
 
     setFenceBbox(bbox) {
@@ -69,9 +71,13 @@ class DualScreenCoordinator {
 
         const features = 'noopener,noreferrer';
         this._mapWindow = window.open(MAP_WINDOW_PATH, MAP_WINDOW_NAME, features);
-        if (!this._mapWindow) return false;
+        if (!this._mapWindow || this._mapWindow.closed) {
+            this._mapWindow = null;
+            return false;
+        }
 
         this.isActive = true;
+        setDualScreenActiveHint(typeof sessionStorage !== 'undefined' ? sessionStorage : null, true);
         this._secondaryReady = false;
 
         this._channel = new DualScreenChannel('primary', (msg) => this._handleMessage(msg));
@@ -86,25 +92,41 @@ class DualScreenCoordinator {
         return true;
     }
 
-    deactivate() {
-        if (!this.isActive) return;
+    /**
+     * @param {{ fromSecondaryBye?: boolean }} [options]
+     */
+    deactivate(options = {}) {
+        if (!this.isActive || this._deactivating) return;
 
-        this._stopPoll();
-        if (this._channel) {
-            this._channel.post(createMessage('primary', MessageType.BYE, {}));
-            this._channel.close();
-            this._channel = null;
+        this._deactivating = true;
+        try {
+            this._stopPoll();
+
+            if (!options.fromSecondaryBye) {
+                if (this._channel) {
+                    this._channel.post(createMessage('primary', MessageType.BYE, {}));
+                }
+                if (this._mapWindow && !this._mapWindow.closed) {
+                    try { this._mapWindow.close(); } catch (_) { /* ignore */ }
+                }
+            }
+
+            if (this._channel) {
+                this._channel.close();
+                this._channel = null;
+            }
+
+            this._mapWindow = null;
+            this.isActive = false;
+            this._secondaryReady = false;
+            this._lastBounds = null;
+            setDualScreenActiveHint(typeof sessionStorage !== 'undefined' ? sessionStorage : null, false);
+
+            this._restorePrimaryMap();
+            this._notify();
+        } finally {
+            this._deactivating = false;
         }
-
-        if (this._mapWindow && !this._mapWindow.closed) {
-            try { this._mapWindow.close(); } catch (_) { /* ignore */ }
-        }
-        this._mapWindow = null;
-        this.isActive = false;
-        this._secondaryReady = false;
-
-        this._restorePrimaryMap();
-        this._notify();
     }
 
     _startPoll() {
@@ -221,7 +243,7 @@ class DualScreenCoordinator {
                 this._handlers.onCtxCmd?.(msg.payload);
                 break;
             case MessageType.BYE:
-                this.deactivate();
+                this.deactivate({ fromSecondaryBye: true });
                 break;
             default:
                 break;

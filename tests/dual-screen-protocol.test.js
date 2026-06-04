@@ -10,6 +10,14 @@ import {
     buildSnapshotPayload,
     boundsFromViewportPayload
 } from '../js/dual-screen/protocol.js';
+import {
+    DUAL_SCREEN_HINT_KEY,
+    DUAL_SCREEN_HINT_VALUE,
+    POPUP_BLOCKED_MESSAGE,
+    setDualScreenActiveHint,
+    hasDualScreenActiveHint,
+    consumeDualScreenReloadReminder
+} from '../js/dual-screen/storage-hint.js';
 
 describe('dual-screen protocol', () => {
     it('exports channel name and version', () => {
@@ -97,5 +105,37 @@ describe('dual-screen protocol', () => {
 
     it('exports CTX_CMD message type', () => {
         expect(MessageType.CTX_CMD).toBe('CTX_CMD');
+    });
+
+    it('setDualScreenActiveHint writes and clears sessionStorage key', () => {
+        const storage = new Map();
+        const mock = {
+            setItem: (k, v) => storage.set(k, v),
+            getItem: (k) => storage.get(k) ?? null,
+            removeItem: (k) => storage.delete(k)
+        };
+        expect(hasDualScreenActiveHint(mock)).toBe(false);
+        setDualScreenActiveHint(mock, true);
+        expect(storage.get(DUAL_SCREEN_HINT_KEY)).toBe(DUAL_SCREEN_HINT_VALUE);
+        expect(hasDualScreenActiveHint(mock)).toBe(true);
+        setDualScreenActiveHint(mock, false);
+        expect(hasDualScreenActiveHint(mock)).toBe(false);
+    });
+
+    it('consumeDualScreenReloadReminder runs once per page state', () => {
+        const storage = new Map();
+        const mock = {
+            setItem: (k, v) => storage.set(k, v),
+            getItem: (k) => storage.get(k) ?? null,
+            removeItem: (k) => storage.delete(k)
+        };
+        setDualScreenActiveHint(mock, true);
+        const state = {};
+        expect(consumeDualScreenReloadReminder(mock, state)).toBe(true);
+        expect(consumeDualScreenReloadReminder(mock, state)).toBe(false);
+    });
+
+    it('POPUP_BLOCKED_MESSAGE mentions pop-ups', () => {
+        expect(POPUP_BLOCKED_MESSAGE.toLowerCase()).toContain('pop-up');
     });
 });

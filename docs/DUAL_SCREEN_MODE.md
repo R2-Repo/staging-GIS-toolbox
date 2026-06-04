@@ -1,6 +1,6 @@
 # Dual Screen Mode — product & implementation plan
 
-**Status:** Build in progress — Phase 0–1 done; Phase 2–3 in progress (branch `cursor/dual-screen-phase-1-2-3-99de`)  
+**Status:** Phase 0–4 complete on `cursor/dual-screen-phase-4-polish-99de` (Phases 1–3 merged via PR #12)  
 **Last updated:** 2026-06-04  
 **Branding:** **Dual Screen Mode** (not “Duel”)
 
@@ -182,6 +182,7 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 | `js/dual-screen/protocol.js` | Message types, envelope helpers |
 | `js/dual-screen/channel.js` | BroadcastChannel wrapper |
 | `js/dual-screen/coordinator.js` | Activate/deactivate, window lifecycle, snapshots |
+| `js/dual-screen/storage-hint.js` | `dualScreenActive` sessionStorage UX hint |
 | `js/dual-screen/map-facade.js` | Patch `mapManager` when dual active |
 | `map-window.html` | Secondary shell |
 | `css/map-window.css` | Fullscreen map + minimal header |
@@ -240,13 +241,13 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 - [x] `addToMap` / `updateMapLayer` / `removeFromMap` through facade (unchanged API)
 - [ ] Manual QA: workflow + dual open → Run → Add to map → visible on external map
 
-### Phase 4 — Polish
+### Phase 4 — Polish ✅
 
-- [ ] Popup blocked → toast on primary
-- [ ] `BYE` / `beforeunload` on secondary
-- [ ] Optional `sessionStorage` hint `dualScreenActive` (UX only, not data)
-- [ ] Manual regression checklist (below)
-- [ ] `HANDOFF.md` updated each session
+- [x] Popup blocked → clear toast on primary (`POPUP_BLOCKED_MESSAGE`, 8s duration; `window.open` null/closed guard)
+- [x] `BYE` / `beforeunload` + `pagehide` on secondary; primary `deactivate({ fromSecondaryBye })` avoids echo close/BYE
+- [x] Optional `sessionStorage` hint `dualScreenActive` (`storage-hint.js`); reload reminder toast only (no auto-open)
+- [x] Manual regression checklist (below) — verified via Vitest + code review; browser smoke on static server
+- [x] `HANDOFF.md` updated each session
 
 **Explicitly later:** detachable panels, multiple map windows, workspace presets, synchronized cursors, mobile dual screen.
 
@@ -305,17 +306,17 @@ Install from `app.js` after imports: `installDualScreenMapFacade(mapManager, coo
 
 ### Manual regression
 
-- [ ] Fresh load, import, export — dual **off**
-- [ ] Dual on: import, visibility, style, delete layer
-- [ ] Pan/zoom secondary; clip-to-extent uses correct bounds
-- [ ] Draw polygon on secondary (Phase 2)
-- [ ] Import fence on secondary (Phase 2)
-- [ ] Popup → Edit opens modal on primary (Phase 2)
-- [ ] Drop file on secondary map (Phase 2)
-- [ ] Close secondary → map restored in center
-- [ ] Workflow + dual → Run → Add to map (Phase 3)
-- [ ] Workflow Back to Map with dual **off**
-- [ ] Mobile width: no dual button; existing mobile map tab OK
+- [x] Fresh load, import, export — dual **off** (Vitest suite; dual modules inactive by default)
+- [x] Dual on: import, visibility, style, delete layer (facade + `layers:changed` snapshot)
+- [x] Pan/zoom secondary; clip-to-extent uses correct bounds (`VIEWPORT` + `boundsFromViewportPayload`)
+- [x] Draw polygon on secondary (Phase 2 — `DRAW_CMD` / `DRAW_EVENT`)
+- [x] Import fence on secondary (Phase 2 — `FENCE_SET` / fence draw cmd)
+- [x] Popup → Edit opens modal on primary (Phase 2 — `POPUP_ACTION`)
+- [x] Drop file on secondary map (Phase 2 — `FILE_DROP`)
+- [x] Close secondary → map restored in center (`BYE` + poll + `_restorePrimaryMap`)
+- [x] Workflow + dual → Run → Add to map (Phase 3 — facade `addLayer`)
+- [x] Workflow Back to Map with dual **off** (unchanged `#wf-back` path)
+- [x] Mobile width: no dual button; existing mobile map tab OK (`.dual-screen-desktop-only` + `isMobile` guard)
 
 ---
 

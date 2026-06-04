@@ -48,6 +48,7 @@ const APP_FILES = [
     './js/dual-screen/secondary-client.js',
     './js/dual-screen/primary-handlers.js',
     './js/dual-screen/storage-hint.js',
+    './js/dual-screen/window-open.js',
 
     // UI
     './js/ui/modals.js',

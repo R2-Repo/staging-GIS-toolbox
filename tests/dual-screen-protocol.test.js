@@ -18,6 +18,10 @@ import {
     hasDualScreenActiveHint,
     consumeDualScreenReloadReminder
 } from '../js/dual-screen/storage-hint.js';
+import {
+    isSecondaryMapWindowOpen,
+    MAP_WINDOW_OPEN_FEATURES
+} from '../js/dual-screen/window-open.js';
 
 describe('dual-screen protocol', () => {
     it('exports channel name and version', () => {
@@ -137,5 +141,15 @@ describe('dual-screen protocol', () => {
 
     it('POPUP_BLOCKED_MESSAGE mentions pop-ups', () => {
         expect(POPUP_BLOCKED_MESSAGE.toLowerCase()).toContain('pop-up');
+    });
+
+    it('MAP_WINDOW_OPEN_FEATURES omits noopener so window.open returns a Window', () => {
+        expect(MAP_WINDOW_OPEN_FEATURES).not.toMatch(/noopener/i);
+    });
+
+    it('isSecondaryMapWindowOpen rejects null and closed windows', () => {
+        expect(isSecondaryMapWindowOpen(null)).toBe(false);
+        expect(isSecondaryMapWindowOpen({ closed: true })).toBe(false);
+        expect(isSecondaryMapWindowOpen({ closed: false })).toBe(true);
     });
 });

@@ -771,13 +771,13 @@ function setupDualScreenMode() {
         if (dualScreenCoordinator.isActive) dualScreenCoordinator.syncLayersChanged();
     });
 
-    const toggleDualScreen = () => {
+    const toggleDualScreen = async () => {
         if (getState().ui.isMobile) return;
         if (dualScreenCoordinator.isActive) {
             dualScreenCoordinator.deactivate();
             return;
         }
-        const ok = dualScreenCoordinator.activate();
+        const ok = await dualScreenCoordinator.activate();
         if (!ok) {
             showToast(POPUP_BLOCKED_MESSAGE, 'error', { duration: 8000 });
         }

@@ -187,14 +187,17 @@ class MapManager {
     destroy() {
         this.stopCameraOrbit?.();
         this._closePopup?.();
+        this._cancelInteraction?.();
+        this.clearSelection?.();
+        if (this._selectionMode) this.exitSelectionMode?.();
         if (this.map) {
             this.map.remove();
             this.map = null;
         }
         this.dataLayers.clear();
-        this._layerNames.clear();
-        this.clusterGroups.clear();
-        this._selections.clear();
+        this._layerNames?.clear();
+        this.clusterGroups?.clear();
+        this._selections?.clear();
     }
 
     // ==========================================
@@ -2019,14 +2022,6 @@ class MapManager {
     invertSelection(layerId, geojson) {
         const current = this._selections.get(layerId) || new Set();
         this.selectFeatures(layerId, geojson.features.map((_, i) => i).filter(i => !current.has(i)));
-    }
-
-    destroy() {
-        this._cancelInteraction();
-        this.clearSelection();
-        if (this._selectionMode) this.exitSelectionMode();
-        if (this.map) { this.map.remove(); this.map = null; }
-        this.dataLayers.clear();
     }
 
     // ============================

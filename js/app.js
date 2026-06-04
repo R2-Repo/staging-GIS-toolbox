@@ -22,6 +22,10 @@ import {
     RELOAD_REMINDER_MESSAGE,
     consumeDualScreenReloadReminder
 } from './dual-screen/storage-hint.js';
+import {
+    applyDualScreenDocumentLayout,
+    syncDualScreenHeaderButton
+} from './dual-screen/layout.js';
 
 installDualScreenMapFacade(mapManager);
 import { showToast, showErrorToast } from './ui/toast.js';
@@ -751,12 +755,18 @@ function setupDualScreenMode() {
         setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); }
     });
 
+    document.getElementById('map-container')?.addEventListener('click', (e) => {
+        if (e.target.closest('#btn-return-map-primary')) toggleDualScreen();
+    });
+
     dualScreenCoordinator.onStateChange((active) => {
         applyDualScreenLayout(active);
-        btn.classList.toggle('active', active);
-        btn.title = active ? 'Exit Dual Screen Mode' : 'Open map in a second window (Dual Screen)';
+        syncDualScreenHeaderButton(btn, active);
         document.querySelectorAll('[data-dual-screen-toggle]').forEach(el => {
             el.classList.toggle('active', active);
+            if (el.id === 'wf-dual-screen') {
+                el.textContent = active ? '🖥 Exit Dual Screen' : '🖥 Dual Screen';
+            }
         });
         if (active && _fenceBbox) {
             dualScreenCoordinator.setFenceBbox(_fenceBbox);
@@ -786,6 +796,13 @@ function setupDualScreenMode() {
     btn.addEventListener('click', toggleDualScreen);
     window._toggleDualScreen = toggleDualScreen;
 
+    window.addEventListener('message', (e) => {
+        if (e.origin !== window.location.origin) return;
+        if (e.data?.type === 'gis-toolbox-dual-screen-exit' && dualScreenCoordinator.isActive) {
+            dualScreenCoordinator.deactivate({ fromSecondaryBye: true });
+        }
+    });
+
     if (typeof sessionStorage !== 'undefined'
         && consumeDualScreenReloadReminder(sessionStorage, window._dualScreenReloadState ||= {})) {
         showToast(RELOAD_REMINDER_MESSAGE, 'info', { duration: 8000 });
@@ -793,27 +810,7 @@ function setupDualScreenMode() {
 }
 
 function applyDualScreenLayout(active) {
-    document.querySelector('.app-layout')?.classList.toggle('dual-screen-active', active);
-    document.body.classList.toggle('dual-screen-active', active);
-    document.getElementById('basemap-toggle')?.classList.toggle('hidden', active);
-    document.getElementById('dimension-toggle')?.classList.toggle('hidden', active);
-
-    const container = document.getElementById('map-container');
-    if (!container) return;
-
-    let placeholder = container.querySelector('.dual-screen-placeholder');
-    if (active) {
-        container.classList.add('dual-screen-map-hidden');
-        if (!placeholder) {
-            placeholder = document.createElement('div');
-            placeholder.className = 'dual-screen-placeholder';
-            placeholder.innerHTML = '<p>Map is open in <strong>Dual Screen</strong> window.</p><p class="text-sm text-muted">Use Exit Dual Screen in the map window or click Dual Screen here to return the map to this panel.</p>';
-            container.appendChild(placeholder);
-        }
-    } else {
-        container.classList.remove('dual-screen-map-hidden');
-        placeholder?.remove();
-    }
+    applyDualScreenDocumentLayout(active);
 }
 
 // ============================

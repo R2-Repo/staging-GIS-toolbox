@@ -176,6 +176,11 @@ function handleMessage(msg) {
 function setupHeaderControls() {
     document.getElementById('btn-exit-dual-screen')?.addEventListener('click', () => {
         sendBye();
+        try {
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'gis-toolbox-dual-screen-exit' }, window.location.origin);
+            }
+        } catch (_) { /* ignore */ }
         window.close();
     });
 

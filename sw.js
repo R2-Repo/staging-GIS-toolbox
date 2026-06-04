@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.31.16';
+const CACHE_VERSION = '1.31.17';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -49,6 +49,7 @@ const APP_FILES = [
     './js/dual-screen/primary-handlers.js',
     './js/dual-screen/storage-hint.js',
     './js/dual-screen/window-open.js',
+    './js/dual-screen/layout.js',
 
     // UI
     './js/ui/modals.js',

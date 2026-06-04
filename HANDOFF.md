@@ -5,42 +5,27 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-04
-- **Goal**: **Dual Screen activation** — primary map must hide and sync with secondary.
-- **Branch**: `cursor/dual-screen-activation-fix-94b0` (PR pending)
-- **Root cause**: `noreferrer` on `window.open` implies `noopener` → returns `null` while popup opens (#15 only removed explicit `noopener`). Service worker cache may also serve old JS until `CACHE_VERSION` bump (`1.31.16`).
-- **Fix**: two-arg `window.open`; `win.opener = null`; HELLO handshake fallback; async `activate()`; merged duplicate `mapManager.destroy()`.
-
-## Previous (Phase 4)
-
-- **Date**: 2026-06-04
-- **Goal**: **Dual Screen Mode — Phase 4 polish** (popup blocked UX, BYE teardown, sessionStorage hint, regression checklist)
-- **Branch**: merged via PR #13 on `main`
-- **Plan (source of truth)**: [docs/DUAL_SCREEN_MODE.md](docs/DUAL_SCREEN_MODE.md)
-- **Summary**:
-  - **Popup blocked**: `POPUP_BLOCKED_MESSAGE` toast (8s); `activate()` rejects null/closed `window.open` without touching map state.
-  - **BYE / teardown**: Secondary `sendBye()` once on exit, `beforeunload`, and non-bfcache `pagehide`; primary `deactivate({ fromSecondaryBye })` skips echo BYE/close; re-entrant guard `_deactivating`.
-  - **sessionStorage hint**: `js/dual-screen/storage-hint.js` — `dualScreenActive` set on activate, cleared on deactivate; one-shot reload reminder toast (no auto-open).
-  - **Regression**: Phase 4 checklist + manual regression items marked in plan doc; Vitest + static server smoke.
-  - **Tests**: `tests/dual-screen-protocol.test.js` (+3 cases, **54** total tests).
+- **Goal**: **Dual Screen exit UX** — restore normal 3-panel layout (map center, side panels).
+- **Branch**: `cursor/dual-screen-exit-fix-6fd6`
+- **Root cause**: `.app-layout.dual-screen-active .panel-center { display: none }` hid the center panel entirely, so placeholder/exit copy was invisible; header button label stayed "Dual Screen" when active.
+- **Fix**:
+  - Remove `display: none` on `.panel-center` in dual-screen mode (map hidden via `#map-container.dual-screen-map-hidden` only).
+  - Center placeholder with **Return map to this window** button; header label **Exit Dual Screen** when active.
+  - `js/dual-screen/layout.js` — shared layout helpers; `postMessage` fallback when secondary exits (`gis-toolbox-dual-screen-exit`).
+  - SW cache `1.31.17`.
 
 ## Verification
 
-- **Vitest**: `npm test` — green (54 tests).
+- **Vitest**: `npm test` — green (59 tests).
 - **Browser (manual)**:
-  - Block pop-ups → Dual Screen → error toast on primary; map stays in center panel.
-  - Dual on → close map window → primary restores map; hint cleared.
-  - Dual on → reload primary → info toast reminder; click Dual Screen to reopen (no auto popup).
-  - Phases 1–3 flows unchanged (import, draw, fence, workflow Add to map).
-
-## Known issues / risks
-
-- `layers:changed` still sends full snapshot (acceptable v1).
-- BroadcastChannel `BYE` on `beforeunload` may be dropped in edge cases; `closed` poll + `pagehide` mitigate.
+  - Dual on → center shows placeholder + Return button; header says Exit Dual Screen.
+  - Click Return or Exit Dual Screen → map restores in center; panels normal width.
+  - Close map window → primary restores (BYE / poll when window ref exists).
+  - Exit Dual Screen in map window → primary restores.
 
 ## Next
 
-1. Merge Phase 4 PR; optional: incremental layer sync (avoid double snapshot on add + `layers:changed`).
-2. Full interactive dual-screen QA on two monitors if available.
+1. Merge PR; optional: detect secondary close when `window.open` returned null (without spawning blank popups).
 
 **New agent prompt**: see bottom of `docs/DUAL_SCREEN_MODE.md`.
 
@@ -48,6 +33,5 @@ Keep this file current so the next session can continue without re-discovery.
 
 _Archive older bullets when stale (optional):_
 
-- 2026-06-04: Phase 1–3 on `main` via PR #12 (`cursor/dual-screen-phase-1-2-3-99de`).
-- 2026-05-19: Phase 0–1 foundation merged (#11); branch `cursor/dual-screen-mode-ccf7`.
-- 2026-05-19: Performance Phases 1–2 on `main` — PR #10.
+- 2026-06-04: Dual Screen activation fix on `main` (#16).
+- 2026-06-04: Phase 4 polish merged (#13).

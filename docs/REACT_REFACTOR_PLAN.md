@@ -8,6 +8,22 @@
 
 ## 0. Guiding principles
 
+> **RULE #0 — NON-NEGOTIABLE: the app must look and feel identical.**
+> The refactor must **not** change the style, theme, colors, spacing, fonts,
+> layout, or any visible UI/UX for the end user. Same features, same behavior,
+> same look. React is an internal implementation change only — users must not be
+> able to tell anything changed.
+>
+> How we guarantee it:
+> - **Reuse the existing CSS verbatim** (`css/main.css`, `css/workflow.css`, etc.).
+>   Import them into the React app unchanged. Do **not** rewrite styles or add a
+>   component library that restyles things.
+> - **Keep the same DOM structure and class names** so the existing CSS applies
+>   exactly. React components render the same markup the old code produced.
+> - **Visual parity check every milestone** (see gate below). If anything looks
+>   different, the milestone is not done.
+> - No new design system, no Tailwind/MUI restyle, no theme "cleanup".
+
 1. **Never break main.** Every milestone ships working. Small PRs.
 2. **Strangler pattern.** React grows *inside* the current app as "islands",
    one feature at a time. Old and new run side-by-side until a piece is done.
@@ -19,6 +35,20 @@
    manual browser check. Keep `npm test` green.
 6. **One build, two outputs during migration:** the legacy no-bundler path keeps
    working until the React shell fully replaces it.
+7. **Build + verify every milestone.** No milestone is "done" until `npm run build`
+   succeeds, `npm test` is green, AND the visual-parity + smoke checklist passes
+   (see "Milestone Definition of Done" below). We catch breakage early, not at M11.
+
+### Milestone Definition of Done (gate for every milestone)
+
+A milestone PR may not merge unless **all** of these pass:
+1. `npm test` green (pure-logic tests, before == after).
+2. `npm run build` succeeds with no errors; `npm run preview` loads.
+3. **Visual parity:** the migrated piece looks pixel-identical to before
+   (side-by-side against current `main` / screenshots from M0). Same CSS, same DOM.
+4. **Functional parity:** the relevant M0 smoke-checklist items pass in the browser.
+5. The rest of the app (un-migrated islands) still works.
+6. Rollback path noted (feature flag or revertible commit).
 
 ---
 
@@ -116,12 +146,16 @@ Each milestone = one or a few PRs. Branch prefix `cursor/`, suffix per repo rule
 Each lists: **Goal → Steps → Verify → Rollback → Perf**.
 
 ### M0 — Baseline & safety net
-- **Goal:** Lock current behavior before any change.
+- **Goal:** Lock current behavior + appearance before any change.
 - **Steps:** Document manual smoke checklist (import each format, draw, tools,
-  widgets, dual screen, workflow run, export, session restore, mobile, PWA install).
-  Add Vitest coverage for any pure logic that lacks it and is on the migration path
-  (importers, exporters, transforms, workflow-engine, gis-tools edges).
-- **Verify:** `npm test` green; checklist passes on `main`.
+  widgets, dual screen, workflow run, export, session restore, PWA install).
+  **Capture reference screenshots** of every screen/panel/modal/the pipeline editor
+  at a fixed desktop viewport (e.g. 1440×900) — these are the visual-parity baseline
+  every later milestone compares against. Add Vitest coverage for any pure logic that
+  lacks it and is on the migration path (importers, exporters, transforms,
+  workflow-engine, gis-tools edges).
+- **Verify:** `npm test` green; checklist passes on `main`; screenshots stored
+  (e.g. `docs/parity/`).
 - **Rollback:** n/a (no app change).
 - **Perf:** Capture baseline metrics (cold load size/time, large-import time,
   workflow run time, map FPS on pan with N layers). Save numbers in this doc §6.
@@ -226,11 +260,18 @@ Each lists: **Goal → Steps → Verify → Rollback → Perf**.
 - **Rollback:** legacy openers behind flags.
 - **Perf:** import stays chunked/cancelable; draw previews stay imperative on map.
 
-### M9 — Header, mobile UI, navigation in React
-- **Goal:** Replace header buttons, mobile FABs/flyouts/bottom-nav, responsive logic.
-- **Steps:** `<Header>`, `<MobileNav>`, responsive via store `ui.isMobile`. Remove
-  inline `onclick`/`toggleSection` globals.
-- **Verify:** desktop + mobile layouts, all menus, tab switching, panel collapse.
+### M9 — Header & navigation in React (mobile simplified)
+- **Goal:** Replace header buttons + panel toggles. **Desktop look unchanged.**
+- **Scope change (per owner):** the dedicated mobile UI is **out of scope**. We do
+  **not** port the mobile FABs, flyouts, bottom-nav, mobile content panels, or
+  `css/mobile.css` behaviors. Instead the React app is plain **responsive** (panels
+  collapse/stack gracefully on small widths). Desktop UI/UX is byte-for-byte the same.
+  Legacy mobile markup/CSS can be dropped during M11 cleanup.
+- **Steps:** `<Header>` (same markup/classes/icons as today), panel collapse/expand,
+  remove inline `onclick`/`toggleSection` globals. Add lightweight responsive rules
+  only where needed; reuse existing desktop CSS untouched.
+- **Verify:** desktop header + all menus + tab/panel collapse look and behave
+  identically to M0 screenshots; app is usable (not pixel-locked) at narrow widths.
 - **Rollback:** legacy header markup.
 - **Perf:** CSS-driven responsive; avoid layout thrash on resize.
 
@@ -302,10 +343,15 @@ Rule: a milestone may not regress any row without sign-off.
 - **Pure logic:** Vitest before & after every move (import, export, transforms,
   gis-tools, workflow-engine, node specs, coordinates). Must stay green each PR.
 - **Node specs (M3):** unit-test each node's `execute`/`validate` independent of UI.
-- **Map / dual-screen / draw / mobile / PWA:** manual checklist (browser via
+- **Build verification:** every PR runs `npm run build` + `npm run preview`; broken
+  builds block merge (part of the Definition of Done).
+- **Visual parity:** every PR compares the migrated UI side-by-side with the M0
+  reference screenshots at the fixed desktop viewport. Same CSS, same DOM, same look.
+  (Optional later: automated screenshot diffing via Playwright once the shell settles.)
+- **Map / dual-screen / draw / PWA:** manual checklist (browser via
   `npm run dev` / `preview`). Record results in `HANDOFF.md` per PR.
-- **Visual/interaction (optional later):** consider Playwright for the pipeline
-  editor and import flows once React shell stabilizes.
+- **Mobile:** out of scope as a dedicated UI; only check the app stays usable/
+  responsive at small widths. No mobile-pixel parity required.
 
 ---
 

@@ -309,18 +309,46 @@ Rule: a milestone may not regress any row without sign-off.
 
 ---
 
-## 8. Decisions needed from you
+## 8. Decisions (CONFIRMED 2026-06-04)
 
-1. **TypeScript?** Recommend allowing `.tsx` (incremental, not required). OK?
-2. **State lib:** Zustand (small/fast). OK, or prefer Redux Toolkit / context?
-3. **React Flow license:** core `@xyflow/react` is MIT and enough. Pro features
-   (not needed) are paid. OK to use core only?
-4. **Map window:** keep `map-window.html` as a separate light entry, or make it a
-   second React root? (Recommend: keep light until M10.)
-5. **Milestone order:** ship **M3 (React Flow pipeline editor) first** after M0–M2,
-   since it's your main driver and most isolated. Agree?
+1. **TypeScript:** allowed via `.tsx`, incremental (JS still fine). ✅
+2. **State lib:** Zustand. ✅
+3. **React Flow:** core `@xyflow/react` (MIT) only; no Pro. ✅
+4. **Map window:** keep `map-window.html` as a light separate entry until M10. ✅
+5. **Order:** ship **M3 (React Flow pipeline editor) first** after M0–M2. ✅
 
 ---
+
+## 8b. Hosting & deployment
+
+**Front-end only.** No server, no API, no SSR — pure static output.
+
+- **Now (testing):** GitHub Pages, served from the repo. App runs as plain ES
+  modules (no build) today.
+- **Final:** **Cloudflare Pages** (static hosting). Repo stays the source.
+
+### Implications for the migration
+
+- **Relative base path:** set Vite `base: './'`. This makes `dist/` work on both
+  GitHub Pages (served under a repo subpath) and Cloudflare Pages (served at root)
+  with no per-host config. Avoid absolute `/asset` URLs.
+- **Build is static:** `npm run build` → `dist/`. Cloudflare Pages config →
+  Build command: `npm run build`, Output dir: `dist`, Framework: Vite/None.
+- **During islands phase (M1–M10):** keep deploying the existing no-build app
+  (GitHub Pages) exactly as today; the Vite bundle is loaded from the same
+  `index.html`, so GitHub Pages keeps working. No host change needed until M11.
+- **At M11 flip:** point the host at `dist/`. For GitHub Pages, publish the built
+  `dist/` (e.g. Actions build → Pages, or `gh-pages` branch). For Cloudflare Pages,
+  the build command above handles it automatically on push.
+- **SPA routing:** app is a single page (no client router today). If a router is
+  added later, add a Cloudflare Pages SPA fallback (`/* /index.html 200` via
+  `_redirects` in `public/`) and the GitHub Pages 404 fallback. Not needed now.
+- **PWA (M12):** `vite-plugin-pwa` emits the SW into `dist/`; ensure SW scope works
+  under a relative base on both hosts. Verify update flow on the real Cloudflare URL.
+- **Headers/caching (optional, Cloudflare):** a `public/_headers` file can set
+  long cache for hashed assets and no-cache for `index.html`/SW. Add in M12.
+- **No secrets in the bundle:** front-end only; never embed keys. Public ArcGIS/
+  tile endpoints only, as today.
 
 ## 9. For the next agent
 

@@ -5,8 +5,15 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-04
+- **Goal**: **Dual Screen false “pop-ups blocked”** — `noopener` on `window.open` returned `null` while the map window still opened; activation never ran.
+- **Branch**: `cursor/dual-screen-popup-false-positive-94b0` (PR draft)
+- **Fix**: `js/dual-screen/window-open.js` — `MAP_WINDOW_OPEN_FEATURES = 'noreferrer'` only; `isSecondaryMapWindowOpen()`.
+
+## Previous (Phase 4)
+
+- **Date**: 2026-06-04
 - **Goal**: **Dual Screen Mode — Phase 4 polish** (popup blocked UX, BYE teardown, sessionStorage hint, regression checklist)
-- **Branch**: `cursor/dual-screen-phase-4-polish-99de`
+- **Branch**: merged via PR #13 on `main`
 - **Plan (source of truth)**: [docs/DUAL_SCREEN_MODE.md](docs/DUAL_SCREEN_MODE.md)
 - **Summary**:
   - **Popup blocked**: `POPUP_BLOCKED_MESSAGE` toast (8s); `activate()` rejects null/closed `window.open` without touching map state.

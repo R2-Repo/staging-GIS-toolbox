@@ -12,11 +12,12 @@ Keep this file current so the next session can continue without re-discovery.
   - Remove `display: none` on `.panel-center` in dual-screen mode (map hidden via `#map-container.dual-screen-map-hidden` only).
   - Center placeholder with **Return map to this window** button; header label **Exit Dual Screen** when active.
   - `js/dual-screen/layout.js` — shared layout helpers; `postMessage` fallback when secondary exits (`gis-toolbox-dual-screen-exit`).
-  - SW cache `1.31.17`.
+  - **Map tiles half-blank on exit**: apply normal layout *before* `mapManager.init`, then `scheduleMapResizeAfterLayout` (rAF + 100ms + 250ms) and on map `load`.
+  - SW cache `1.31.18`.
 
 ## Verification
 
-- **Vitest**: `npm test` — green (59 tests).
+- **Vitest**: `npm test` — green (60 tests).
 - **Browser (manual)**:
   - Dual on → center shows placeholder + Return button; header says Exit Dual Screen.
   - Click Return or Exit Dual Screen → map restores in center; panels normal width.

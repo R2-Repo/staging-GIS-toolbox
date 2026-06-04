@@ -43,6 +43,25 @@ export function applyDualScreenDocumentLayout(active, doc = document) {
  * @param {HTMLButtonElement | null} btn
  * @param {boolean} active
  */
+/**
+ * Re-measure the map after flex layout changes (panel widths, dual-screen toggle).
+ * @param {{ resize?: () => void, map?: { once?: (e: string, fn: () => void) => void } | null }} mapManager
+ */
+export function scheduleMapResizeAfterLayout(mapManager) {
+    const resize = () => mapManager?.resize?.();
+    if (!resize) return;
+
+    const run = () => resize();
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            run();
+            setTimeout(run, 100);
+            setTimeout(run, 250);
+        });
+    });
+}
+
 export function syncDualScreenHeaderButton(btn, active) {
     if (!btn) return;
     btn.classList.toggle('active', active);

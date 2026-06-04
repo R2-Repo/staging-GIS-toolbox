@@ -11,6 +11,7 @@ import {
     boundsFromViewportPayload
 } from './protocol.js';
 import { setDualScreenActiveHint } from './storage-hint.js';
+import { scheduleMapResizeAfterLayout } from './layout.js';
 import {
     isSecondaryMapWindowOpen,
     openSecondaryMapWindow
@@ -173,8 +174,9 @@ class DualScreenCoordinator {
             this._lastBounds = null;
             setDualScreenActiveHint(typeof sessionStorage !== 'undefined' ? sessionStorage : null, false);
 
-            this._restorePrimaryMap();
+            // Restore normal 3-panel layout before MapLibre init so canvas size is correct.
             this._notify();
+            this._restorePrimaryMap();
         } finally {
             this._deactivating = false;
         }
@@ -243,7 +245,10 @@ class DualScreenCoordinator {
             mapManager.fitToAll();
         }
 
-        setTimeout(() => mapManager.resize(), 100);
+        scheduleMapResizeAfterLayout(mapManager);
+        if (mapManager.map && !mapManager.map.loaded()) {
+            mapManager.map.once('load', () => scheduleMapResizeAfterLayout(mapManager));
+        }
     }
 
     _applyMapChrome(payload) {

@@ -9,6 +9,12 @@ import {
     shouldApplyViewport
 } from './dual-screen/protocol.js';
 import { createSpatialDataset } from './core/data-model.js';
+import {
+    initSecondaryClient,
+    applyMapToast,
+    handleDrawCmdMessage,
+    broadcastViewportFromMap
+} from './dual-screen/secondary-client.js';
 
 const ROLE = 'secondary';
 let channel = null;
@@ -26,6 +32,7 @@ function applySnapshot(payload) {
 
     if (basemap && basemap !== mapManager.currentBasemap) {
         mapManager.setBasemap(basemap);
+        syncBasemapToggle(basemap);
     }
 
     if (mapManager.map) {
@@ -37,7 +44,7 @@ function applySnapshot(payload) {
     (layers || []).forEach((entry, i) => {
         if (!entry.geojson) return;
         const dataset = createSpatialDataset(entry.name, entry.geojson, entry.source || { format: 'sync' });
-        dataset.id = entry.id; // preserve primary layer id
+        dataset.id = entry.id;
         dataset.visible = entry.visible !== false;
         if (entry.style) mapManager.setLayerStyle(entry.id, entry.style);
         mapManager.addLayer(dataset, i, { fit: false });
@@ -45,6 +52,7 @@ function applySnapshot(payload) {
 
     if (is3d) mapManager.enable3D();
     else mapManager.disable3D();
+    syncDimensionToggle(!!is3d);
 
     if (viewport && mapManager.map) {
         suppressViewportBroadcast = true;
@@ -72,6 +80,12 @@ function applyLayerRemove(payload) {
     if (payload?.id) mapManager.removeLayer(payload.id);
 }
 
+function applyLayerOrder(payload) {
+    const { orderedIds } = payload || {};
+    if (!orderedIds?.length) return;
+    mapManager.syncLayerOrder(orderedIds);
+}
+
 function applyViewport(payload) {
     if (!payload || !mapManager.map) return;
     if (payload.command === 'fitAll') {
@@ -92,16 +106,21 @@ function applyViewport(payload) {
     }
 }
 
+function syncBasemapToggle(basemap) {
+    document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => {
+        b.classList.toggle('active', b.dataset.value === basemap);
+    });
+}
+
+function syncDimensionToggle(is3d) {
+    document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(b => {
+        b.classList.toggle('active', b.dataset.value === (is3d ? '3d' : '2d'));
+    });
+}
+
 function broadcastViewport() {
     if (suppressViewportBroadcast || !mapManager.map) return;
-    const c = mapManager.map.getCenter();
-    post(MessageType.VIEWPORT, {
-        source: ROLE,
-        center: [c.lng, c.lat],
-        zoom: mapManager.map.getZoom(),
-        bearing: mapManager.map.getBearing(),
-        pitch: mapManager.map.getPitch()
-    });
+    post(MessageType.VIEWPORT, broadcastViewportFromMap(mapManager.map));
 }
 
 function onMapReady() {
@@ -122,6 +141,9 @@ function handleMessage(msg) {
         case MessageType.LAYER_REMOVE:
             applyLayerRemove(msg.payload);
             break;
+        case MessageType.LAYER_ORDER:
+            applyLayerOrder(msg.payload);
+            break;
         case MessageType.VIEWPORT:
             if (shouldApplyViewport(msg, ROLE, lastAppliedViewportId)) {
                 lastAppliedViewportId = msg.msgId;
@@ -129,6 +151,12 @@ function handleMessage(msg) {
                 applyViewport(msg.payload);
                 suppressViewportBroadcast = false;
             }
+            break;
+        case MessageType.DRAW_CMD:
+            handleDrawCmdMessage(msg.payload, post);
+            break;
+        case MessageType.TOAST:
+            applyMapToast(msg.payload);
             break;
         case MessageType.BYE:
             window.close();
@@ -147,9 +175,7 @@ function setupHeaderControls() {
     document.getElementById('basemap-toggle')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-value]');
         if (!btn) return;
-        document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => {
-            b.classList.toggle('active', b === btn);
-        });
+        syncBasemapToggle(btn.dataset.value);
         mapManager.setBasemap(btn.dataset.value);
         post(MessageType.MAP_CHROME, { basemap: btn.dataset.value });
     });
@@ -157,12 +183,11 @@ function setupHeaderControls() {
     document.getElementById('dimension-toggle')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-value]');
         if (!btn) return;
-        document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(b => {
-            b.classList.toggle('active', b === btn);
-        });
-        if (btn.dataset.value === '3d') mapManager.enable3D();
+        const is3d = btn.dataset.value === '3d';
+        syncDimensionToggle(is3d);
+        if (is3d) mapManager.enable3D();
         else mapManager.disable3D();
-        post(MessageType.MAP_CHROME, { is3d: btn.dataset.value === '3d' });
+        post(MessageType.MAP_CHROME, { is3d });
     });
 }
 
@@ -175,6 +200,7 @@ function boot() {
     channel = new DualScreenChannel(ROLE, handleMessage);
     mapManager.init('map-container');
     setupHeaderControls();
+    initSecondaryClient({ post, getChannel: () => channel });
 
     if (mapManager.map?.loaded()) onMapReady();
     else mapManager.map?.once('load', onMapReady);

@@ -14,6 +14,7 @@ export function installDualScreenMapFacade(mapManager) {
         removeLayer: mapManager.removeLayer.bind(mapManager),
         toggleLayer: mapManager.toggleLayer.bind(mapManager),
         syncLayerOrder: mapManager.syncLayerOrder.bind(mapManager),
+        refreshLayerData: mapManager.refreshLayerData.bind(mapManager),
         setLayerStyle: mapManager.setLayerStyle.bind(mapManager),
         fitToAll: mapManager.fitToAll.bind(mapManager),
         fitToLayers: mapManager.fitToLayers.bind(mapManager),
@@ -21,6 +22,8 @@ export function installDualScreenMapFacade(mapManager) {
         enable3D: mapManager.enable3D.bind(mapManager),
         disable3D: mapManager.disable3D.bind(mapManager),
         getBounds: mapManager.getBounds.bind(mapManager),
+        getImportFenceBbox: mapManager.getImportFenceBbox.bind(mapManager),
+        getImportFenceEsriEnvelope: mapManager.getImportFenceEsriEnvelope.bind(mapManager),
         resize: mapManager.resize.bind(mapManager),
         getMap: mapManager.getMap.bind(mapManager)
     };
@@ -49,6 +52,11 @@ export function installDualScreenMapFacade(mapManager) {
     mapManager.setLayerStyle = function (layerId, style) {
         originals.setLayerStyle(layerId, style);
         if (coord.isActive) coord.syncLayersChanged();
+    };
+
+    mapManager.refreshLayerData = function (dataset) {
+        if (!coord.isActive) return originals.refreshLayerData(dataset);
+        coord.syncLayersChanged();
     };
 
     mapManager.fitToAll = function () {
@@ -92,5 +100,18 @@ export function installDualScreenMapFacade(mapManager) {
     mapManager.getMap = function () {
         if (coord.isActive) return null;
         return originals.getMap();
+    };
+
+    mapManager.getImportFenceBbox = function () {
+        if (coord.isActive && coord._fenceBbox) return coord._fenceBbox;
+        return originals.getImportFenceBbox();
+    };
+
+    mapManager.getImportFenceEsriEnvelope = function () {
+        if (coord.isActive && coord._fenceBbox) {
+            const [west, south, east, north] = coord._fenceBbox;
+            return { xmin: west, ymin: south, xmax: east, ymax: north, spatialReference: { wkid: 4326 } };
+        }
+        return originals.getImportFenceEsriEnvelope();
     };
 }

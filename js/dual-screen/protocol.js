@@ -24,6 +24,7 @@ export const MessageType = {
     FENCE_CLEAR: 'FENCE_CLEAR',
     FILE_DROP: 'FILE_DROP',
     POPUP_ACTION: 'POPUP_ACTION',
+    CTX_CMD: 'CTX_CMD',
     TOAST: 'TOAST',
     BYE: 'BYE',
     PING: 'PING',
@@ -86,5 +87,56 @@ export function buildSnapshotPayload({ layers, viewport, basemap, is3d, layerSty
         viewport: viewport || null,
         basemap: basemap || 'voyager',
         is3d: !!is3d
+    };
+}
+
+/**
+ * Build viewport payload from a MapLibre map (includes bounds for clip-to-extent).
+ * @param {import('maplibre-gl').Map} map
+ * @param {'primary' | 'secondary'} source
+ */
+export function buildViewportPayload(map, source) {
+    const c = map.getCenter();
+    const b = map.getBounds();
+    return {
+        source,
+        center: [c.lng, c.lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+        bounds: {
+            west: b.getWest(),
+            south: b.getSouth(),
+            east: b.getEast(),
+            north: b.getNorth()
+        }
+    };
+}
+
+/**
+ * Lightweight bounds-like object from a synced viewport payload.
+ * @param {object} vp
+ * @returns {object | null}
+ */
+export function boundsFromViewportPayload(vp) {
+    if (vp?.bounds) {
+        const { west, south, east, north } = vp.bounds;
+        return {
+            getWest: () => west,
+            getEast: () => east,
+            getSouth: () => south,
+            getNorth: () => north
+        };
+    }
+    if (!vp?.center) return null;
+    const [lng, lat] = vp.center;
+    const z = vp.zoom || 7;
+    const span = 360 / Math.pow(2, z);
+    const half = span / 2;
+    return {
+        getWest: () => lng - half,
+        getEast: () => lng + half,
+        getSouth: () => lat - half,
+        getNorth: () => lat + half
     };
 }

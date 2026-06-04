@@ -92,6 +92,7 @@ export class WorkflowOverlay {
                 <button class="wf-topbar-btn wf-topbar-io" id="wf-export-config" title="Export workflow config">💾 Export</button>
                 <button class="wf-topbar-btn" id="wf-clear" title="Clear pipeline">🗑️ Clear</button>
                 <button class="wf-topbar-btn wf-topbar-run" id="wf-run" title="Run pipeline">▶ Run Pipeline</button>
+                <button type="button" class="wf-topbar-btn dual-screen-desktop-only" id="wf-dual-screen" data-dual-screen-toggle title="Open map in a second window (Dual Screen)">🖥 Dual Screen</button>
             </div>`;
         this._el.appendChild(topBar);
 
@@ -131,6 +132,10 @@ export class WorkflowOverlay {
         // ── Event wiring ──
 
         topBar.querySelector('#wf-back').addEventListener('click', () => this.close());
+
+        topBar.querySelector('#wf-dual-screen')?.addEventListener('click', () => {
+            if (typeof window._toggleDualScreen === 'function') window._toggleDualScreen();
+        });
 
         topBar.querySelector('#wf-clear').addEventListener('click', () => {
             this.engine.clear();

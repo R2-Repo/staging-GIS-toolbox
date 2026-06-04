@@ -7,7 +7,8 @@ import {
     parseMessage,
     shouldApplyViewport,
     serializeLayerForSync,
-    buildSnapshotPayload
+    buildSnapshotPayload,
+    boundsFromViewportPayload
 } from '../js/dual-screen/protocol.js';
 
 describe('dual-screen protocol', () => {
@@ -76,5 +77,25 @@ describe('dual-screen protocol', () => {
         expect(payload.viewport.zoom).toBe(4);
         expect(payload.basemap).toBe('satellite');
         expect(payload.is3d).toBe(true);
+    });
+
+    it('boundsFromViewportPayload uses explicit bounds when present', () => {
+        const b = boundsFromViewportPayload({
+            center: [-100, 40],
+            zoom: 10,
+            bounds: { west: -101, south: 39, east: -99, north: 41 }
+        });
+        expect(b.getWest()).toBe(-101);
+        expect(b.getNorth()).toBe(41);
+    });
+
+    it('boundsFromViewportPayload estimates from center when no bounds', () => {
+        const b = boundsFromViewportPayload({ center: [0, 0], zoom: 2 });
+        expect(b.getWest()).toBeLessThan(0);
+        expect(b.getEast()).toBeGreaterThan(0);
+    });
+
+    it('exports CTX_CMD message type', () => {
+        expect(MessageType.CTX_CMD).toBe('CTX_CMD');
     });
 });

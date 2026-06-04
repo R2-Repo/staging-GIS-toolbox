@@ -170,4 +170,5 @@ describe('dual-screen protocol', () => {
         expect(isSecondaryMapWindowOpen({ closed: true })).toBe(false);
         expect(isSecondaryMapWindowOpen({ closed: false })).toBe(true);
     });
+
 });

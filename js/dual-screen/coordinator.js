@@ -183,7 +183,9 @@ class DualScreenCoordinator {
     _startPoll() {
         this._stopPoll();
         this._pollTimer = setInterval(() => {
-            if (this._mapWindow && this._mapWindow.closed) this.deactivate();
+            if (this._mapWindow?.closed) {
+                this.deactivate({ fromSecondaryBye: true });
+            }
         }, POLL_MS);
     }
 

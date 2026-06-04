@@ -367,9 +367,6 @@ html, body {
 @media (max-width: 767px) {
     .dual-screen-desktop-only { display: none !important; }
 }
-.app-layout.dual-screen-active .panel-center {
-    display: none;
-}
 .app-layout.dual-screen-active .panel-left {
     flex: 1;
     max-width: none;
@@ -387,14 +384,17 @@ html, body {
 }
 .dual-screen-placeholder {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 12px;
     height: 100%;
+    min-height: 120px;
     padding: 24px;
     text-align: center;
     color: var(--text-muted);
 }
-.dual-screen-placeholder p { margin: 0 0 8px; }
+.dual-screen-placeholder p { margin: 0; }
 #btn-dual-screen.active {
     background: var(--primary);
     color: #fff;

@@ -1,7 +1,7 @@
 # Dual Screen Mode — product & implementation plan
 
-**Status:** Build in progress — Phase 0 done; Phase 1 partial (branch `cursor/dual-screen-mode-ccf7`)  
-**Last updated:** 2026-05-19  
+**Status:** Build in progress — Phase 0–1 done; Phase 2–3 in progress (branch `cursor/dual-screen-phase-1-2-3-99de`)  
+**Last updated:** 2026-06-04  
 **Branding:** **Dual Screen Mode** (not “Duel”)
 
 ---
@@ -208,7 +208,7 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 
 **Exit:** Two windows connect; viewport sync works in manual test.
 
-### Phase 1 — Section 1 MVP (in progress)
+### Phase 1 — Section 1 MVP ✅
 
 - [x] `coordinator.js`: activate/deactivate, window `closed` poll, snapshot, restore
 - [x] `map-facade.js`: core methods delegated when dual active
@@ -217,26 +217,28 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 - [x] Hide primary basemap/dimension toggles while dual on
 - [x] `bus.on('layers:changed')` → sync when active
 - [x] Close secondary → restore map in `#map-container` from `getLayers()`
+- [x] `LAYER_ORDER`, `MAP_CHROME`, `refreshLayerData` facade; viewport bounds sync
+- [x] `npm test` green (incl. `boundsFromViewportPayload`)
 - [ ] Manual QA: import + layer sync + fit bounds on dual map
-- [ ] `npm test` green; single-screen regression verified
 
 **Exit:** Import on primary → layer on panel + external map; exit dual → map back in center.
 
-### Phase 2 — Map interactions (v1 scope: draw/fence)
+### Phase 2 — Map interactions (v1 scope: draw/fence) ✅
 
-- [ ] Forward `#btn-draw-layer`, `#btn-fence` to secondary (`DRAW_CMD`, fence handlers)
-- [ ] Draw toolbar on secondary map container
-- [ ] Context menu + feature popup on secondary
-- [ ] `POPUP_ACTION` → primary `openFeatureEditor`
-- [ ] File drop on secondary → primary `handleFileImport`
-- [ ] Facade `getBounds()` from last secondary `VIEWPORT` (clip-to-extent, etc.)
-- [ ] Routed toasts for map instructions
+- [x] Forward `#btn-draw-layer`, `#btn-fence` to secondary (`DRAW_CMD`, fence handlers)
+- [x] Draw toolbar on secondary map container
+- [x] Context menu + feature popup on secondary
+- [x] `POPUP_ACTION` → primary `openFeatureEditor`
+- [x] File drop on secondary → primary `handleFileImport`
+- [x] Facade `getBounds()` from last secondary `VIEWPORT` (with bounds)
+- [x] Routed toasts for map instructions (`TOAST` + map-window toast)
+- [ ] Manual QA: draw, fence, popup edit, file drop on secondary
 
-### Phase 3 — Section 2 (workflow)
+### Phase 3 — Section 2 (workflow) (partial)
 
-- [ ] Dual Screen button on `wf-topbar`
-- [ ] Verify `addToMap` / `updateMapLayer` / `removeFromMap` through facade
-- [ ] Test: workflow + dual open → Run → Add to map → visible on external map without closing overlay
+- [x] Dual Screen button on `wf-topbar` (`#wf-dual-screen`)
+- [x] `addToMap` / `updateMapLayer` / `removeFromMap` through facade (unchanged API)
+- [ ] Manual QA: workflow + dual open → Run → Add to map → visible on external map
 
 ### Phase 4 — Polish
 

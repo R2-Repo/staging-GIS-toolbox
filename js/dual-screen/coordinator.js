@@ -7,7 +7,8 @@ import { DualScreenChannel } from './channel.js';
 import {
     MessageType,
     createMessage,
-    buildSnapshotPayload
+    buildSnapshotPayload,
+    boundsFromViewportPayload
 } from './protocol.js';
 
 const MAP_WINDOW_NAME = 'gis-toolbox-map';
@@ -21,13 +22,25 @@ class DualScreenCoordinator {
         this._channel = null;
         this._pollTimer = null;
         this._lastViewport = null;
-        this._lastAppliedViewportId = null;
+        this._lastBounds = null;
         this._secondaryReady = false;
         this._onStateChange = null;
+        this._handlers = {};
+        /** @type {[number, number, number, number] | null} */
+        this._fenceBbox = null;
+    }
+
+    setFenceBbox(bbox) {
+        this._fenceBbox = bbox || null;
     }
 
     onStateChange(fn) {
         this._onStateChange = fn;
+    }
+
+    /** @param {Partial<Record<string, Function>>} handlers */
+    setHandlers(handlers) {
+        this._handlers = { ...this._handlers, ...handlers };
     }
 
     _notify() {
@@ -112,11 +125,18 @@ class DualScreenCoordinator {
         const map = mapManager.map;
         if (!map) return this._lastViewport;
         const c = map.getCenter();
+        const b = map.getBounds();
         return {
             center: [c.lng, c.lat],
             zoom: map.getZoom(),
             bearing: map.getBearing(),
-            pitch: map.getPitch()
+            pitch: map.getPitch(),
+            bounds: {
+                west: b.getWest(),
+                south: b.getSouth(),
+                east: b.getEast(),
+                north: b.getNorth()
+            }
         };
     }
 
@@ -151,6 +171,22 @@ class DualScreenCoordinator {
         setTimeout(() => mapManager.resize(), 100);
     }
 
+    _applyMapChrome(payload) {
+        if (!payload) return;
+        if (payload.basemap && payload.basemap !== mapManager.currentBasemap) {
+            mapManager.currentBasemap = payload.basemap;
+            document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.value === payload.basemap);
+            });
+        }
+        if (payload.is3d !== undefined) {
+            mapManager._3dEnabled = !!payload.is3d;
+            document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.value === (payload.is3d ? '3d' : '2d'));
+            });
+        }
+    }
+
     _handleMessage(msg) {
         switch (msg.type) {
             case MessageType.HELLO:
@@ -158,7 +194,31 @@ class DualScreenCoordinator {
                 this.sendSnapshot();
                 break;
             case MessageType.VIEWPORT:
-                if (msg.payload) this._lastViewport = msg.payload;
+                if (msg.payload) {
+                    this._lastViewport = msg.payload;
+                    this._lastBounds = boundsFromViewportPayload(msg.payload);
+                }
+                break;
+            case MessageType.MAP_CHROME:
+                this._applyMapChrome(msg.payload);
+                break;
+            case MessageType.DRAW_EVENT:
+                this._handlers.onDrawEvent?.(msg.payload);
+                break;
+            case MessageType.POPUP_ACTION:
+                this._handlers.onPopupAction?.(msg.payload);
+                break;
+            case MessageType.FILE_DROP:
+                this._handlers.onFileDrop?.(msg.payload);
+                break;
+            case MessageType.FENCE_SET:
+                this._handlers.onFenceSet?.(msg.payload);
+                break;
+            case MessageType.FENCE_CLEAR:
+                this._handlers.onFenceClear?.(msg.payload);
+                break;
+            case MessageType.CTX_CMD:
+                this._handlers.onCtxCmd?.(msg.payload);
                 break;
             case MessageType.BYE:
                 this.deactivate();
@@ -220,25 +280,26 @@ class DualScreenCoordinator {
         }));
     }
 
+    broadcastDrawCmd(payload) {
+        if (!this._channel) return;
+        this._channel.post(createMessage('primary', MessageType.DRAW_CMD, payload));
+    }
+
+    broadcastToast(message, type = 'info') {
+        if (!this._channel) return;
+        this._channel.post(createMessage('primary', MessageType.TOAST, { message, type }));
+    }
+
     getBounds() {
+        if (this._lastBounds) return this._lastBounds;
         if (!this._lastViewport) return null;
         const map = mapManager.map;
         if (map) return mapManager.getBounds();
-        return this._estimateBoundsFromViewport(this._lastViewport);
+        return boundsFromViewportPayload(this._lastViewport);
     }
 
-    _estimateBoundsFromViewport(vp) {
-        if (!vp?.center) return null;
-        const [lng, lat] = vp.center;
-        const z = vp.zoom || 7;
-        const span = 360 / Math.pow(2, z);
-        const half = span / 2;
-        return {
-            getWest: () => lng - half,
-            getEast: () => lng + half,
-            getSouth: () => lat - half,
-            getNorth: () => lat + half
-        };
+    focusMapWindow() {
+        if (this._mapWindow && !this._mapWindow.closed) this._mapWindow.focus();
     }
 }
 

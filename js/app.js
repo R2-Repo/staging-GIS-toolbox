@@ -16,6 +16,7 @@ import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMult
 import mapManager from './map/map-manager.js';
 import dualScreenCoordinator from './dual-screen/coordinator.js';
 import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
+import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
 
 installDualScreenMapFacade(mapManager);
 import { showToast, showErrorToast } from './ui/toast.js';
@@ -687,17 +688,85 @@ function setupDualScreenMode() {
     const btn = document.getElementById('btn-dual-screen');
     if (!btn) return;
 
+    installDualScreenPrimaryHandlers({
+        onDrawFeatureCreated: (layerId, feature) => {
+            bus.emit('draw:featureCreated', { layerId, feature });
+        },
+        onDrawFeatureEdited: (layerId, featureIndex) => {
+            bus.emit('draw:featureEdited', { layerId, featureIndex });
+        },
+        onDrawFeatureDeleted: (layerId, featureIndex) => {
+            bus.emit('draw:featureDeleted', { layerId, featureIndex });
+        },
+        openFeatureEditor,
+        handleFileImport: (files) => handleFileImport(files, _fenceBbox),
+        handlePhotoImport: async (imageFiles) => {
+            const result = await photoMapper.processPhotos(imageFiles);
+            if (result?.dataset) {
+                addLayer(result.dataset);
+                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
+                refreshUI();
+                showToast(`Imported ${imageFiles.length} photo(s)`, 'success');
+            }
+        },
+        setFenceBbox: (bbox) => {
+            _fenceBbox = bbox;
+            dualScreenCoordinator.setFenceBbox(bbox);
+            updateFenceButton();
+            showToast('Import fence placed — all imports will be filtered to this area', 'success');
+        },
+        clearFence: () => {
+            _fenceBbox = null;
+            dualScreenCoordinator.setFenceBbox(null);
+            mapManager.clearImportFence();
+            updateFenceButton();
+            if (dualScreenCoordinator.isActive) {
+                dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
+            }
+            showToast('Import fence removed', 'info');
+        },
+        toggleLayerVisibility: (layerId) => {
+            toggleLayerVisibility(layerId);
+            mapManager.toggleLayer(layerId, getLayers().find(l => l.id === layerId)?.visible);
+            renderLayerList();
+        },
+        zoomToLayer: (layerId) => {
+            if (dualScreenCoordinator.isActive) {
+                dualScreenCoordinator.broadcastFit('fitLayers', { layerIds: [layerId] });
+                return;
+            }
+            const layer = mapManager.dataLayers.get(layerId);
+            if (layer?.geojson) {
+                try {
+                    const bb = turf.bbox(layer.geojson);
+                    mapManager.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 });
+                } catch (_) { /* ignore */ }
+            }
+        },
+        setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); }
+    });
+
     dualScreenCoordinator.onStateChange((active) => {
         applyDualScreenLayout(active);
         btn.classList.toggle('active', active);
         btn.title = active ? 'Exit Dual Screen Mode' : 'Open map in a second window (Dual Screen)';
+        document.querySelectorAll('[data-dual-screen-toggle]').forEach(el => {
+            el.classList.toggle('active', active);
+        });
+        if (active && _fenceBbox) {
+            dualScreenCoordinator.setFenceBbox(_fenceBbox);
+            setTimeout(() => {
+                dualScreenCoordinator.broadcastDrawCmd({ action: 'applyFence', bbox: _fenceBbox });
+            }, 600);
+        }
+        if (!active) dualScreenCoordinator.setFenceBbox(_fenceBbox);
     });
 
     bus.on('layers:changed', () => {
         if (dualScreenCoordinator.isActive) dualScreenCoordinator.syncLayersChanged();
     });
 
-    btn.addEventListener('click', () => {
+    const toggleDualScreen = () => {
         if (getState().ui.isMobile) return;
         if (dualScreenCoordinator.isActive) {
             dualScreenCoordinator.deactivate();
@@ -707,7 +776,10 @@ function setupDualScreenMode() {
         if (!ok) {
             showToast('Could not open Dual Screen map window. Allow pop-ups and try again.', 'error');
         }
-    });
+    };
+
+    btn.addEventListener('click', toggleDualScreen);
+    window._toggleDualScreen = toggleDualScreen;
 }
 
 function applyDualScreenLayout(active) {
@@ -4006,7 +4078,47 @@ function openProximityJoin() {
 // ============================
 let _fenceBbox = null; // [west, south, east, north] when fence is active
 
+function hasActiveImportFence() {
+    return !!_fenceBbox || mapManager.hasImportFence;
+}
+
 async function startImportFence() {
+    if (dualScreenCoordinator.isActive) {
+        if (hasActiveImportFence()) {
+            const html = `
+            <div class="info-box text-xs mb-8">
+                ⛶ An import fence is currently active. All imports are filtered to this area.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <button class="btn btn-primary" id="fence-opt-new" style="padding:10px 16px;">⛶ Place New Fence</button>
+                <button class="btn btn-secondary" id="fence-opt-clear" style="padding:10px 16px;">🗑️ Remove Fence</button>
+            </div>`;
+            showModal('Import Fence', html, {
+                width: '400px',
+                onMount: (overlay, close) => {
+                    overlay.querySelector('#fence-opt-new').addEventListener('click', async () => {
+                        close();
+                        dualScreenCoordinator.broadcastDrawCmd({ action: 'startFence' });
+                        dualScreenCoordinator.focusMapWindow();
+                        showToast('Draw the fence on the Dual Screen map window', 'info');
+                    });
+                    overlay.querySelector('#fence-opt-clear').addEventListener('click', () => {
+                        _fenceBbox = null;
+                        updateFenceButton();
+                        dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
+                        close();
+                        showToast('Import fence removed', 'info');
+                    });
+                }
+            });
+            return;
+        }
+        dualScreenCoordinator.broadcastDrawCmd({ action: 'startFence' });
+        dualScreenCoordinator.focusMapWindow();
+        showToast('Draw the import fence on the Dual Screen map window', 'info');
+        return;
+    }
+
     // If fence already active, show options modal
     if (mapManager.hasImportFence) {
         const html = `
@@ -4061,7 +4173,7 @@ async function drawNewFence() {
 function updateFenceButton() {
     const btn = document.getElementById('btn-fence');
     if (!btn) return;
-    if (mapManager.hasImportFence) {
+    if (hasActiveImportFence()) {
         btn.classList.remove('btn-secondary');
         btn.classList.add('btn-primary');
         btn.innerHTML = '<span class="btn-icon-text">⛶</span><span>Import Fence ✓</span>';
@@ -4458,7 +4570,7 @@ function _doCreateDrawLayer() {
     setActiveLayer(dataset.id);
     mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
     refreshUI();
-    drawManager.showToolbar(dataset.id, dataset.name);
+    _openDrawToolbarOnMap(dataset.id, dataset.name);
     showToast('Draw layer created — use the toolbar to draw features', 'success');
 }
 
@@ -4467,7 +4579,17 @@ function openDrawTools(layerId) {
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
     setActiveLayer(layerId);
     refreshUI();
-    drawManager.showToolbar(layerId, layer.name);
+    _openDrawToolbarOnMap(layerId, layer.name);
+}
+
+function _openDrawToolbarOnMap(layerId, layerName) {
+    if (dualScreenCoordinator.isActive) {
+        dualScreenCoordinator.broadcastDrawCmd({ action: 'showToolbar', layerId, layerName });
+        dualScreenCoordinator.focusMapWindow();
+        dualScreenCoordinator.broadcastToast(`Draw on: ${layerName}`, 'info');
+        return;
+    }
+    drawManager.showToolbar(layerId, layerName);
 }
 
 async function handleMergeLayers() {

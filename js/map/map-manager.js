@@ -1725,6 +1725,29 @@ class MapManager {
         });
     }
 
+    /**
+     * Apply import fence from bbox without interactive draw (dual-screen sync).
+     * @param {[number, number, number, number]} bbox [west, south, east, north]
+     */
+    setImportFenceFromBbox(bbox) {
+        if (!this.map || !bbox || bbox.length < 4) return;
+        const [west, south, east, north] = bbox;
+        this._importFence = { west, south, east, north };
+        const fenceId = 'import-fence';
+        const sw = { lng: west, lat: south };
+        const ne = { lng: east, lat: north };
+        if (!this.map.getSource(fenceId)) {
+            this.map.addSource(fenceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+        if (!this.map.getLayer(fenceId + '-fill')) {
+            this.map.addLayer({ id: fenceId + '-fill', type: 'fill', source: fenceId, paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.08 } });
+        }
+        if (!this.map.getLayer(fenceId + '-line')) {
+            this.map.addLayer({ id: fenceId + '-line', type: 'line', source: fenceId, paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-dasharray': [10, 6] } });
+        }
+        this._updateRectGeoJSON(fenceId, sw, ne);
+    }
+
     clearImportFence() {
         this._importFence = null;
         const fenceId = 'import-fence';

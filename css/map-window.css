@@ -78,3 +78,94 @@
 .map-window-header .btn:hover {
     background: #3d3d42;
 }
+
+/* Context menu (mirrors main app) */
+.map-context-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 200px;
+    background: #1c1c1e;
+    border: 1px solid #3d3d42;
+    border-radius: 8px;
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 13px;
+}
+.map-context-menu .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #e8eaed;
+}
+.map-context-menu .ctx-item:hover { background: rgba(255, 255, 255, 0.06); }
+.map-context-menu .ctx-item .ctx-icon { width: 16px; text-align: center; flex-shrink: 0; }
+.map-context-menu .ctx-sep { height: 1px; background: #3d3d42; margin: 4px 0; }
+
+/* Draw toolbar */
+.draw-toolbar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 5;
+    background: #1c1c1e;
+    border: 1px solid #3d3d42;
+    border-radius: 8px;
+    padding: 8px;
+    max-width: calc(100% - 24px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.draw-toolbar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+.draw-toolbar-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.draw-tool-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px;
+    border: 1px solid #3d3d42;
+    border-radius: 6px;
+    background: #2d2d30;
+    color: #e8eaed;
+    font-size: 10px;
+    cursor: pointer;
+}
+.draw-tool-btn:hover, .draw-tool-btn.active {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+.map-window-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10001;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: #2d2d30;
+    color: #e8eaed;
+    font-size: 13px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    max-width: 90vw;
+}
+.map-window-toast.hidden { display: none; }
+.map-window-toast--success { border-left: 3px solid #22c55e; }
+.map-window-toast--error { border-left: 3px solid #ef4444; }
+.map-window-toast--info { border-left: 3px solid #3b82f6; }
+
+/* Map popup (MapLibre) */
+.map-popup-content table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.map-popup-content th { text-align: left; padding: 2px 6px 2px 0; color: #9aa0a6; vertical-align: top; }
+.map-popup-content td { padding: 2px 0; word-break: break-word; }

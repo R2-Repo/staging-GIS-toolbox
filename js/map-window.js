@@ -21,9 +21,16 @@ let channel = null;
 let suppressViewportBroadcast = false;
 let lastAppliedViewportId = null;
 let viewportDebounce = null;
+let byeSent = false;
 
 function post(type, payload) {
     channel?.post(createMessage(ROLE, type, payload));
+}
+
+function sendBye() {
+    if (byeSent) return;
+    byeSent = true;
+    post(MessageType.BYE, {});
 }
 
 function applySnapshot(payload) {
@@ -168,7 +175,7 @@ function handleMessage(msg) {
 
 function setupHeaderControls() {
     document.getElementById('btn-exit-dual-screen')?.addEventListener('click', () => {
-        post(MessageType.BYE, {});
+        sendBye();
         window.close();
     });
 
@@ -207,9 +214,15 @@ function boot() {
 
     post(MessageType.HELLO, {});
 
-    window.addEventListener('beforeunload', () => {
-        post(MessageType.BYE, {});
+    const teardownSecondary = () => {
+        sendBye();
         channel?.close();
+        channel = null;
+    };
+
+    window.addEventListener('beforeunload', teardownSecondary);
+    window.addEventListener('pagehide', (e) => {
+        if (!e.persisted) teardownSecondary();
     });
 }
 

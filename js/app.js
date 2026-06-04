@@ -17,6 +17,11 @@ import mapManager from './map/map-manager.js';
 import dualScreenCoordinator from './dual-screen/coordinator.js';
 import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
 import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
+import {
+    POPUP_BLOCKED_MESSAGE,
+    RELOAD_REMINDER_MESSAGE,
+    consumeDualScreenReloadReminder
+} from './dual-screen/storage-hint.js';
 
 installDualScreenMapFacade(mapManager);
 import { showToast, showErrorToast } from './ui/toast.js';
@@ -774,12 +779,17 @@ function setupDualScreenMode() {
         }
         const ok = dualScreenCoordinator.activate();
         if (!ok) {
-            showToast('Could not open Dual Screen map window. Allow pop-ups and try again.', 'error');
+            showToast(POPUP_BLOCKED_MESSAGE, 'error', { duration: 8000 });
         }
     };
 
     btn.addEventListener('click', toggleDualScreen);
     window._toggleDualScreen = toggleDualScreen;
+
+    if (typeof sessionStorage !== 'undefined'
+        && consumeDualScreenReloadReminder(sessionStorage, window._dualScreenReloadState ||= {})) {
+        showToast(RELOAD_REMINDER_MESSAGE, 'info', { duration: 8000 });
+    }
 }
 
 function applyDualScreenLayout(active) {

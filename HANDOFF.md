@@ -5,9 +5,10 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-04
-- **Goal**: **Dual Screen false “pop-ups blocked”** — `noopener` on `window.open` returned `null` while the map window still opened; activation never ran.
-- **Branch**: `cursor/dual-screen-popup-false-positive-94b0` (PR draft)
-- **Fix**: `js/dual-screen/window-open.js` — `MAP_WINDOW_OPEN_FEATURES = 'noreferrer'` only; `isSecondaryMapWindowOpen()`.
+- **Goal**: **Dual Screen activation** — primary map must hide and sync with secondary.
+- **Branch**: `cursor/dual-screen-activation-fix-94b0` (PR pending)
+- **Root cause**: `noreferrer` on `window.open` implies `noopener` → returns `null` while popup opens (#15 only removed explicit `noopener`). Service worker cache may also serve old JS until `CACHE_VERSION` bump (`1.31.16`).
+- **Fix**: two-arg `window.open`; `win.opener = null`; HELLO handshake fallback; async `activate()`; merged duplicate `mapManager.destroy()`.
 
 ## Previous (Phase 4)
 

@@ -20,8 +20,18 @@ import {
 } from '../js/dual-screen/storage-hint.js';
 import {
     isSecondaryMapWindowOpen,
-    MAP_WINDOW_OPEN_FEATURES
+    MAP_WINDOW_NAME,
+    MAP_WINDOW_PATH,
+    openSecondaryMapWindow
 } from '../js/dual-screen/window-open.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const windowOpenSource = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '../js/dual-screen/window-open.js'),
+    'utf8'
+);
 
 describe('dual-screen protocol', () => {
     it('exports channel name and version', () => {
@@ -143,8 +153,16 @@ describe('dual-screen protocol', () => {
         expect(POPUP_BLOCKED_MESSAGE.toLowerCase()).toContain('pop-up');
     });
 
-    it('MAP_WINDOW_OPEN_FEATURES omits noopener so window.open returns a Window', () => {
-        expect(MAP_WINDOW_OPEN_FEATURES).not.toMatch(/noopener/i);
+    it('openSecondaryMapWindow uses two-arg window.open (no features string)', () => {
+        const fnBody = windowOpenSource.match(/export function openSecondaryMapWindow[\s\S]*?^}/m)?.[0] ?? '';
+        expect(fnBody).toMatch(/window\.open\(MAP_WINDOW_PATH,\s*MAP_WINDOW_NAME\)/);
+        expect(fnBody).not.toMatch(/window\.open\([^)]*,\s*[^)]*,/);
+    });
+
+    it('exports map window name and path constants', () => {
+        expect(MAP_WINDOW_NAME).toBe('gis-toolbox-map');
+        expect(MAP_WINDOW_PATH).toBe('map-window.html');
+        expect(typeof openSecondaryMapWindow).toBe('function');
     });
 
     it('isSecondaryMapWindowOpen rejects null and closed windows', () => {

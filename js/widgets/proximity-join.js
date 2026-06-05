@@ -60,6 +60,7 @@ export class ProximityJoinWidget extends WidgetBase {
         // Injected deps
         this.getLayers = null;
         this.getLayerById = null;
+        this.mapService = null;
         this.mapManager = null;
         this.analyzeSchema = null;
         this.refreshUI = null;
@@ -123,7 +124,8 @@ export class ProximityJoinWidget extends WidgetBase {
         const tgtLayer = this._getLayer(this._targetLayerId);
 
         // Selection count
-        const selCount = srcLayer ? (this.mapManager?.getSelectionCount?.(this._sourceLayerId) || 0) : 0;
+        const mapService = this._getMapService();
+        const selCount = srcLayer ? (mapService?.getSelectionCount?.(this._sourceLayerId) || 0) : 0;
 
         // Target fields
         const tgtFields = this._getFields(tgtLayer);
@@ -564,8 +566,9 @@ export class ProximityJoinWidget extends WidgetBase {
 
         // Build a set of actual indices we're processing (for selection-only mode)
         let featureIndices;
+        const mapService = this._getMapService();
         if (this._selectionOnly) {
-            const selIndices = this.mapManager?.getSelectedIndices?.(this._sourceLayerId) || [];
+            const selIndices = mapService?.getSelectedIndices?.(this._sourceLayerId) || [];
             featureIndices = selIndices;
         } else {
             featureIndices = allSrcFeatures.map((_, i) => i);
@@ -707,7 +710,7 @@ export class ProximityJoinWidget extends WidgetBase {
         }
 
         // Refresh the MapLibre source so popups & interactions reflect new attributes
-        this.mapManager?.refreshLayerData?.(srcLayer);
+        mapService?.refreshLayerData?.(srcLayer);
 
         this.refreshUI?.();
 
@@ -797,7 +800,8 @@ export class ProximityJoinWidget extends WidgetBase {
     _getSourceFeatures(srcLayer) {
         if (!srcLayer?.geojson?.features) return [];
         if (this._selectionOnly) {
-            const indices = this.mapManager?.getSelectedIndices?.(this._sourceLayerId) || [];
+            const mapService = this._getMapService();
+            const indices = mapService?.getSelectedIndices?.(this._sourceLayerId) || [];
             if (indices.length > 0) {
                 return indices.map(i => srcLayer.geojson.features[i]).filter(Boolean);
             }
@@ -827,6 +831,10 @@ export class ProximityJoinWidget extends WidgetBase {
 
     _escHtml(str) {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    _getMapService() {
+        return this.mapService || this.mapManager || null;
     }
 }
 

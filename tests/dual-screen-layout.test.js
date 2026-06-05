@@ -40,4 +40,30 @@ describe('dual-screen layout', () => {
         vi.useRealTimers();
         vi.unstubAllGlobals();
     });
+
+    it('scheduleMapResizeAfterLayout also resizes after map load when available', () => {
+        vi.useFakeTimers();
+        const resize = vi.fn();
+        const raf = vi.fn((cb) => cb());
+        vi.stubGlobal('requestAnimationFrame', raf);
+
+        const map = {
+            loaded: vi.fn(() => false),
+            once: vi.fn((_event, cb) => cb())
+        };
+
+        scheduleMapResizeAfterLayout({
+            resize,
+            getMap: () => map
+        });
+
+        expect(map.once).toHaveBeenCalledWith('load', expect.any(Function));
+        expect(resize).toHaveBeenCalled();
+
+        vi.advanceTimersByTime(250);
+        expect(resize.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
 });

@@ -12,9 +12,9 @@ import { exportKMZ, exportMultiLayerKMZ } from './kmz-exporter.js';
 import { exportJSON } from './json-exporter.js';
 import { exportShapefile } from './shapefile-exporter.js';
 
-// Optional: import map-manager for style lookup (if available at module scope)
-let _mapManager = null;
-export function setExportMapManager(mm) { _mapManager = mm; }
+// Optional map API adapter for style lookup (mapService or legacy map-manager).
+let _mapApi = null;
+export function setExportMapManager(mm) { _mapApi = mm; }
 
 const EXPORTERS = {
     geojson: { fn: exportGeoJSON, label: 'GeoJSON', ext: '.geojson', spatial: true },
@@ -61,8 +61,8 @@ export async function exportDataset(dataset, format, options = {}) {
         }
 
         // Auto-attach style for KML/KMZ exports
-        if ((format === 'kml' || format === 'kmz') && !options.style && _mapManager) {
-            const layerStyle = _mapManager.getLayerStyle(dataset.id);
+        if ((format === 'kml' || format === 'kmz') && !options.style && _mapApi) {
+            const layerStyle = _mapApi.getLayerStyle(dataset.id);
             if (layerStyle) options.style = layerStyle;
         }
 

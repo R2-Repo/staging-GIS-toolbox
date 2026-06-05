@@ -13,9 +13,13 @@ import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset,
 import { importFile, importFiles } from './import/importer.js';
 import { getActiveTask } from './core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
-import mapManager from './map/map-manager.js';
 import mapService from './map/map-service.js';
 import { isReactMapViewEnabled } from './map/map-feature-flags.js';
+import { isReactLeftPanelEnabled } from './ui/left-panel-feature-flags.js';
+import { isReactRightPanelEnabled } from './ui/right-panel-feature-flags.js';
+import { isReactModalEnabled } from './ui/modal-feature-flags.js';
+import { isReactToastEnabled } from './ui/toast-feature-flags.js';
+import { isReactToolDialogsEnabled } from './ui/tool-dialog-feature-flags.js';
 import dualScreenCoordinator from './dual-screen/coordinator.js';
 import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
 import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
@@ -29,7 +33,7 @@ import {
     syncDualScreenHeaderButton
 } from './dual-screen/layout.js';
 
-installDualScreenMapFacade(mapManager);
+installDualScreenMapFacade(mapService.getLegacyMapManager());
 import { showToast, showErrorToast } from './ui/toast.js';
 import { showModal, confirm, showProgressModal } from './ui/modals.js';
 import * as transforms from './dataprep/transforms.js';
@@ -54,10 +58,58 @@ import { WorkflowOverlay } from './workflow/workflow-overlay.js';
 // ============================
 let _reactMapViewHost = null;
 let _reactMapViewUnmount = null;
+let _reactLeftPanelMount = null;
+let _isReactLeftPanel = false;
+let _reactRightPanelMount = null;
+let _isReactRightPanel = false;
+let _reactToastUnmount = null;
+let _isReactToast = false;
+let _reactModalUnmount = null;
+let _isReactModal = false;
+let _isReactToolDialogs = false;
 
 async function boot() {
     logger.info('App', 'Initializing GIS Toolbox');
+    _isReactToolDialogs = isReactToolDialogsEnabled();
+    _isReactModal = isReactModalEnabled();
+    _isReactToast = isReactToastEnabled();
+    _isReactLeftPanel = isReactLeftPanelEnabled();
+    _isReactRightPanel = isReactRightPanelEnabled();
+    if (_isReactModal) {
+        try {
+            await _mountReactModalHost();
+        } catch (error) {
+            _isReactModal = false;
+            logger.error('App', 'React modal host mount failed; falling back to legacy modals', { error: error.message });
+        }
+    }
+    if (_isReactToast) {
+        try {
+            await _mountReactToastHost();
+        } catch (error) {
+            _isReactToast = false;
+            logger.error('App', 'React toast host mount failed; falling back to legacy toasts', { error: error.message });
+        }
+    }
     await initMap();
+    if (_isReactLeftPanel) {
+        try {
+            await _mountReactLeftPanel();
+        } catch (error) {
+            _isReactLeftPanel = false;
+            logger.error('App', 'React left panel mount failed; falling back to legacy panel', { error: error.message });
+            showToast('React left panel failed to initialize. Using legacy panel.', 'warning');
+        }
+    }
+    if (_isReactRightPanel) {
+        try {
+            await _mountReactRightPanel();
+        } catch (error) {
+            _isReactRightPanel = false;
+            logger.error('App', 'React right panel mount failed; falling back to legacy panel', { error: error.message });
+            showToast('React right panel failed to initialize. Using legacy panel.', 'warning');
+        }
+    }
     setupEventListeners();
     setupDragDrop();
     checkMobile();
@@ -201,6 +253,43 @@ function _timeAgo(ts) {
     return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
+function _getOrCreateModalHost() {
+    let host = document.getElementById('modal-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'modal-host';
+        document.body.appendChild(host);
+    }
+    return host;
+}
+
+async function _mountReactModalHost() {
+    if (_reactModalUnmount) return;
+    const host = _getOrCreateModalHost();
+    const { mountModalHost } = await import('../react/ui/mountModalHost.jsx');
+    const mounted = mountModalHost(host);
+    _reactModalUnmount = mounted.unmount;
+}
+
+function _getOrCreateToastHost() {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+async function _mountReactToastHost() {
+    if (_reactToastUnmount) return;
+    const host = _getOrCreateToastHost();
+    const { mountToastHost } = await import('../react/ui/mountToastHost.jsx');
+    const mounted = mountToastHost(host);
+    _reactToastUnmount = mounted.unmount;
+}
+
 function _getOrCreateReactMapViewHost() {
     const mapContainer = document.getElementById('map-container');
     if (!mapContainer) {
@@ -214,6 +303,118 @@ function _getOrCreateReactMapViewHost() {
     }
 
     return _reactMapViewHost;
+}
+
+function _getReactLeftPanelTargets() {
+    const layerElement = document.getElementById('layer-list');
+    const fieldElement = document.getElementById('field-list');
+    const toolsElement = document.getElementById('dataprep-tools');
+    if (!layerElement || !fieldElement || !toolsElement) {
+        throw new Error('Left panel containers not found');
+    }
+    return { layerElement, fieldElement, toolsElement };
+}
+
+async function _mountReactLeftPanel() {
+    if (_reactLeftPanelMount) return;
+
+    const { layerElement, fieldElement, toolsElement } = _getReactLeftPanelTargets();
+    const { mountLeftPanel } = await import('../react/panels/mountLeftPanel.jsx');
+    _reactLeftPanelMount = mountLeftPanel({
+        layerElement,
+        fieldElement,
+        toolsElement,
+        getSnapshot: () => ({
+            layers: getLayers(),
+            activeLayer: getActiveLayer()
+        }),
+        actions: {
+            setActiveLayer: setActiveLayerAndRefresh,
+            renameLayer: (id) => renameLayer(id),
+            renameLayerInline: (id, el) => renameLayer(id, el),
+            moveLayerUp,
+            moveLayerDown,
+            toggleVisibility: toggleLayerVisibilityAndRender,
+            zoomToLayer,
+            removeLayer: removeLayerWithConfirm,
+            openFilterBuilder: (id) => openFilterBuilder(id),
+            toggleField,
+            selectAllFields,
+            addField,
+            renameField: (name) => renameField(name),
+            renameFieldInline: (name, el) => renameField(name, el)
+        },
+        renderDataPrepTools
+    });
+    _reactLeftPanelMount.render();
+}
+
+function _renderReactLeftPanel() {
+    if (!_isReactLeftPanel) return;
+    _reactLeftPanelMount?.render();
+}
+
+function _getReactRightPanelTarget() {
+    const element = document.getElementById('output-panel-content');
+    if (!element) {
+        throw new Error('Right panel container "#output-panel-content" not found');
+    }
+    return element;
+}
+
+function _getRightPanelSnapshot() {
+    const layer = getActiveLayer();
+    if (!layer) {
+        return {
+            layer: null,
+            selectedFields: [],
+            formats: [],
+            agolMode: !!getState().agolCompatMode,
+            agolCheck: null,
+            stylePanelHtml: ''
+        };
+    }
+
+    const agolMode = !!getState().agolCompatMode;
+    return {
+        layer,
+        selectedFields: getSelectedFields(layer.schema),
+        formats: getAvailableFormats(layer),
+        agolMode,
+        agolCheck: agolMode ? checkAGOLCompatibility(layer) : null,
+        stylePanelHtml: layer.type === 'spatial' ? buildStylePanel(layer) : ''
+    };
+}
+
+async function _mountReactRightPanel() {
+    if (_reactRightPanelMount) return;
+
+    const element = _getReactRightPanelTarget();
+    const { mountRightPanel } = await import('../react/panels/mountRightPanel.jsx');
+    _reactRightPanelMount = mountRightPanel({
+        element,
+        getSnapshot: _getRightPanelSnapshot,
+        actions: {
+            toggleAgol: () => {
+                toggleAGOLCompat();
+                renderOutputPanel();
+            },
+            doExport,
+            fixAgol: fixAGOL,
+            showDataTable
+        },
+        onStyleMounted: (layer) => {
+            if (layer?.type === 'spatial') {
+                bindStylePanel(layer, element);
+            }
+        }
+    });
+    _reactRightPanelMount.render();
+}
+
+function _renderReactRightPanel() {
+    if (!_isReactRightPanel) return;
+    _reactRightPanelMount?.render();
 }
 
 async function _mountReactMapView() {
@@ -239,7 +440,7 @@ async function initMap() {
         } else {
             mapService.init('map-container');
         }
-        setExportMapManager(mapManager); // Wire map styles into KML/KMZ export
+        setExportMapManager(mapService); // Wire map styles into KML/KMZ export
     } catch (e) {
         logger.error('App', 'Map init failed', { error: e.message });
         showToast('Map failed to initialize. Some features may be limited.', 'warning');
@@ -855,8 +1056,12 @@ const REFRESH_UI_DEBOUNCE_MS = 150;
 let _refreshUITimer = null;
 
 function refreshUINow() {
-    renderLayerList();
-    renderFieldList();
+    if (_isReactLeftPanel) {
+        _renderReactLeftPanel();
+    } else {
+        renderLayerList();
+        renderFieldList();
+    }
     renderOutputPanel();
     renderMobileContent();
     updateToolbarState();
@@ -887,6 +1092,10 @@ function updateToolbarState() {
 // Layer List (left panel)
 // ============================
 function renderLayerList() {
+    if (_isReactLeftPanel) {
+        _renderReactLeftPanel();
+        return;
+    }
     const container = document.getElementById('layer-list');
     if (!container) return;
     const layers = getLayers();
@@ -956,10 +1165,44 @@ function moveLayerDown(id) {
     renderLayerList();
 }
 
+function setActiveLayerAndRefresh(id) {
+    setActiveLayer(id);
+    refreshUI();
+}
+
+function toggleLayerVisibilityAndRender(id) {
+    toggleLayerVisibility(id);
+    mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible);
+    renderLayerList();
+}
+
+function zoomToLayer(id) {
+    const layer = mapService.getLayerRecord(id);
+    if (layer && layer.geojson) {
+        try {
+            const bb = turf.bbox(layer.geojson);
+            mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 });
+        } catch (_) {}
+    }
+}
+
+async function removeLayerWithConfirm(id) {
+    const ok = await confirm('Remove Layer', 'Remove this layer?');
+    if (ok) {
+        removeLayer(id);
+        mapService.removeLayer(id);
+        refreshUI();
+    }
+}
+
 // ============================
 // Field List (left panel)
 // ============================
 function renderFieldList() {
+    if (_isReactLeftPanel) {
+        _renderReactLeftPanel();
+        return;
+    }
     const container = document.getElementById('field-list');
     if (!container) return;
     const layer = getActiveLayer();
@@ -993,6 +1236,10 @@ function renderFieldList() {
 // Output Panel (right panel)
 // ============================
 function renderOutputPanel() {
+    if (_isReactRightPanel) {
+        _renderReactRightPanel();
+        return;
+    }
     const container = document.getElementById('output-panel-content');
     if (!container) return;
     const layer = getActiveLayer();
@@ -2784,6 +3031,41 @@ async function openBuffer() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `buffer-tool-react-${Date.now()}`;
+        showModal('Buffer', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountBufferToolDialog } = await import('../react/tools/mountBufferToolDialog.jsx');
+                const mounted = mountBufferToolDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    totalCount: work.totalCount,
+                    showLargeDatasetWarning: work.count > 5000,
+                    onCancel: () => close(),
+                    onApply: async ({ dist, units }) => {
+                        close();
+                        try {
+                            const result = await runWithTaskProgress('Buffer', () =>
+                                gisTools.bufferFeatures(getWorkingDataset(layer), dist, units)
+                            );
+                            if (!result) return;
+                            addLayer(result);
+                            mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
+                            showToast(`Buffer complete — new layer "${result.name}" created`, 'success');
+                            refreshUI();
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Buffer'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features (of ${work.totalCount}).</div>` : '';
     const html = `
         <div class="form-group"><label>Buffer distance</label>
@@ -2823,6 +3105,40 @@ async function openSimplify() {
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `simplify-tool-react-${Date.now()}`;
+        showModal('Simplify Geometries', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountSimplifyToolDialog } = await import('../react/tools/mountSimplifyToolDialog.jsx');
+                const mounted = mountSimplifyToolDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onApply: async ({ tol }) => {
+                        close();
+                        try {
+                            const simplified = await runWithTaskProgress('Simplify', () =>
+                                gisTools.simplifyFeatures(getWorkingDataset(layer), tol)
+                            );
+                            if (!simplified) return;
+                            const { dataset, stats } = simplified;
+                            addLayer(dataset);
+                            mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                            showToast(`Simplified: ${stats.verticesBefore} → ${stats.verticesAfter} vertices`, 'success');
+                            refreshUI();
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Simplify'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <div class="form-group"><label>Tolerance (degrees, e.g., 0.001)</label>
@@ -2859,6 +3175,42 @@ async function openClip() {
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `clip-extent-react-${Date.now()}`;
+        showModal('Clip to Current Map Extent', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountClipExtentDialog } = await import('../react/tools/mountClipExtentDialog.jsx');
+                const mounted = mountClipExtentDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onApply: async () => {
+                        close();
+                        const bounds = mapService.getBounds();
+                        if (!bounds) return showToast('Map bounds not available', 'warning');
+                        const bbox = turf.bboxPolygon([
+                            bounds.getWest(), bounds.getSouth(),
+                            bounds.getEast(), bounds.getNorth()
+                        ]);
+                        try {
+                            const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
+                            addLayer(result);
+                            mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
+                            showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
+                            refreshUI();
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Clip'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<p class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</p>` : '';
     showModal('Clip to Current Map Extent', `<p>This will clip features to the current visible map area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Clip</button>',
@@ -3055,9 +3407,48 @@ function convertKm(km, toUnit) {
 // Standard unit select options HTML (feet default)
 const UNIT_OPTIONS_HTML = '<option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option>';
 
+function watchOverlayUnmount(overlay, onUnmount) {
+    const observer = new MutationObserver(() => {
+        if (!document.body.contains(overlay)) {
+            try {
+                onUnmount?.();
+            } finally {
+                observer.disconnect();
+            }
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // --- Distance ---
 async function openDistanceTool() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
+    if (_isReactToolDialogs) {
+        const rootId = `distance-tool-react-${Date.now()}`;
+        showModal('Measure Distance', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountDistanceToolDialog } = await import('../react/tools/mountDistanceToolDialog.jsx');
+                const mounted = mountDistanceToolDialog(root, {
+                    onCancel: () => close(),
+                    onPick: async (units) => {
+                        close();
+                        const pts = await mapService.startTwoPointPick('Click the first point', 'Click the second point');
+                        if (!pts) return;
+                        const d = gisTools.distance(turf.point(pts[0]), turf.point(pts[1]), units);
+                        const line = turf.lineString([pts[0], pts[1]]);
+                        mapService.showTempFeature(line, 15000);
+                        showToast(`Distance: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <p>Click two points on the map to measure the straight-line distance between them.</p>
         <div class="form-group"><label>Units</label>
@@ -3074,7 +3465,7 @@ async function openDistanceTool() {
                 if (!pts) return;
                 const d = gisTools.distance(turf.point(pts[0]), turf.point(pts[1]), units);
                 const line = turf.lineString([pts[0], pts[1]]);
-                const tempLayer = mapService.showTempFeature(line, 15000);
+                mapService.showTempFeature(line, 15000);
                 showToast(`Distance: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
             };
         }
@@ -3084,6 +3475,33 @@ async function openDistanceTool() {
 // --- Bearing ---
 async function openBearingTool() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
+    if (_isReactToolDialogs) {
+        const rootId = `bearing-tool-react-${Date.now()}`;
+        showModal('Measure Bearing', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountBearingToolDialog } = await import('../react/tools/mountBearingToolDialog.jsx');
+                const mounted = mountBearingToolDialog(root, {
+                    onCancel: () => close(),
+                    onPick: async () => {
+                        close();
+                        const pts = await mapService.startTwoPointPick('Click the origin point', 'Click the target point');
+                        if (!pts) return;
+                        const b = gisTools.bearing(turf.point(pts[0]), turf.point(pts[1]));
+                        const line = turf.lineString([pts[0], pts[1]]);
+                        mapService.showTempFeature(line, 15000);
+                        const cardinal = bearingToCardinal(b);
+                        showToast(`Bearing: ${b.toFixed(2)}° (${cardinal})`, 'success', { duration: 10000 });
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `<p>Click two points on the map. The bearing (compass direction) from the first point to the second will be calculated.</p>`;
     showModal('Measure Bearing', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
@@ -3112,6 +3530,32 @@ function bearingToCardinal(b) {
 // --- Destination ---
 async function openDestinationTool() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
+    if (_isReactToolDialogs) {
+        const rootId = `destination-tool-react-${Date.now()}`;
+        showModal('Find Destination Point', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountDestinationToolDialog } = await import('../react/tools/mountDestinationToolDialog.jsx');
+                const mounted = mountDestinationToolDialog(root, {
+                    onCancel: () => close(),
+                    onPick: async ({ dist, brng, units }) => {
+                        close();
+                        const origin = await mapService.startPointPick('Click the starting point');
+                        if (!origin) return;
+                        const dest = gisTools.destination(turf.point(origin), dist, brng, units);
+                        const line = turf.lineString([origin, dest.geometry.coordinates]);
+                        mapService.showTempFeature({ type: 'FeatureCollection', features: [dest, line] }, 15000);
+                        showToast(`Destination: [${dest.geometry.coordinates[1].toFixed(6)}, ${dest.geometry.coordinates[0].toFixed(6)}]`, 'success', { duration: 10000 });
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <p>Click a starting point, then enter a distance and bearing to find the destination point.</p>
         <div class="form-group"><label>Distance</label>
@@ -3146,6 +3590,36 @@ async function openAlongTool() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `along-tool-react-${Date.now()}`;
+        showModal('Point Along Line', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountAlongToolDialog } = await import('../react/tools/mountAlongToolDialog.jsx');
+                const mounted = mountAlongToolDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onPick: ({ dist, units }) => {
+                        close();
+                        const line = findFirstLineStringFeature(work.geojson);
+                        if (!line) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const pt = gisTools.pointAlong(line, dist, units);
+                            mapService.showTempFeature(pt, 15000);
+                            showToast(`Point at ${dist} ${units}: [${pt.geometry.coordinates[1].toFixed(6)}, ${pt.geometry.coordinates[0].toFixed(6)}]`, 'success', { duration: 8000 });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Along'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Using first line from <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Get a point at a specified distance along a line feature.</p>
@@ -3180,9 +3654,58 @@ async function openAlongTool() {
 // --- Point to Line Distance ---
 async function openPointToLineDistanceTool() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const lineLayers = layerOptions(['LineString', 'MultiLineString']);
-    if (!lineLayers) return showToast('Need a line layer loaded', 'warning');
+    const lineLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry
+                && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString')))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (lineLayerDefs.length === 0) return showToast('Need a line layer loaded', 'warning');
 
+    if (_isReactToolDialogs) {
+        const rootId = `ptl-distance-react-${Date.now()}`;
+        showModal('Point to Line Distance', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountPointToLineDistanceDialog } = await import('../react/tools/mountPointToLineDistanceDialog.jsx');
+                const mounted = mountPointToLineDistanceDialog(root, {
+                    layers: lineLayerDefs,
+                    onCancel: () => close(),
+                    onPick: async ({ layerId, units }) => {
+                        const lineLayer = getLayers().find((layer) => layer.id === layerId);
+                        close();
+                        if (!lineLayer) return showToast('Line layer not found', 'warning');
+                        const pt = await mapService.startPointPick('Click a point to measure from');
+                        if (!pt) return;
+                        const lineWhole = lineLayer.geojson.features.find((f) =>
+                            f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                        if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const d = gisTools.pointToLineDistance(turf.point(pt), lineWhole, units);
+                            const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), units);
+                            const connector = turf.lineString([pt, snap.geometry.coordinates]);
+                            mapService.showTempFeature({ type: 'FeatureCollection', features: [turf.point(pt), snap, connector] }, 15000);
+                            showToast(`Distance to line: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'PointToLineDistance'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const lineLayers = lineLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
     const html = `
         <p>Click a point on the map, then measure the shortest distance to a line layer.</p>
         <div class="form-group"><label>Line layer</label>
@@ -3224,6 +3747,36 @@ async function openBboxClip() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `bbox-clip-react-${Date.now()}`;
+        showModal('BBox Clip', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountBboxClipDialog } = await import('../react/tools/mountBboxClipDialog.jsx');
+                const mounted = mountBboxClipDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onDraw: async () => {
+                        close();
+                        const bbox = await mapService.startRectangleDraw('Click and drag to draw a clip rectangle');
+                        if (!bbox) return;
+                        try {
+                            const result = await gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox);
+                            addResultLayer(result);
+                            showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'BBoxClip'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<p class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</p>` : '';
     showModal('BBox Clip', `<p>Draw a rectangle on the map to clip features to that area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Draw Rectangle on Map</button>',
@@ -3251,6 +3804,34 @@ async function openBezierSpline() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `bezier-spline-react-${Date.now()}`;
+        showModal('Bezier Spline', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountBezierSplineDialog } = await import('../react/tools/mountBezierSplineDialog.jsx');
+                const mounted = mountBezierSplineDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onApply: async ({ res, sharp }) => {
+                        close();
+                        try {
+                            const result = await gisTools.bezierSplineFeatures(getWorkingDataset(layer), res, sharp);
+                            addResultLayer(result);
+                            showToast('Bezier spline applied', 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'BezierSpline'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Smooth line features into curved bezier splines.</p>
@@ -3285,6 +3866,37 @@ async function openPolygonSmooth() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `polygon-smooth-react-${Date.now()}`;
+        showModal('Polygon Smooth', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountPolygonSmoothDialog } = await import('../react/tools/mountPolygonSmoothDialog.jsx');
+                const mounted = mountPolygonSmoothDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onApply: async ({ iter }) => {
+                        close();
+                        try {
+                            const result = await runWithTaskProgress('Polygon Smooth', () =>
+                                gisTools.polygonSmoothFeatures(getWorkingDataset(layer), iter)
+                            );
+                            if (!result) return;
+                            addResultLayer(result);
+                            showToast('Polygons smoothed', 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'PolygonSmooth'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Smooth jagged polygon edges by averaging corner positions.</p>
@@ -3319,6 +3931,34 @@ async function openLineOffset() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `line-offset-react-${Date.now()}`;
+        showModal('Line Offset', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountLineOffsetDialog } = await import('../react/tools/mountLineOffsetDialog.jsx');
+                const mounted = mountLineOffsetDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onApply: async ({ dist, units }) => {
+                        close();
+                        try {
+                            const result = await gisTools.lineOffsetFeatures(getWorkingDataset(layer), dist, units);
+                            addResultLayer(result);
+                            showToast(`Line offset by ${dist} ${units}`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'LineOffset'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Create a parallel copy of line features, offset by the specified distance. Positive = right side, negative = left side.</p>
@@ -3351,6 +3991,39 @@ async function openLineOffset() {
 async function openLineSliceAlong() {
     const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
+
+    if (_isReactToolDialogs) {
+        const rootId = `line-slice-along-react-${Date.now()}`;
+        showModal('Line Slice Along', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountLineSliceAlongDialog } = await import('../react/tools/mountLineSliceAlongDialog.jsx');
+                const mounted = mountLineSliceAlongDialog(root, {
+                    onCancel: () => close(),
+                    onSlice: ({ start, stop, units }) => {
+                        close();
+                        const work = getWorkingFeatures(layer);
+                        const line = findFirstLineStringFeature(work.geojson);
+                        if (!line) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const sliced = gisTools.lineSliceAlong(line, start, stop, units);
+                            sliced.properties = { ...line.properties, _sliceStart: start, _sliceStop: stop };
+                            const fc = { type: 'FeatureCollection', features: [sliced] };
+                            const result = createSpatialDataset(`${layer.name}_slice`, fc, { format: 'derived' });
+                            addResultLayer(result);
+                            showToast(`Sliced line: ${start}-${stop} ${units}`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'LineSliceAlong'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     const html = `
         <p>Extract a section of a line between two distances measured from the start.</p>
@@ -3392,6 +4065,41 @@ async function openLineSlice() {
     const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
+    if (_isReactToolDialogs) {
+        const rootId = `line-slice-react-${Date.now()}`;
+        showModal('Line Slice Between Points', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountLineSliceDialog } = await import('../react/tools/mountLineSliceDialog.jsx');
+                const mounted = mountLineSliceDialog(root, {
+                    onCancel: () => close(),
+                    onPick: async () => {
+                        close();
+                        const pts = await mapService.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
+                        if (!pts) return;
+                        const work = getWorkingFeatures(layer);
+                        const line = findFirstLineStringFeature(work.geojson);
+                        if (!line) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const sliced = gisTools.lineSlice(turf.point(pts[0]), turf.point(pts[1]), line);
+                            sliced.properties = { ...line.properties };
+                            const fc = { type: 'FeatureCollection', features: [sliced] };
+                            const result = createSpatialDataset(`${layer.name}_sliced`, fc, { format: 'derived' });
+                            addResultLayer(result);
+                            showToast('Line sliced between points', 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'LineSlice'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     showModal('Line Slice Between Points', '<p>Click two points on the map. The section of the line between those points (snapped to nearest vertices) will be extracted.</p>', {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
         onMount: (overlay, close) => {
@@ -3421,8 +4129,62 @@ async function openLineSlice() {
 // --- Line Intersect ---
 async function openLineIntersect() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const lineLayers = layerOptions(['LineString', 'MultiLineString']);
-    if (!lineLayers) return showToast('Need line layers loaded', 'warning');
+    const lineLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry
+                && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString')))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (lineLayerDefs.length === 0) return showToast('Need line layers loaded', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `line-intersect-react-${Date.now()}`;
+        showModal('Line Intersect', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountLineIntersectDialog } = await import('../react/tools/mountLineIntersectDialog.jsx');
+                const mounted = mountLineIntersectDialog(root, {
+                    layers: lineLayerDefs,
+                    onCancel: () => close(),
+                    onFind: ({ layerId1, layerId2 }) => {
+                        const l1 = getLayers().find((layer) => layer.id === layerId1);
+                        const l2 = getLayers().find((layer) => layer.id === layerId2);
+                        close();
+                        if (!l1 || !l2) return showToast('Select two layers', 'warning');
+                        try {
+                            const allPts = [];
+                            const lines1 = listLineStringFeatures(l1.geojson);
+                            const lines2 = listLineStringFeatures(l2.geojson);
+                            for (const a of lines1) {
+                                for (const b of lines2) {
+                                    const pts = gisTools.lineIntersect(a, b);
+                                    if (pts?.features) allPts.push(...pts.features);
+                                }
+                            }
+                            const fc = { type: 'FeatureCollection', features: allPts };
+                            const result = createSpatialDataset(`intersections_${l1.name}_${l2.name}`, fc, { format: 'derived' });
+                            addResultLayer(result);
+                            showToast(`Found ${allPts.length} intersection point(s)`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'LineIntersect'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const lineLayers = lineLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
 
     const html = `
         <p>Find all points where two line layers cross each other.</p>
@@ -3467,6 +4229,34 @@ async function openKinks() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `kinks-react-${Date.now()}`;
+        showModal('Find Kinks (Self-Intersections)', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountKinksDialog } = await import('../react/tools/mountKinksDialog.jsx');
+                const mounted = mountKinksDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onFind: async () => {
+                        close();
+                        try {
+                            const result = await gisTools.findKinks(getWorkingDataset(layer));
+                            addResultLayer(result);
+                            showToast(`Found ${result.geojson.features.length} kink(s)`, result.geojson.features.length > 0 ? 'warning' : 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Kinks'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<p class="info-box text-xs">Checking <strong>${work.count}</strong> selected features.</p>` : '';
     showModal('Find Kinks (Self-Intersections)', `<p>Find all points where lines or polygon edges cross over themselves. Useful for detecting geometry errors.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Kinks</button>',
@@ -3492,6 +4282,34 @@ async function openCombine() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `combine-features-react-${Date.now()}`;
+        showModal('Combine Features', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountCombineFeaturesDialog } = await import('../react/tools/mountCombineFeaturesDialog.jsx');
+                const mounted = mountCombineFeaturesDialog(root, {
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onCombine: () => {
+                        close();
+                        try {
+                            const result = gisTools.combineFeatures(getWorkingDataset(layer));
+                            addResultLayer(result);
+                            showToast(`Combined into ${result.geojson.features.length} multi-feature(s)`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Combine'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<p class="info-box text-xs">Combining <strong>${work.count}</strong> selected features.</p>` : '';
     showModal('Combine Features', `<p>Merge all features of the same geometry type into a single Multi-geometry feature (e.g., multiple Points → one MultiPoint).</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Combine</button>',
@@ -3518,6 +4336,36 @@ async function openUnion() {
 
     const work = getWorkingFeatures(layer);
     const polyCount = work.geojson.features.filter(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')).length;
+    if (_isReactToolDialogs) {
+        const rootId = `union-polygons-react-${Date.now()}`;
+        showModal('Union Polygons', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountUnionPolygonsDialog } = await import('../react/tools/mountUnionPolygonsDialog.jsx');
+                const mounted = mountUnionPolygonsDialog(root, {
+                    polygonCount: polyCount,
+                    isSelection: work.isSelection,
+                    showLargeWarning: polyCount > 500,
+                    onCancel: () => close(),
+                    onUnion: async () => {
+                        close();
+                        try {
+                            const result = await gisTools.unionFeatures(getWorkingDataset(layer));
+                            addResultLayer(result);
+                            showToast('Union complete', 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Union'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<p class="info-box text-xs">Unioning <strong>${polyCount}</strong> selected polygons.</p>` : '';
     showModal('Union Polygons', `<p>Merge all ${polyCount} polygon features into a single unified polygon. Overlapping areas are dissolved.</p>
         ${polyCount > 500 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}
@@ -3545,6 +4393,39 @@ async function openDissolve() {
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
+    if (_isReactToolDialogs) {
+        const rootId = `dissolve-react-${Date.now()}`;
+        showModal('Dissolve', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountDissolveDialog } = await import('../react/tools/mountDissolveDialog.jsx');
+                const mounted = mountDissolveDialog(root, {
+                    fields: layer.schema?.fields || [],
+                    selectionCount: work.isSelection ? work.count : 0,
+                    onCancel: () => close(),
+                    onDissolve: async ({ field }) => {
+                        close();
+                        try {
+                            const result = await runWithTaskProgress('Dissolve', () =>
+                                gisTools.dissolveFeatures(getWorkingDataset(layer), field)
+                            );
+                            if (!result) return;
+                            addResultLayer(result);
+                            showToast(field ? `Dissolved by field "${field}"` : 'Dissolved all polygons into merged features', 'success');
+                            refreshUI();
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Dissolve'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const selNote = work.isSelection ? `<div class="info-box text-xs">Dissolving <strong>${work.count}</strong> selected features.</div>` : '';
     const fieldOpts = (layer.schema?.fields || []).map(f => `<option value="${f.name}">${f.name}</option>`).join('');
     const html = `
@@ -3581,6 +4462,38 @@ async function openDissolve() {
 // --- Sector ---
 async function openSector() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
+    if (_isReactToolDialogs) {
+        const rootId = `sector-react-${Date.now()}`;
+        showModal('Create Sector', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountSectorDialog } = await import('../react/tools/mountSectorDialog.jsx');
+                const mounted = mountSectorDialog(root, {
+                    onCancel: () => close(),
+                    onPickCenter: async ({ radius, b1, b2, units }) => {
+                        close();
+                        const center = await mapService.startPointPick('Click the center point for the sector');
+                        if (!center) return;
+                        try {
+                            const sector = gisTools.createSector(turf.point(center), radius, b1, b2, units);
+                            sector.properties = { radius, bearing1: b1, bearing2: b2, units };
+                            const fc = { type: 'FeatureCollection', features: [sector] };
+                            const result = createSpatialDataset(`sector_${b1}-${b2}`, fc, { format: 'derived' });
+                            addResultLayer(result);
+                            showToast('Sector created', 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'Sector'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <p>Create a pie-slice shaped polygon from a center point, radius, and two compass bearings.</p>
         <div class="form-group"><label>Radius</label>
@@ -3621,8 +4534,56 @@ async function openSector() {
 // --- Nearest Point ---
 async function openNearestPoint() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const ptLayers = layerOptions(['Point']);
-    if (!ptLayers) return showToast('Need a point layer loaded', 'warning');
+    const pointLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry && f.geometry.type === 'Point'))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (pointLayerDefs.length === 0) return showToast('Need a point layer loaded', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `nearest-point-react-${Date.now()}`;
+        showModal('Nearest Point', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountNearestPointDialog } = await import('../react/tools/mountNearestPointDialog.jsx');
+                const mounted = mountNearestPointDialog(root, {
+                    layers: pointLayerDefs,
+                    onCancel: () => close(),
+                    onPickLocation: async ({ layerId, units }) => {
+                        const ptLayer = getLayers().find((layer) => layer.id === layerId);
+                        close();
+                        if (!ptLayer) return;
+                        const target = await mapService.startPointPick('Click the map to find the nearest point');
+                        if (!target) return;
+                        try {
+                            const nearest = gisTools.nearestPoint(turf.point(target), ptLayer);
+                            const line = turf.lineString([target, nearest.geometry.coordinates]);
+                            mapService.showTempFeature({ type: 'FeatureCollection', features: [nearest, line] }, 15000);
+                            const distKm = nearest.properties.distanceToPoint;
+                            const dist = convertKm(distKm, units);
+                            const name = nearest.properties.name || nearest.properties.NAME || `Feature ${nearest.properties.featureIndex}`;
+                            showToast(`Nearest: "${name}" (${dist?.toFixed(2) || '?'} ${units} away)`, 'success', { duration: 10000 });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'NearestPoint'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const ptLayers = pointLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
 
     const html = `
         <p>Click a location on the map to find the closest feature in a point layer.</p>
@@ -3661,8 +4622,59 @@ async function openNearestPoint() {
 // --- Nearest Point on Line ---
 async function openNearestPointOnLine() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const lineLayers = layerOptions(['LineString', 'MultiLineString']);
-    if (!lineLayers) return showToast('Need a line layer loaded', 'warning');
+    const lineLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry
+                && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString')))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (lineLayerDefs.length === 0) return showToast('Need a line layer loaded', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `nearest-point-on-line-react-${Date.now()}`;
+        showModal('Nearest Point on Line', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountNearestPointOnLineDialog } = await import('../react/tools/mountNearestPointOnLineDialog.jsx');
+                const mounted = mountNearestPointOnLineDialog(root, {
+                    layers: lineLayerDefs,
+                    onCancel: () => close(),
+                    onPickPoint: async ({ layerId, units }) => {
+                        const lineLayer = getLayers().find((layer) => layer.id === layerId);
+                        close();
+                        if (!lineLayer) return;
+                        const pt = await mapService.startPointPick('Click the map to snap to the nearest line');
+                        if (!pt) return;
+                        const lineWhole = lineLayer.geojson.features.find((f) =>
+                            f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                        if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), 'kilometers');
+                            const connector = turf.lineString([pt, snap.geometry.coordinates]);
+                            mapService.showTempFeature({ type: 'FeatureCollection', features: [snap, connector] }, 15000);
+                            const distKm = snap.properties.dist;
+                            const dist = convertKm(distKm, units);
+                            showToast(`Snapped to line at ${dist?.toFixed(2) || '?'} ${units}`, 'success', { duration: 10000 });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'NearestPointOnLine'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const lineLayers = lineLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
 
     const html = `
         <p>Click a point on the map to find the closest spot on a line (snaps to the line).</p>
@@ -3703,9 +4715,71 @@ async function openNearestPointOnLine() {
 // --- Nearest Point to Line ---
 async function openNearestPointToLine() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const ptLayers = layerOptions(['Point']);
-    const lineLayers = layerOptions(['LineString', 'MultiLineString']);
-    if (!ptLayers || !lineLayers) return showToast('Need a point layer and a line layer', 'warning');
+    const pointLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry && f.geometry.type === 'Point'))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    const lineLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry
+                && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString')))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (pointLayerDefs.length === 0 || lineLayerDefs.length === 0) return showToast('Need a point layer and a line layer', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `nearest-point-to-line-react-${Date.now()}`;
+        showModal('Nearest Point to Line', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountNearestPointToLineDialog } = await import('../react/tools/mountNearestPointToLineDialog.jsx');
+                const mounted = mountNearestPointToLineDialog(root, {
+                    pointLayers: pointLayerDefs,
+                    lineLayers: lineLayerDefs,
+                    onCancel: () => close(),
+                    onFind: ({ pointLayerId, lineLayerId, units }) => {
+                        const ptsLayer = getLayers().find((layer) => layer.id === pointLayerId);
+                        const lineLayer = getLayers().find((layer) => layer.id === lineLayerId);
+                        close();
+                        if (!ptsLayer || !lineLayer) return;
+                        const lineWhole = lineLayer.geojson.features.find((f) =>
+                            f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+                        if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
+                        try {
+                            const nearest = gisTools.nearestPointToLine(ptsLayer.geojson, lineWhole);
+                            mapService.showTempFeature(nearest, 15000);
+                            const name = nearest.properties?.name || nearest.properties?.NAME || 'Unnamed';
+                            const distKm = nearest.properties?.dist;
+                            const dist = convertKm(distKm, units);
+                            showToast(`Nearest to line: "${name}" (${dist?.toFixed(2) || '?'} ${units})`, 'success', { duration: 10000 });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'NearestPointToLine'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const ptLayers = pointLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
+    const lineLayers = lineLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
 
     const html = `
         <p>Find which point in a point layer is closest to a specific line feature.</p>
@@ -3747,6 +4821,45 @@ async function openNearestPointToLine() {
 async function openNearestNeighborAnalysis() {
     const layer = requireSpatialLayer(['Point']);
     if (!layer) return;
+
+    if (_isReactToolDialogs) {
+        const rootId = `nearest-neighbor-react-${Date.now()}`;
+        showModal('Nearest Neighbor Analysis', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountNearestNeighborAnalysisDialog } = await import('../react/tools/mountNearestNeighborAnalysisDialog.jsx');
+                const mounted = mountNearestNeighborAnalysisDialog(root, {
+                    onCancel: () => close(),
+                    onRun: async () => {
+                        close();
+                        try {
+                            const result = gisTools.nearestNeighborAnalysis(layer);
+                            const p = result.properties || result;
+                            const pattern = p.zscore < -1.65 ? 'Clustered' : (p.zscore > 1.65 ? 'Dispersed' : 'Random');
+                            const featureCount = p.numberOfPoints || layer.geojson.features.filter((f) => f.geometry?.type === 'Point').length;
+                            const resultsRootId = `nearest-neighbor-results-react-${Date.now()}`;
+                            showModal('Nearest Neighbor Analysis — Results', `<div id="${resultsRootId}"></div>`, {
+                                width: '450px',
+                                onMount: async (resultsOverlay) => {
+                                    const resultsRoot = resultsOverlay.querySelector(`#${resultsRootId}`);
+                                    if (!resultsRoot) return;
+                                    const { mountNearestNeighborResultsDialog } = await import('../react/tools/mountNearestNeighborResultsDialog.jsx');
+                                    const resultsMounted = mountNearestNeighborResultsDialog(resultsRoot, { pattern, p, featureCount });
+                                    watchOverlayUnmount(resultsOverlay, () => resultsMounted.unmount?.());
+                                }
+                            });
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'NearestNeighborAnalysis'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     showModal('Nearest Neighbor Analysis', '<p>Analyze the spatial distribution of points. Returns statistical metrics that indicate whether points are clustered, random, or dispersed.</p>', {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Run Analysis</button>',
@@ -4084,7 +5197,7 @@ function openSpatialAnalyzer() {
     // Inject dependencies
     _spatialAnalyzerWidget.getLayers = getLayers;
     _spatialAnalyzerWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _spatialAnalyzerWidget.mapManager = mapService;
+    _spatialAnalyzerWidget.mapService = mapService;
     _spatialAnalyzerWidget.addLayer = addLayer;
     _spatialAnalyzerWidget.createSpatialDataset = createSpatialDataset;
     _spatialAnalyzerWidget.refreshUI = refreshUI;
@@ -4100,7 +5213,7 @@ function openBulkUpdate() {
     }
     _bulkUpdateWidget.getLayers = getLayers;
     _bulkUpdateWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _bulkUpdateWidget.mapManager = mapService;
+    _bulkUpdateWidget.mapService = mapService;
     _bulkUpdateWidget.refreshUI = refreshUI;
     _bulkUpdateWidget.showToast = showToast;
     _bulkUpdateWidget.toggle();
@@ -4114,7 +5227,7 @@ function openProximityJoin() {
     }
     _proximityJoinWidget.getLayers = getLayers;
     _proximityJoinWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _proximityJoinWidget.mapManager = mapService;
+    _proximityJoinWidget.mapService = mapService;
     _proximityJoinWidget.analyzeSchema = analyzeSchema;
     _proximityJoinWidget.refreshUI = refreshUI;
     _proximityJoinWidget.showToast = showToast;
@@ -5633,18 +6746,10 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
 // Global app API (for onclick handlers in HTML)
 // ============================
 window.app = {
-    setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); },
-    toggleVisibility: (id) => { toggleLayerVisibility(id); mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible); renderLayerList(); },
-    zoomToLayer: (id) => {
-        const layer = mapService.getLayerRecord(id);
-        if (layer && layer.geojson) {
-            try { const bb = turf.bbox(layer.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
-        }
-    },
-    removeLayer: async (id) => {
-        const ok = await confirm('Remove Layer', 'Remove this layer?');
-        if (ok) { removeLayer(id); mapService.removeLayer(id); refreshUI(); }
-    },
+    setActiveLayer: setActiveLayerAndRefresh,
+    toggleVisibility: toggleLayerVisibilityAndRender,
+    zoomToLayer,
+    removeLayer: removeLayerWithConfirm,
     moveLayerUp,
     moveLayerDown,
     toggleField, selectAllFields, filterFields,
@@ -5746,10 +6851,12 @@ document.addEventListener('DOMContentLoaded', () => {
         renderLogs();
     });
 
-    // Render initial data prep tools in left panel
-    const dataPrepContainer = document.getElementById('dataprep-tools');
-    if (dataPrepContainer) {
-        dataPrepContainer.innerHTML = renderDataPrepTools();
+    // Render initial data prep tools in left panel (legacy path only).
+    if (!_isReactLeftPanel) {
+        const dataPrepContainer = document.getElementById('dataprep-tools');
+        if (dataPrepContainer) {
+            dataPrepContainer.innerHTML = renderDataPrepTools();
+        }
     }
 
     // ========================

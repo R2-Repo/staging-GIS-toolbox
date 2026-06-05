@@ -247,9 +247,6 @@ class DualScreenCoordinator {
         }
 
         scheduleMapResizeAfterLayout(mapService);
-        if (map && !map.loaded()) {
-            map.once('load', () => scheduleMapResizeAfterLayout(mapService));
-        }
     }
 
     _applyMapChrome(payload) {

@@ -5,7 +5,7 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-04
-- **Goal**: Start **M4 — MapService extraction + React `<MapView>`** incrementally, while preserving M3 stability and rollback safety.
+- **Goal**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
 - **Branch**: `main`
 - **Fix**:
   - Re-validated baseline on current working tree:
@@ -43,7 +43,9 @@ Keep this file current so the next session can continue without re-discovery.
     - popup/orbit helpers (`hasPopupHits`, `cyclePopup`, `getActivePopupHit`, `closePopup`, `findFeaturesNearClick`, `showMultiPopup`, `showPopup`, `isOrbiting`, `startCameraOrbit`, `stopCameraOrbit`).
     - compatibility getters for legacy-style consumers (`map`, `dataLayers`).
   - Migrated `js/app.js` to consume these wrappers, removing direct `mapManager` method calls.
-    - `js/app.js` now has no direct `mapManager.*` usage; it goes through `mapService` for map operations while still passing `mapManager` into required legacy adapter hooks (`installDualScreenMapFacade`, export map-style injection).
+    - `js/app.js` now has no direct `mapManager.*` usage and no direct `mapManager` import; it goes through `mapService` for map operations and routes compatibility hooks via `mapService`:
+      - dual-screen facade installed with `installDualScreenMapFacade(mapService.getLegacyMapManager())`,
+      - export style lookup wired with `setExportMapManager(mapService)`.
     - widget dependency injection now passes `mapService` (Spatial Analyzer / Bulk Update / Proximity Join).
   - Migrated dual-screen modules to `mapService`:
     - `js/dual-screen/secondary-client.js` now uses `mapService` for popup bridge, orbit actions, and fence commands.
@@ -53,18 +55,195 @@ Keep this file current so the next session can continue without re-discovery.
     - `js/map/draw-manager.js` now uses `mapService` instead of importing `map-manager` directly for selection, interaction cancel, rectangle draw delegation, and highlight/lookup calls.
   - Updated widget dependency injection in `js/app.js`:
     - Spatial Analyzer, Bulk Update, and Proximity Join now receive `mapService` as their map dependency.
+  - Continued M4 extraction for remaining mapManager-centric widgets:
+    - `js/widgets/bulk-update.js` now resolves map dependency through `mapService` first (`this.mapService`), with a legacy fallback to `this.mapManager` during overlap.
+    - `js/widgets/spatial-analyzer.js` now resolves map dependency through `mapService` first (`this.mapService`), with a legacy fallback to `this.mapManager` during overlap.
+    - `js/widgets/proximity-join.js` now resolves map dependency through `mapService` first (`this.mapService`), with a legacy fallback to `this.mapManager` during overlap.
+    - These widgets now route map interactions through `MapService` wrappers where available (`startRectangleDraw`, `startSketchPolygon`, `startSketchCirclePolygon`, `showInteractionBanner`, `getSelectionCount`, `getSelectedIndices`, `refreshLayerData`, `addLayer`, `getLayerRecord`, `getMap`) and only use raw MapLibre calls for transient preview/highlight rendering.
+    - `js/app.js` now injects `mapService` via the explicit `mapService` widget property for:
+      - `openSpatialAnalyzer()`
+      - `openBulkUpdate()`
+      - `openProximityJoin()`
+  - Dual-screen layout helper cleanup for M4 consistency:
+    - `js/dual-screen/layout.js` `scheduleMapResizeAfterLayout()` now accepts map-service-shaped dependencies (`resize` + optional `getMap`) and schedules an additional resize on map `load` when available.
+    - `js/dual-screen/coordinator.js` no longer duplicates `map.once('load', ...)` resize scheduling; this is now centralized in `scheduleMapResizeAfterLayout(mapService)`.
+    - Added regression coverage in `tests/dual-screen-layout.test.js` for the map-load resize path.
+  - Export compatibility adapter cleanup:
+    - `js/export/exporter.js` now stores a generic map API adapter (`_mapApi`) instead of a `mapManager`-named variable.
+    - `setExportMapManager(...)` remains the compatibility entrypoint and accepts either `mapService` or legacy map-manager shaped objects (uses `getLayerStyle`).
+  - M4 boundary completion pass:
+    - `js/app.js` no longer imports or references `mapManager` directly.
+    - compatibility hooks are now attached via `mapService`:
+      - `installDualScreenMapFacade(mapService.getLegacyMapManager())`
+      - `setExportMapManager(mapService)`
+    - `rg \bmapManager\b js/` now reports only:
+      - intentional compatibility layer: `js/dual-screen/map-facade.js`,
+      - adapter implementation: `js/map/map-service.js` + `js/map/map-manager.js`,
+      - overlap safety fallbacks in migrated widgets (`mapService` first, `mapManager` fallback).
+  - Completed M5 (left panel React island):
+    - Added left-panel feature flag:
+      - `js/ui/left-panel-feature-flags.js` (default ON; rollback via `leftPanelReact=0` query/localStorage/global).
+      - `tests/left-panel-feature-flags.test.js`.
+    - Added React left-panel island:
+      - `react/panels/LeftPanel.jsx` (`LayerListPanel`, `FieldListPanel`, `DataPrepToolsPanel`).
+      - `react/panels/mountLeftPanel.jsx` (multi-root mount for `#layer-list`, `#field-list`, `#dataprep-tools`).
+    - Updated `js/app.js` for M5 path:
+      - mounts React left panel during boot when feature flag is enabled,
+      - falls back to legacy left panel if React mount fails,
+      - `refreshUINow()` routes left panel refresh through React render when enabled,
+      - legacy render functions are still retained behind the rollback path.
+    - Extracted reusable left-panel actions in `js/app.js` and reused them in both React island and `window.app`:
+      - `setActiveLayerAndRefresh`, `toggleLayerVisibilityAndRender`, `zoomToLayer`, `removeLayerWithConfirm`.
+  - Completed M6 (right panel React island):
+    - Added right-panel feature flag:
+      - `js/ui/right-panel-feature-flags.js` (default ON; rollback via `rightPanelReact=0` query/localStorage/global).
+      - `tests/right-panel-feature-flags.test.js`.
+    - Added React right-panel island:
+      - `react/panels/RightPanel.jsx` (output schema, export controls, AGOL readiness, data preview, style-panel host).
+      - `react/panels/mountRightPanel.jsx` (mount helper for `#output-panel-content`).
+    - Updated `js/app.js` for M6 path:
+      - mounts React right panel during boot when feature flag is enabled,
+      - falls back to legacy right panel if React mount fails,
+      - `renderOutputPanel()` routes to React render when enabled and preserves legacy path as rollback,
+      - style-panel behavior remains wired through existing `buildStylePanel()` + `bindStylePanel(...)` logic for parity.
+  - Started M7 with React toast-host migration (API-compatible):
+    - Added toast feature flag:
+      - `js/ui/toast-feature-flags.js` (default ON; rollback via `toastReact=0` query/localStorage/global).
+      - `tests/toast-feature-flags.test.js`.
+    - Added React toast host:
+      - `react/ui/ToastHost.jsx`.
+      - `react/ui/mountToastHost.jsx`.
+    - Updated `js/ui/toast.js`:
+      - preserved `showToast` / `showErrorToast` API,
+      - added subscriber-based toast event flow for React host (`subscribeToasts`, `dismissToast`),
+      - kept legacy DOM rendering path as fallback when no subscriber is mounted.
+    - Updated `js/app.js`:
+      - mounts React toast host during boot when enabled,
+      - falls back silently to legacy toast rendering if React toast host mount fails.
+    - Added toast event tests:
+      - `tests/toast-events.test.js` validates add/remove event flow and error-toast formatting through the subscriber path.
+  - Continued M7 with React modal-host migration (API-compatible):
+    - Added modal feature flag:
+      - `js/ui/modal-feature-flags.js` (default ON; rollback via `modalReact=0` query/localStorage/global).
+      - `tests/modal-feature-flags.test.js`.
+    - Added React modal host:
+      - `react/ui/ModalHost.jsx`.
+      - `react/ui/mountModalHost.jsx`.
+    - Updated `js/ui/modals.js`:
+      - preserved `showModal` / `confirm` / `showProgressModal` API,
+      - added subscriber-driven modal/progress event flow for React host (`subscribeModalEvents`, `dismissModal`, `dismissProgressModal`, `triggerProgressCancel`),
+      - kept legacy DOM modal rendering as fallback when no subscriber is mounted.
+    - Updated `js/app.js`:
+      - mounts React modal host during boot when enabled,
+      - falls back to legacy modal rendering if React modal host mount fails.
+    - Added modal event tests:
+      - `tests/modal-events.test.js` validates modal show/remove/resolve behavior and progress cancel/update/remove flow.
+  - Continued M7 with first React tool-dialog migration:
+    - Added tool-dialog feature flag:
+      - `js/ui/tool-dialog-feature-flags.js` (default OFF; opt-in via `toolDialogsReact=1` query/localStorage/global).
+      - `tests/tool-dialog-feature-flags.test.js`.
+    - Added React tool-dialog components:
+      - `react/tools/DistanceToolDialog.jsx`.
+      - `react/tools/mountDistanceToolDialog.jsx`.
+      - `react/tools/PointToLineDistanceDialog.jsx`.
+      - `react/tools/mountPointToLineDistanceDialog.jsx`.
+      - `react/tools/BearingToolDialog.jsx`.
+      - `react/tools/mountBearingToolDialog.jsx`.
+      - `react/tools/DestinationToolDialog.jsx`.
+      - `react/tools/mountDestinationToolDialog.jsx`.
+      - `react/tools/AlongToolDialog.jsx`.
+      - `react/tools/mountAlongToolDialog.jsx`.
+      - `react/tools/BufferToolDialog.jsx`.
+      - `react/tools/mountBufferToolDialog.jsx`.
+      - `react/tools/SimplifyToolDialog.jsx`.
+      - `react/tools/mountSimplifyToolDialog.jsx`.
+      - `react/tools/ClipExtentDialog.jsx`.
+      - `react/tools/mountClipExtentDialog.jsx`.
+      - `react/tools/BboxClipDialog.jsx`.
+      - `react/tools/mountBboxClipDialog.jsx`.
+      - `react/tools/BezierSplineDialog.jsx`.
+      - `react/tools/mountBezierSplineDialog.jsx`.
+      - `react/tools/PolygonSmoothDialog.jsx`.
+      - `react/tools/mountPolygonSmoothDialog.jsx`.
+      - `react/tools/LineOffsetDialog.jsx`.
+      - `react/tools/mountLineOffsetDialog.jsx`.
+      - `react/tools/LineSliceAlongDialog.jsx`.
+      - `react/tools/mountLineSliceAlongDialog.jsx`.
+      - `react/tools/LineSliceDialog.jsx`.
+      - `react/tools/mountLineSliceDialog.jsx`.
+      - `react/tools/LineIntersectDialog.jsx`.
+      - `react/tools/mountLineIntersectDialog.jsx`.
+      - `react/tools/KinksDialog.jsx`.
+      - `react/tools/mountKinksDialog.jsx`.
+      - `react/tools/CombineFeaturesDialog.jsx`.
+      - `react/tools/mountCombineFeaturesDialog.jsx`.
+      - `react/tools/UnionPolygonsDialog.jsx`.
+      - `react/tools/mountUnionPolygonsDialog.jsx`.
+      - `react/tools/DissolveDialog.jsx`.
+      - `react/tools/mountDissolveDialog.jsx`.
+      - `react/tools/SectorDialog.jsx`.
+      - `react/tools/mountSectorDialog.jsx`.
+      - `react/tools/NearestPointDialog.jsx`.
+      - `react/tools/mountNearestPointDialog.jsx`.
+      - `react/tools/NearestPointOnLineDialog.jsx`.
+      - `react/tools/mountNearestPointOnLineDialog.jsx`.
+      - `react/tools/NearestPointToLineDialog.jsx`.
+      - `react/tools/mountNearestPointToLineDialog.jsx`.
+      - `react/tools/NearestNeighborAnalysisDialog.jsx`.
+      - `react/tools/mountNearestNeighborAnalysisDialog.jsx`.
+      - `react/tools/NearestNeighborResultsDialog.jsx`.
+      - `react/tools/mountNearestNeighborResultsDialog.jsx`.
+    - Updated `js/app.js`:
+      - `openDistanceTool()` now has a React path behind `toolDialogsReact`,
+      - React path mounts `DistanceToolDialog` inside `showModal(...)` via `onMount`,
+      - `openPointToLineDistanceTool()` now has the same React modal path behind `toolDialogsReact`,
+      - `openBearingTool()` now has the same React modal path behind `toolDialogsReact`,
+      - `openDestinationTool()` now has the same React modal path behind `toolDialogsReact`,
+      - `openAlongTool()` now has the same React modal path behind `toolDialogsReact`,
+      - `openBuffer()` now has the same React modal path behind `toolDialogsReact`,
+      - `openSimplify()` now has the same React modal path behind `toolDialogsReact`,
+      - `openClip()` now has the same React modal path behind `toolDialogsReact`,
+      - `openBboxClip()` now has the same React modal path behind `toolDialogsReact`,
+      - `openBezierSpline()` now has the same React modal path behind `toolDialogsReact`,
+      - `openPolygonSmooth()` now has the same React modal path behind `toolDialogsReact`,
+      - `openLineOffset()` now has the same React modal path behind `toolDialogsReact`,
+      - `openLineSliceAlong()` now has the same React modal path behind `toolDialogsReact`,
+      - `openLineSlice()` now has the same React modal path behind `toolDialogsReact`,
+      - `openLineIntersect()` now has the same React modal path behind `toolDialogsReact`,
+      - `openKinks()` now has the same React modal path behind `toolDialogsReact`,
+      - `openCombine()` now has the same React modal path behind `toolDialogsReact`,
+      - `openUnion()` now has the same React modal path behind `toolDialogsReact`,
+      - `openDissolve()` now has the same React modal path behind `toolDialogsReact`,
+      - `openSector()` now has the same React modal path behind `toolDialogsReact`,
+      - `openNearestPoint()` now has the same React modal path behind `toolDialogsReact`,
+      - `openNearestPointOnLine()` now has the same React modal path behind `toolDialogsReact`,
+      - `openNearestPointToLine()` now has the same React modal path behind `toolDialogsReact`,
+      - `openNearestNeighborAnalysis()` now has a React run dialog and React results dialog behind `toolDialogsReact`,
+      - shared overlay unmount watcher (`watchOverlayUnmount`) keeps React modal islands cleaned up when modal overlays close,
+      - legacy HTML modal path remains unchanged as rollback/default.
   - Extended tests:
     - `tests/map-service.test.js` now verifies delegation for the new wrapper methods, including popup/orbit, fence set-from-bbox, layer IDs, map/dataLayers compatibility getters, sketch helpers, interaction banner, cancel/highlight helpers.
 
 ## Verification
 
-- **Vitest**: `npm test` — green (78 tests).
+- **Vitest**: `npm test` — green (103 tests).
 - **Build**: `npm run build` — succeeds; emits `dist/`.
 - **Dev server smoke**: `npm run dev -- --host 127.0.0.1 --port 4173` starts successfully (Vite ready, local URL printed).
 - **Post-migration check**: reran `npm test` + `npm run build` after additional `mapService` call-site migration — still green.
+- **Latest extraction check (M4 widgets)**:
+  - `npm test` — green (103 tests).
+  - `npm run build` — green; emits `dist/`.
+  - During this slice, an intermediate build failure (`Identifier "mapService" has already been declared` in `js/widgets/proximity-join.js`) was fixed immediately; final verification is green.
+  - Note: in this PowerShell environment, `npm test && npm run build` is not supported (`&&` parsing error), so verification was rerun using `npm test; if ($LASTEXITCODE -eq 0) { npm run build } else { exit $LASTEXITCODE }`.
+- **M4 boundary audit**:
+  - `rg \bmapManager\b js/` now shows `mapManager` only in:
+    - intentional compatibility layer: `js/dual-screen/map-facade.js`,
+    - legacy adapter source and wrapper: `js/map/map-manager.js`, `js/map/map-service.js`,
+    - widget overlap fallbacks (`js/widgets/bulk-update.js`, `js/widgets/spatial-analyzer.js`, `js/widgets/proximity-join.js`) that resolve `mapService` first and keep legacy fallback safety.
 - **Checkpoint-ready working tree**:
-  - Modified: `js/app.js`, `js/map/draw-manager.js`, `js/map-window.js`, `js/dual-screen/coordinator.js`, `js/dual-screen/secondary-client.js`, `js/map/map-service.js`, `tests/map-service.test.js`, `css/main.css`, `HANDOFF.md`.
-  - Added: `js/map/map-feature-flags.js`, `react/map/MapView.jsx`, `react/map/mountMapView.jsx`, `tests/map-feature-flags.test.js`.
+  - Modified: `js/app.js`, `js/export/exporter.js`, `js/map/draw-manager.js`, `js/map-window.js`, `js/dual-screen/coordinator.js`, `js/dual-screen/layout.js`, `js/dual-screen/secondary-client.js`, `js/map/map-service.js`, `js/widgets/bulk-update.js`, `js/widgets/spatial-analyzer.js`, `js/widgets/proximity-join.js`, `tests/map-service.test.js`, `tests/dual-screen-layout.test.js`, `css/main.css`, `HANDOFF.md`.
+  - Added: `js/map/map-feature-flags.js`, `js/ui/left-panel-feature-flags.js`, `js/ui/right-panel-feature-flags.js`, `js/ui/toast-feature-flags.js`, `js/ui/modal-feature-flags.js`, `js/ui/tool-dialog-feature-flags.js`, `react/map/MapView.jsx`, `react/map/mountMapView.jsx`, `react/panels/LeftPanel.jsx`, `react/panels/mountLeftPanel.jsx`, `react/panels/RightPanel.jsx`, `react/panels/mountRightPanel.jsx`, `react/ui/ToastHost.jsx`, `react/ui/mountToastHost.jsx`, `react/ui/ModalHost.jsx`, `react/ui/mountModalHost.jsx`, `react/tools/DistanceToolDialog.jsx`, `react/tools/mountDistanceToolDialog.jsx`, `react/tools/PointToLineDistanceDialog.jsx`, `react/tools/mountPointToLineDistanceDialog.jsx`, `react/tools/BearingToolDialog.jsx`, `react/tools/mountBearingToolDialog.jsx`, `react/tools/DestinationToolDialog.jsx`, `react/tools/mountDestinationToolDialog.jsx`, `react/tools/AlongToolDialog.jsx`, `react/tools/mountAlongToolDialog.jsx`, `react/tools/BufferToolDialog.jsx`, `react/tools/mountBufferToolDialog.jsx`, `react/tools/SimplifyToolDialog.jsx`, `react/tools/mountSimplifyToolDialog.jsx`, `react/tools/ClipExtentDialog.jsx`, `react/tools/mountClipExtentDialog.jsx`, `react/tools/BboxClipDialog.jsx`, `react/tools/mountBboxClipDialog.jsx`, `react/tools/BezierSplineDialog.jsx`, `react/tools/mountBezierSplineDialog.jsx`, `react/tools/PolygonSmoothDialog.jsx`, `react/tools/mountPolygonSmoothDialog.jsx`, `react/tools/LineOffsetDialog.jsx`, `react/tools/mountLineOffsetDialog.jsx`, `react/tools/LineSliceAlongDialog.jsx`, `react/tools/mountLineSliceAlongDialog.jsx`, `react/tools/LineSliceDialog.jsx`, `react/tools/mountLineSliceDialog.jsx`, `react/tools/LineIntersectDialog.jsx`, `react/tools/mountLineIntersectDialog.jsx`, `react/tools/KinksDialog.jsx`, `react/tools/mountKinksDialog.jsx`, `react/tools/CombineFeaturesDialog.jsx`, `react/tools/mountCombineFeaturesDialog.jsx`, `react/tools/UnionPolygonsDialog.jsx`, `react/tools/mountUnionPolygonsDialog.jsx`, `react/tools/DissolveDialog.jsx`, `react/tools/mountDissolveDialog.jsx`, `react/tools/SectorDialog.jsx`, `react/tools/mountSectorDialog.jsx`, `react/tools/NearestPointDialog.jsx`, `react/tools/mountNearestPointDialog.jsx`, `react/tools/NearestPointOnLineDialog.jsx`, `react/tools/mountNearestPointOnLineDialog.jsx`, `react/tools/NearestPointToLineDialog.jsx`, `react/tools/mountNearestPointToLineDialog.jsx`, `tests/map-feature-flags.test.js`, `tests/left-panel-feature-flags.test.js`, `tests/right-panel-feature-flags.test.js`, `tests/toast-feature-flags.test.js`, `tests/toast-events.test.js`, `tests/modal-feature-flags.test.js`, `tests/modal-events.test.js`, `tests/tool-dialog-feature-flags.test.js`.
+  - Plus this slice: `react/tools/NearestNeighborAnalysisDialog.jsx`, `react/tools/mountNearestNeighborAnalysisDialog.jsx`, `react/tools/NearestNeighborResultsDialog.jsx`, `react/tools/mountNearestNeighborResultsDialog.jsx`.
 - **Notes**:
   - Vite reports chunk-size warnings and mixed dynamic/static import warnings in legacy modules; informational for now, no build failure.
   - Full M3 **manual browser parity** checklist could not be executed from this agent runtime (no interactive browser control). Needs human/manual pass in-browser.
@@ -81,13 +260,35 @@ Keep this file current so the next session can continue without re-discovery.
    - map initialization, resize, layer add/remove/toggle/restyle/order,
    - basemap + 2D/3D toggles,
    - dual-screen compatibility (legacy facade still attached).
-3. Continue M4 extraction by migrating remaining `mapManager`-centric modules where safe:
-   - `js/widgets/bulk-update.js`,
-   - `js/widgets/spatial-analyzer.js`.
-4. Keep `js/dual-screen/map-facade.js` and `js/export/exporter.js` map-style integration path as intentional compatibility layers during overlap (do not remove yet).
-5. Keep `index.html` runtime path unchanged until shell-flip milestone.
+3. M4 extraction boundary is code-complete; keep intentional compatibility layers during overlap:
+   - `js/dual-screen/map-facade.js`,
+   - `js/export/exporter.js` style integration path.
+4. M5 is code-complete behind rollback-safe flagging:
+   - default: React left panel enabled,
+   - rollback: `leftPanelReact=0`.
+5. M6 is code-complete behind rollback-safe flagging:
+   - default: React right panel enabled,
+   - rollback: `rightPanelReact=0`.
+6. Run manual browser parity checks for M4 + M5 + M6 behavior (required for milestone close):
+   - map parity on default + `mapReactView=1`,
+   - left panel parity on default + `leftPanelReact=0` rollback path,
+   - right panel parity on default + `rightPanelReact=0` rollback path (schema/export/AGOL/style/data preview),
+   - verify layer/field/output actions and style apply behavior.
+7. M7 started:
+   - React toast host is code-complete behind rollback-safe flagging (`toastReact`).
+   - React modal host is code-complete behind rollback-safe flagging (`modalReact`).
+   - First tool dialogs migrated to React path behind flag (`toolDialogsReact`): Distance + Bearing + Destination + Along + Point-to-Line Distance + Buffer + Simplify + Clip-to-Extent + BBox Clip + Bezier Spline + Polygon Smooth + Line Offset + Line Slice Along + Line Slice + Line Intersect + Find Kinks + Combine Features + Union + Dissolve + Sector + Nearest Point + Nearest Point on Line + Nearest Point to Line + Nearest Neighbor Analysis.
+   - Next M7 slices (next up): `openPointsWithinPolygon()`, then continue remaining GIS tool dialogs with the same React-island + rollback pattern.
+8. Keep `index.html` runtime path unchanged until shell-flip milestone.
 
-**New agent prompt**: continue milestone-by-milestone from `docs/REACT_REFACTOR_PLAN.md` and keep `main` shippable.
+**New agent prompt**:
+Continue M7 from this checkpoint in `staging-GIS-toolbox`.
+- Read first: `HANDOFF.md`, `AGENTS.md`, `docs/REACT_REFACTOR_PLAN.md`.
+- Current state: M4/M5/M6 complete; M7 toast+modal hosts complete; many GIS tool dialogs now React-backed behind `toolDialogsReact` (default OFF, legacy fallback ON).
+- Immediate next task: migrate `openPointsWithinPolygon()` in `js/app.js` to the same React tool-dialog island pattern used for recent tools, then proceed through remaining high-traffic dialogs.
+- Constraints: keep `index.html` shell path unchanged; preserve rollback safety; do not remove legacy fallback paths; keep `main` shippable after each slice.
+- After each substantive edit: run `npm test`; if green run `npm run build` (PowerShell-safe sequencing).
+- Update `HANDOFF.md` with exact files changed, verification status, and next action.
 
 ---
 

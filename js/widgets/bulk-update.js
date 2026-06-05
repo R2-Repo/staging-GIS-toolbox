@@ -23,6 +23,7 @@ export class BulkUpdateWidget extends WidgetBase {
         // injected deps (set from app.js)
         this.getLayers = null;
         this.getLayerById = null;
+        this.mapService = null;
         this.mapManager = null;
         this.refreshUI = null;
         this.showToast = null;
@@ -255,9 +256,10 @@ export class BulkUpdateWidget extends WidgetBase {
 
     /* --- Rectangle --- */
     async _drawRectangle() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Draw a rectangle to select features', 'info');
-        const bbox = await this.mapManager.startRectangleDraw('Click and drag to draw selection rectangle');
+        const bbox = await mapService.startRectangleDraw('Click and drag to draw selection rectangle');
         if (!bbox) return;
 
         this._selectFeaturesInBboxArray(bbox);
@@ -267,10 +269,11 @@ export class BulkUpdateWidget extends WidgetBase {
 
     /* --- Polygon --- */
     async _drawPolygon() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Click to place points, double-click or Enter to finish', 'info');
 
-        const geom = await this.mapManager.startSketchPolygon({
+        const geom = await mapService.startSketchPolygon({
             bannerText: 'Click to add points. Double-click or Enter to finish selection.',
             onInsufficientVertices: () => this.showToast?.('Need at least 3 points', 'warning')
         });
@@ -283,10 +286,11 @@ export class BulkUpdateWidget extends WidgetBase {
 
     /* --- Circle --- */
     async _drawCircle() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Click center, then click to set radius', 'info');
 
-        const geom = await this.mapManager.startSketchCirclePolygon({
+        const geom = await mapService.startSketchCirclePolygon({
             bannerText: 'Click center, then click for radius. Esc cancels.',
             onRadiusTooSmall: () => this.showToast?.('Radius too small', 'warning')
         });
@@ -311,20 +315,22 @@ export class BulkUpdateWidget extends WidgetBase {
 
     _enterClickMode() {
         if (this._clickMode) return;
-        const map = this.mapManager?.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
         if (!map) return;
 
         this._clickMode = true;
         const container = map.getContainer();
         container.style.cursor = 'pointer';
 
-        this._clickBanner = this.mapManager.showInteractionBanner?.(
+        this._clickBanner = mapService.showInteractionBanner?.(
             'Click features to select/deselect. Press Esc or click "Click Select" again to stop.',
             () => { this._exitClickMode(); this._refreshBody(); this._bindEvents(); }
         );
 
         // Attach click handler to the data layer's MapLibre layers
-        const layerInfo = this.mapManager.dataLayers.get(this._targetLayerId);
+        const layerInfo = mapService.getLayerRecord?.(this._targetLayerId)
+            || mapService.dataLayers?.get?.(this._targetLayerId);
         if (!layerInfo) { this._exitClickMode(); return; }
 
         this._clickLayerHandlers = [];
@@ -366,12 +372,13 @@ export class BulkUpdateWidget extends WidgetBase {
         if (!this._clickMode) return;
         this._clickMode = false;
 
-        const map = this.mapManager?.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
         if (map) map.getContainer().style.cursor = '';
 
         // Remove click handlers from MapLibre layers
         if (this._clickLayerHandlers) {
-            const map = this.mapManager?.map;
+            const map = mapService?.getMap?.() || mapService?.map;
             for (const { layerId, handler } of this._clickLayerHandlers) {
                 if (map) map.off('click', layerId, handler);
             }
@@ -485,10 +492,12 @@ export class BulkUpdateWidget extends WidgetBase {
     _renderHighlights() {
         this._clearHighlights();
 
-        const map = this.mapManager?.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
         if (!map || this._selectedIndices.size === 0) return;
 
-        const layerInfo = this.mapManager.dataLayers.get(this._targetLayerId);
+        const layerInfo = mapService?.getLayerRecord?.(this._targetLayerId)
+            || mapService?.dataLayers?.get?.(this._targetLayerId);
         if (!layerInfo) return;
 
         const selectedFeatures = layerInfo.geojson.features.filter(f =>
@@ -515,7 +524,8 @@ export class BulkUpdateWidget extends WidgetBase {
     }
 
     _clearHighlights() {
-        const map = this.mapManager?.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
         if (this._highlightLayerIds) {
             for (const lid of this._highlightLayerIds) { if (map?.getLayer(lid)) map.removeLayer(lid); }
             this._highlightLayerIds = null;
@@ -637,7 +647,8 @@ export class BulkUpdateWidget extends WidgetBase {
         logger.info('BulkUpdate', `Applied ${fieldCount} field update(s) to ${updated} feature(s)`);
 
         // Refresh the MapLibre source so popups & interactions reflect updated attributes
-        this.mapManager?.refreshLayerData?.(layer);
+        const mapService = this._getMapService();
+        mapService?.refreshLayerData?.(layer);
 
         // Refresh the main app UI to reflect updated attributes
         this.refreshUI?.();
@@ -657,6 +668,10 @@ export class BulkUpdateWidget extends WidgetBase {
 
     _escHtml(str) {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    _getMapService() {
+        return this.mapService || this.mapManager || null;
     }
 }
 

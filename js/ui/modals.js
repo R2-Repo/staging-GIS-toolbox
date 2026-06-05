@@ -2,15 +2,57 @@
  * Modal + Bottom Sheet helpers
  */
 
-export function showModal(title, contentHtml, options = {}) {
+const _modalSubscribers = new Set();
+const _modalResolvers = new Map();
+const _progressCancelHandlers = new Map();
+let _nextModalId = 1;
+let _nextProgressId = 1;
+
+function _emitModalEvent(event) {
+    _modalSubscribers.forEach((listener) => {
+        try {
+            listener(event);
+        } catch {
+            // Keep modal delivery resilient if a subscriber errors.
+        }
+    });
+}
+
+export function subscribeModalEvents(listener) {
+    if (typeof listener !== 'function') {
+        throw new Error('subscribeModalEvents requires a listener function');
+    }
+    _modalSubscribers.add(listener);
+    return () => _modalSubscribers.delete(listener);
+}
+
+export function dismissModal(id, result = null) {
+    const resolve = _modalResolvers.get(id);
+    if (resolve) {
+        _modalResolvers.delete(id);
+        resolve(result);
+    }
+    _emitModalEvent({ type: 'removeModal', id });
+}
+
+export function triggerProgressCancel(id) {
+    const fn = _progressCancelHandlers.get(id);
+    if (typeof fn === 'function') {
+        fn();
+    }
+}
+
+export function dismissProgressModal(id) {
+    _progressCancelHandlers.delete(id);
+    _emitModalEvent({ type: 'removeProgress', id });
+}
+
+function showModalLegacy(title, contentHtml, options = {}) {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
 
         const isMobile = window.innerWidth < 768;
-
-        // On mobile: use standard modal (CSS styles it to 96vw centered with big close btn)
-        // No more bottom sheet — map stays visible behind semi-transparent overlay
         const width = isMobile ? '96vw' : (options.width || '600px');
         overlay.innerHTML = `
             <div class="modal" style="width:${width}">
@@ -31,20 +73,32 @@ export function showModal(title, contentHtml, options = {}) {
 
         overlay.querySelector('.close-modal').onclick = () => close(null);
 
-        // Track where mousedown started so text-selection drags that end
-        // outside the modal don't accidentally close it
         let mouseDownTarget = null;
         overlay.addEventListener('mousedown', (e) => { mouseDownTarget = e.target; });
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay && mouseDownTarget === overlay) close(null);
         });
 
-        // Make close and overlay accessible to content scripts
         overlay._close = close;
         overlay._resolve = resolve;
 
         if (options.onMount) options.onMount(overlay, close);
     });
+}
+
+export function showModal(title, contentHtml, options = {}) {
+    if (_modalSubscribers.size > 0) {
+        const id = _nextModalId++;
+        return new Promise((resolve) => {
+            _modalResolvers.set(id, resolve);
+            _emitModalEvent({
+                type: 'showModal',
+                modal: { id, title, contentHtml, options }
+            });
+        });
+    }
+
+    return showModalLegacy(title, contentHtml, options);
 }
 
 /**
@@ -61,10 +115,7 @@ export function confirm(title, message) {
     });
 }
 
-/**
- * Show progress modal for long operations
- */
-export function showProgressModal(title) {
+function showProgressModalLegacy(title) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
@@ -102,6 +153,38 @@ export function showProgressModal(title) {
         },
         element: overlay
     };
+}
+
+/**
+ * Show progress modal for long operations
+ */
+export function showProgressModal(title) {
+    if (_modalSubscribers.size > 0) {
+        const id = _nextProgressId++;
+        _emitModalEvent({
+            type: 'showProgress',
+            progress: { id, title, percent: 0, step: 'Starting...' }
+        });
+        return {
+            update(percent, step) {
+                _emitModalEvent({
+                    type: 'updateProgress',
+                    id,
+                    percent,
+                    step: step || 'Starting...'
+                });
+            },
+            onCancel(fn) {
+                _progressCancelHandlers.set(id, fn);
+            },
+            close() {
+                dismissProgressModal(id);
+            },
+            element: null
+        };
+    }
+
+    return showProgressModalLegacy(title);
 }
 
 export default { showModal, confirm, showProgressModal };

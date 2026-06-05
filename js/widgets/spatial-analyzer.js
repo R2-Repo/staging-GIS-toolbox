@@ -59,6 +59,7 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         // injected deps
         this.getLayers = null;
         this.getLayerById = null;
+        this.mapService = null;
         this.mapManager = null;
         this.addLayer = null;
         this.createSpatialDataset = null;
@@ -610,9 +611,10 @@ export class SpatialAnalyzerWidget extends WidgetBase {
        ================================================================ */
 
     async _drawRectangle() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Draw a rectangle on the map', 'info');
-        const bbox = await this.mapManager.startRectangleDraw('Click and drag to draw your search area');
+        const bbox = await mapService.startRectangleDraw('Click and drag to draw your search area');
         if (!bbox) return;
 
         const [west, south, east, north] = bbox;
@@ -626,10 +628,11 @@ export class SpatialAnalyzerWidget extends WidgetBase {
     }
 
     async _drawPolygon() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Click to place points, double-click or Enter to finish', 'info');
 
-        const geom = await this.mapManager.startSketchPolygon({
+        const geom = await mapService.startSketchPolygon({
             bannerText: 'Click to add points. Double-click or Enter to finish the area.',
             onInsufficientVertices: () => this.showToast?.('Need at least 3 points to make an area', 'warning')
         });
@@ -645,10 +648,11 @@ export class SpatialAnalyzerWidget extends WidgetBase {
     }
 
     async _drawCircle() {
-        if (!this.mapManager) return;
+        const mapService = this._getMapService();
+        if (!mapService) return;
         this.showToast?.('Click center, then click to set radius', 'info');
 
-        const geom = await this.mapManager.startSketchCirclePolygon({
+        const geom = await mapService.startSketchCirclePolygon({
             bannerText: 'Click center, then click for radius. Esc cancels.',
             onRadiusTooSmall: () => this.showToast?.('Radius too small', 'warning')
         });
@@ -964,7 +968,8 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         if (!dataset) return;
         this.addLayer?.(dataset);
         const layers = this.getLayers?.() || [];
-        this.mapManager?.addLayer(dataset, layers.indexOf(dataset), { fit: true });
+        const mapService = this._getMapService();
+        mapService?.addLayer(dataset, layers.indexOf(dataset), { fit: true });
         this.refreshUI?.();
         this.showToast?.(`Added ${this._results.matched} features as new layer`, 'success');
     }
@@ -979,7 +984,8 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         if (!dataset) return;
         this.addLayer?.(dataset);
         const layers = this.getLayers?.() || [];
-        this.mapManager?.addLayer(dataset, layers.indexOf(dataset), { fit: true });
+        const mapService = this._getMapService();
+        mapService?.addLayer(dataset, layers.indexOf(dataset), { fit: true });
         this.refreshUI?.();
         this.showToast?.('Analysis area added as layer', 'success');
     }
@@ -1004,8 +1010,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
     _showAreaPreview() {
         this._clearPreview();
-        if (!this._analysisArea || !this.mapManager?.map) return;
-        const map = this.mapManager.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
+        if (!this._analysisArea || !map) return;
         try {
             const srcId = `sa-area-preview-${Date.now()}`;
             map.addSource(srcId, { type: 'geojson', data: this._analysisArea });
@@ -1020,8 +1027,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
     _highlightResults(features) {
         this._clearPreview();
-        if (!features.length || !this.mapManager?.map) return;
-        const map = this.mapManager.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
+        if (!features.length || !map) return;
         try {
             const ids = [];
             // Area outline
@@ -1051,7 +1059,8 @@ export class SpatialAnalyzerWidget extends WidgetBase {
     }
 
     _clearPreview() {
-        const map = this.mapManager?.map;
+        const mapService = this._getMapService();
+        const map = mapService?.getMap?.() || mapService?.map;
         if (this._previewLayerIds) {
             for (const lid of this._previewLayerIds) { if (map?.getLayer(lid)) map.removeLayer(lid); }
             this._previewLayerIds = null;
@@ -1124,6 +1133,10 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    _getMapService() {
+        return this.mapService || this.mapManager || null;
     }
 }
 

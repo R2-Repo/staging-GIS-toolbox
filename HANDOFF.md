@@ -5,23 +5,20 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-05
-- **Goal**: Fix React Flow pipeline editor stuck on "Loading canvas…" and palette nodes not appearing.
-- **Branch**: `cursor/fix-reactflow-canvas-loading-2ca4`
-- **Root cause**: React Flow mount is async; if mount throws (e.g. `createRoot` called twice on the same host after a failed attempt), `_reactFlowReady` never flips true and `wf-canvas-loading` stays forever. Overlay also became visible before mount finished.
-- **Fix**:
-  - `workflow-overlay.js`: await React Flow mount before showing overlay; add mount error recovery via `_tearDownReactFlowHost()`; return boolean from `_ensureReactFlowCanvasMounted()`; skip node placement when mount fails.
-  - `mountIsland.jsx`: reuse React root per element (WeakMap) so remount after teardown does not throw.
-  - `workflow-add-node-smoke.mjs`: assert loading overlay clears after open and after add-node.
+- **Goal**: Fix regression from #23 — map missing on load and side-panel tools/widgets gone.
+- **Branch**: `cursor/revert-mountisland-regression-2ca4`
+- **Root cause**: #23 added global React root reuse in `mountIsland.jsx` (WeakMap). That broke first-load mounting for map/header React islands. Workflow remount safety already lives in `workflow-overlay.js` via fresh host elements.
+- **Fix**: Revert `mountIsland.jsx` to one `createRoot` per mount (no WeakMap).
 - **Verification**:
   - `npm test` ✅ (126)
   - `npm run build` ✅
+  - `node scripts/preview-smoke.mjs http://127.0.0.1:4173` ✅ (23/23 — map canvas, panels, workflow)
   - `node scripts/workflow-add-node-smoke.mjs http://127.0.0.1:4173` ✅
-  - Headed Playwright on virtual desktop (`DISPLAY=:1`): open editor, add node, close/reopen — canvas loads, nodes appear, no stuck loading overlay.
 
 ## Next
 
-1. If users still see stuck loading, hard-refresh or clear site data (PWA service worker may cache old chunks).
-2. Manual pass: drag palette nodes onto canvas, connect wires, run pipeline.
+1. Squash-merge this PR to restore map/panels while keeping #23 workflow-overlay changes.
+2. Manual pass: drag palette nodes, connect wires, run pipeline.
 
 ---
 

@@ -25,12 +25,6 @@ describe('dual-screen layout', () => {
         expect(html.toLowerCase()).toContain('return');
     });
 
-    it('hides the React map host while dual-screen is active on the primary window', () => {
-        expect(mainCss).toMatch(
-            /#map-container\.dual-screen-map-hidden\s+\.map-react-view-host[\s\S]*display:\s*none/
-        );
-    });
-
     it('scheduleMapResizeAfterLayout calls resize after animation frames', () => {
         vi.useFakeTimers();
         const resize = vi.fn();

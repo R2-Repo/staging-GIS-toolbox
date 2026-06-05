@@ -478,39 +478,6 @@ async function _mountReactMapView() {
     }
 }
 
-function _suspendReactMapForDualScreen() {
-    if (!_reactMapViewUnmount) return;
-    _reactMapViewUnmount();
-    _reactMapViewUnmount = null;
-}
-
-async function _restorePrimaryMapView({ lastViewport } = {}) {
-    if (isReactMapViewEnabled()) {
-        await _mountReactMapView();
-    } else if (!mapService.getMap()) {
-        mapService.init('map-container');
-    }
-
-    const layers = getLayers().filter((layer) => layer.type === 'spatial' && layer.geojson);
-    layers.forEach((layer, index) => {
-        mapService.addLayer(layer, index, { fit: false });
-    });
-
-    const map = mapService.getMap();
-    if (lastViewport && map) {
-        map.jumpTo({
-            center: lastViewport.center,
-            zoom: lastViewport.zoom,
-            bearing: lastViewport.bearing,
-            pitch: lastViewport.pitch
-        });
-    } else if (layers.length) {
-        mapService.fitToAll();
-    }
-
-    scheduleMapResizeAfterLayout(mapService);
-}
-
 async function initMap() {
     try {
         if (isReactMapViewEnabled()) {
@@ -846,11 +813,6 @@ function invokeAppAction(action, arg) {
     fn(arg);
 }
 
-function closestFromEvent(event, selector) {
-    const node = event.target instanceof Element ? event.target : event.target?.parentElement;
-    return node?.closest(selector) ?? null;
-}
-
 // ============================
 // Setup all event listeners
 // ============================
@@ -1070,7 +1032,7 @@ function setupEventListeners() {
 
     // App action delegation for HTML-rendered tool buttons (replaces inline onclick usage)
     document.addEventListener('click', (event) => {
-        const actionButton = closestFromEvent(event, '[data-app-action]');
+        const actionButton = event.target.closest('[data-app-action]');
         if (!actionButton) return;
         const { appAction, appArg } = actionButton.dataset;
         if (!appAction) return;
@@ -1081,22 +1043,22 @@ function setupEventListeners() {
 
     // Layer list activation (desktop + mobile legacy render paths)
     document.addEventListener('click', (event) => {
-        const layerItem = closestFromEvent(event, '.layer-item[data-layer-id]');
+        const layerItem = event.target.closest('.layer-item[data-layer-id]');
         if (!layerItem) return;
-        if (closestFromEvent(event, '[data-app-action]')) return;
+        if (event.target.closest('[data-app-action]')) return;
         setActiveLayerAndRefresh(layerItem.dataset.layerId);
     });
 
     // Inline rename gestures
     document.addEventListener('dblclick', (event) => {
-        const layerName = closestFromEvent(event, '.layer-name[data-layer-rename-id]');
+        const layerName = event.target.closest('.layer-name[data-layer-rename-id]');
         if (layerName) {
             event.preventDefault();
             event.stopPropagation();
             renameLayer(layerName.dataset.layerRenameId, layerName);
             return;
         }
-        const fieldName = closestFromEvent(event, '.field-name[data-field-rename-id]');
+        const fieldName = event.target.closest('.field-name[data-field-rename-id]');
         if (fieldName) {
             event.preventDefault();
             renameField(fieldName.dataset.fieldRenameId, fieldName);
@@ -1110,14 +1072,14 @@ function setupEventListeners() {
         }
     });
     document.addEventListener('change', (event) => {
-        const fieldToggle = closestFromEvent(event, 'input[data-field-toggle]');
+        const fieldToggle = event.target.closest('input[data-field-toggle]');
         if (!fieldToggle) return;
         toggleField(fieldToggle.dataset.fieldToggle, fieldToggle.checked);
     });
 
     // Panel section collapse/expand (replaces inline onclick handlers)
     document.addEventListener('click', (event) => {
-        const header = closestFromEvent(event, '.panel-section-header');
+        const header = event.target.closest('.panel-section-header');
         if (!header) return;
         if (header.dataset.collapsible !== 'true') return;
         togglePanelSectionHeader(header);
@@ -1180,12 +1142,6 @@ function setupDualScreenMode() {
     if (!btn) return;
 
     installDualScreenPrimaryHandlers({
-        restorePrimaryMap: (payload) => {
-            _restorePrimaryMapView(payload).catch((error) => {
-                logger.error('App', 'Primary map restore failed after dual-screen exit', { error: error.message });
-                showToast('Map failed to restore in this window. Reload if the map stays missing.', 'warning');
-            });
-        },
         onDrawFeatureCreated: (layerId, feature) => {
             bus.emit('draw:featureCreated', { layerId, feature });
         },
@@ -1249,9 +1205,6 @@ function setupDualScreenMode() {
 
     dualScreenCoordinator.onStateChange((active) => {
         applyDualScreenLayout(active);
-        if (active) {
-            _suspendReactMapForDualScreen();
-        }
         syncDualScreenHeaderButton(btn, active);
         document.querySelectorAll('[data-dual-screen-toggle]').forEach(el => {
             el.classList.toggle('active', active);
@@ -8147,11 +8100,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         document.addEventListener('pointerenter', (e) => {
-            const btn = closestFromEvent(e, '.geo-tool-btn');
+            const btn = e.target.closest('.geo-tool-btn');
             if (btn) show(btn);
         }, true);
         document.addEventListener('pointerleave', (e) => {
-            const btn = closestFromEvent(e, '.geo-tool-btn');
+            const btn = e.target.closest('.geo-tool-btn');
             if (btn && btn === activeBtn) hide();
         }, true);
     })();

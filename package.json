@@ -7,8 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "smoke:preview": "node scripts/preview-smoke.mjs"
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@turf/turf": "7.1.0",
@@ -16,7 +15,6 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^7.3.5",
-    "playwright": "^1.52.0",
     "vite-plugin-pwa": "^1.3.0",
     "vitest": "^3.2.4"
   },

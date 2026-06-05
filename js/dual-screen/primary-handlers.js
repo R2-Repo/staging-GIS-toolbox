@@ -10,7 +10,6 @@ import { MessageType } from './protocol.js';
  */
 export function installDualScreenPrimaryHandlers(deps) {
     dualScreenCoordinator.setHandlers({
-        restorePrimaryMap: (payload) => deps.restorePrimaryMap?.(payload),
         onDrawEvent: (payload) => handleDrawEvent(payload, deps),
         onPopupAction: (payload) => handlePopupAction(payload, deps),
         onFileDrop: (payload) => handleFileDrop(payload, deps),

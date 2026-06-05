@@ -478,6 +478,39 @@ async function _mountReactMapView() {
     }
 }
 
+function _suspendReactMapForDualScreen() {
+    if (!_reactMapViewUnmount) return;
+    _reactMapViewUnmount();
+    _reactMapViewUnmount = null;
+}
+
+async function _restorePrimaryMapView({ lastViewport } = {}) {
+    if (isReactMapViewEnabled()) {
+        await _mountReactMapView();
+    } else if (!mapService.getMap()) {
+        mapService.init('map-container');
+    }
+
+    const layers = getLayers().filter((layer) => layer.type === 'spatial' && layer.geojson);
+    layers.forEach((layer, index) => {
+        mapService.addLayer(layer, index, { fit: false });
+    });
+
+    const map = mapService.getMap();
+    if (lastViewport && map) {
+        map.jumpTo({
+            center: lastViewport.center,
+            zoom: lastViewport.zoom,
+            bearing: lastViewport.bearing,
+            pitch: lastViewport.pitch
+        });
+    } else if (layers.length) {
+        mapService.fitToAll();
+    }
+
+    scheduleMapResizeAfterLayout(mapService);
+}
+
 async function initMap() {
     try {
         if (isReactMapViewEnabled()) {
@@ -1147,6 +1180,12 @@ function setupDualScreenMode() {
     if (!btn) return;
 
     installDualScreenPrimaryHandlers({
+        restorePrimaryMap: (payload) => {
+            _restorePrimaryMapView(payload).catch((error) => {
+                logger.error('App', 'Primary map restore failed after dual-screen exit', { error: error.message });
+                showToast('Map failed to restore in this window. Reload if the map stays missing.', 'warning');
+            });
+        },
         onDrawFeatureCreated: (layerId, feature) => {
             bus.emit('draw:featureCreated', { layerId, feature });
         },
@@ -1210,6 +1249,9 @@ function setupDualScreenMode() {
 
     dualScreenCoordinator.onStateChange((active) => {
         applyDualScreenLayout(active);
+        if (active) {
+            _suspendReactMapForDualScreen();
+        }
         syncDualScreenHeaderButton(btn, active);
         document.querySelectorAll('[data-dual-screen-toggle]').forEach(el => {
             el.classList.toggle('active', active);

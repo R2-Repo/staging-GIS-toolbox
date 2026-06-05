@@ -34,7 +34,7 @@ function BasicModal({ modal }) {
         >
             <div className="modal" style={{ width }}>
                 <div className="modal-header">
-                    <span>{modal.title}</span>
+                    <span dangerouslySetInnerHTML={{ __html: modal.title || '' }} />
                     <button className="btn-icon close-modal" aria-label="Close" onClick={() => close(null)}>✕</button>
                 </div>
                 <div className="modal-body" dangerouslySetInnerHTML={{ __html: modal.contentHtml || '' }} />

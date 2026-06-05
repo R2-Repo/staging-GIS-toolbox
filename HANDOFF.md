@@ -5,6 +5,18 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-05
+- **Goal**: Fix GitHub Pages so it serves the **Vite `dist/` build** (required since `0aa40f0` / M12), not raw repo source.
+- **Branch**: `cursor/fix-github-pages-vite-deploy-de42`
+- **Root cause**: Pages was on `main` at `0aa40f0` but used legacy “deploy `/` from branch” — browsers got raw `.jsx` and no bundled React; `sw.js` 404. Local `npm run dev`/`preview` worked; live Pages did not.
+- **Fix**: `.github/workflows/deploy-pages.yml` — `npm ci` → `npm run build` → `upload-pages-artifact` → `deploy-pages`.
+- **Owner action (one-time)**: Repo **Settings → Pages → Build and deployment → Source: GitHub Actions** (replace “Deploy from branch / main / root”).
+- **Baseline**: `main` pinned at `0aa40f0` (`final-refactor-baseline` tag).
+
+---
+
+## Prior (M4–M7 continuation — 2026-06-05)
+
+- **Date**: 2026-06-05
 - **Goal**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
 - **Branch**: `main`
 - **Fix**:

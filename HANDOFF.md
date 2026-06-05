@@ -5,6 +5,18 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-05
+- **Goal**: Fix Dual Screen primary-window map not disappearing when React map view is enabled.
+- **Branch**: `cursor/fix-dual-screen-primary-map-hide-c1ea` (PR #21)
+- **Fix**:
+  - `_completeActivation()` now captures viewport + destroys the primary map **before** `isActive = true` (decorator `getMap()` was returning null once active, skipping destroy).
+  - Dual-screen CSS now hides `.map-react-view-host` and positions the placeholder over the center panel.
+  - Primary React map island unmounts on dual-screen activation; restore uses React mount path via `restorePrimaryMap` handler.
+  - Added `tests/dual-screen-coordinator-activation.test.js`.
+- **Verification**: `npm test` ✅ (122), `npm run build` ✅.
+
+---
+
+- **Date**: 2026-06-05
 - **Goal**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
 - **Branch**: `main`
 - **Fix**:

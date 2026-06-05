@@ -5,7 +5,7 @@
  */
 import bus from '../core/event-bus.js';
 import logger from '../core/logger.js';
-import mapManager from './map-manager.js';
+import mapService from './map-service.js';
 
 const DRAW_STYLE = {
     lineColor: '#01bcdd',
@@ -63,7 +63,7 @@ class DrawManager {
     }
 
     /** Get the MapLibre map instance */
-    get map() { return mapManager.map; }
+    get map() { return mapService.map; }
 
     /** Is drawing currently active? */
     get isDrawing() { return this._active && this._tool !== null; }
@@ -200,7 +200,7 @@ class DrawManager {
         this._finishing = false;
         this._updateToolButtons();
 
-        if (mapManager._selectionMode) mapManager.exitSelectionMode();
+        if (mapService.isSelectionMode()) mapService.exitSelectionMode();
 
         // Select mode — click to select & edit existing features
         if (tool === 'select') {
@@ -227,7 +227,7 @@ class DrawManager {
             this._setHint('Click and drag on the map to draw a rectangle.');
             this._escHandler = (e) => {
                 if (e.key === 'Escape') {
-                    mapManager.cancelInteraction();
+                    mapService.cancelInteraction();
                     this.cancelDraw();
                 }
             };
@@ -321,7 +321,7 @@ class DrawManager {
     }
 
     cancelDraw() {
-        mapManager.cancelInteraction();
+        mapService.cancelInteraction();
         this._clearPreview();
         this._clearEditSelection();
         this._removeRectPreview();
@@ -364,7 +364,7 @@ class DrawManager {
      */
     async _runDelegatedRectangleDraw() {
         try {
-            const bbox = await mapManager.startRectangleDraw('Click and drag to draw rectangle. Esc cancels.');
+            const bbox = await mapService.startRectangleDraw('Click and drag to draw rectangle. Esc cancels.');
             if (this._tool !== 'rectangle' || !this._toolbar) return;
             if (!bbox) {
                 this._setHint('Rectangle cancelled — drag on the map to draw again.');
@@ -616,7 +616,7 @@ class DrawManager {
         }
         e._drawHandled = true;
 
-        const info = mapManager.dataLayers.get(this._targetLayerId);
+        const info = mapService.getLayerRecord(this._targetLayerId);
         if (!info) return;
 
         const features = this.map.queryRenderedFeatures(e.point, { layers: info.layerIds });
@@ -635,7 +635,7 @@ class DrawManager {
         this._clearEditSelection();
         this._selectedFeatureIndex = featureIndex;
 
-        mapManager.highlightFeature(this._targetLayerId, featureIndex);
+        mapService.highlightFeature(this._targetLayerId, featureIndex);
         this._showEditVertices(featureIndex);
         this._updateActionButtons();
         this._setHint(`Feature selected. Drag vertices to reshape, or press Delete.`);
@@ -645,7 +645,7 @@ class DrawManager {
         this._selectedFeatureIndex = null;
         this._editFeatureRef = null;
         this._removeEditMarkers();
-        mapManager.clearHighlight();
+        mapService.clearHighlight();
     }
 
     _removeEditMarkers() {
@@ -658,7 +658,7 @@ class DrawManager {
     _showEditVertices(featureIndex) {
         this._removeEditMarkers();
 
-        const info = mapManager.dataLayers.get(this._targetLayerId);
+        const info = mapService.getLayerRecord(this._targetLayerId);
         if (!info) return;
 
         const feature = info.geojson.features.find(f => f.properties._featureIndex === featureIndex);

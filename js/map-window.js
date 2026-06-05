@@ -1,7 +1,7 @@
 /**
  * Dual Screen Mode — secondary map window entry
  */
-import mapManager from './map/map-manager.js';
+import mapService from './map/map-service.js';
 import { DualScreenChannel } from './dual-screen/channel.js';
 import {
     MessageType,
@@ -37,14 +37,14 @@ function applySnapshot(payload) {
     if (!payload) return;
     const { layers, viewport, basemap, is3d } = payload;
 
-    if (basemap && basemap !== mapManager.currentBasemap) {
-        mapManager.setBasemap(basemap);
+    if (basemap && basemap !== mapService.getCurrentBasemap()) {
+        mapService.setBasemap(basemap);
         syncBasemapToggle(basemap);
     }
 
-    if (mapManager.map) {
-        for (const id of [...mapManager.dataLayers.keys()]) {
-            mapManager.removeLayer(id);
+    if (mapService.getMap()) {
+        for (const id of mapService.getLayerIds()) {
+            mapService.removeLayer(id);
         }
     }
 
@@ -53,17 +53,18 @@ function applySnapshot(payload) {
         const dataset = createSpatialDataset(entry.name, entry.geojson, entry.source || { format: 'sync' });
         dataset.id = entry.id;
         dataset.visible = entry.visible !== false;
-        if (entry.style) mapManager.setLayerStyle(entry.id, entry.style);
-        mapManager.addLayer(dataset, i, { fit: false });
+        if (entry.style) mapService.setLayerStyle(entry.id, entry.style);
+        mapService.addLayer(dataset, i, { fit: false });
     });
 
-    if (is3d) mapManager.enable3D();
-    else mapManager.disable3D();
+    if (is3d) mapService.enable3D();
+    else mapService.disable3D();
     syncDimensionToggle(!!is3d);
 
-    if (viewport && mapManager.map) {
+    const map = mapService.getMap();
+    if (viewport && map) {
         suppressViewportBroadcast = true;
-        mapManager.map.jumpTo({
+        map.jumpTo({
             center: viewport.center,
             zoom: viewport.zoom,
             bearing: viewport.bearing ?? 0,
@@ -79,34 +80,35 @@ function applyLayerAdd(payload) {
     const layer = createSpatialDataset(dataset.name, dataset.geojson, dataset.source || { format: 'sync' });
     layer.id = dataset.id;
     layer.visible = dataset.visible !== false;
-    mapManager.removeLayer(layer.id);
-    mapManager.addLayer(layer, colorIndex ?? 0, { fit: !!fit });
+    mapService.removeLayer(layer.id);
+    mapService.addLayer(layer, colorIndex ?? 0, { fit: !!fit });
 }
 
 function applyLayerRemove(payload) {
-    if (payload?.id) mapManager.removeLayer(payload.id);
+    if (payload?.id) mapService.removeLayer(payload.id);
 }
 
 function applyLayerOrder(payload) {
     const { orderedIds } = payload || {};
     if (!orderedIds?.length) return;
-    mapManager.syncLayerOrder(orderedIds);
+    mapService.syncLayerOrder(orderedIds);
 }
 
 function applyViewport(payload) {
-    if (!payload || !mapManager.map) return;
+    const map = mapService.getMap();
+    if (!payload || !map) return;
     if (payload.command === 'fitAll') {
-        mapManager.fitToAll();
+        mapService.fitToAll();
         return;
     }
     if (payload.command === 'fitLayers' && payload.layerIds?.length) {
-        mapManager.fitToLayers(payload.layerIds);
+        mapService.fitToLayers(payload.layerIds);
         return;
     }
     if (payload.center) {
-        mapManager.map.jumpTo({
+        map.jumpTo({
             center: payload.center,
-            zoom: payload.zoom ?? mapManager.map.getZoom(),
+            zoom: payload.zoom ?? map.getZoom(),
             bearing: payload.bearing ?? 0,
             pitch: payload.pitch ?? 0
         });
@@ -126,12 +128,15 @@ function syncDimensionToggle(is3d) {
 }
 
 function broadcastViewport() {
-    if (suppressViewportBroadcast || !mapManager.map) return;
-    post(MessageType.VIEWPORT, broadcastViewportFromMap(mapManager.map));
+    const map = mapService.getMap();
+    if (suppressViewportBroadcast || !map) return;
+    post(MessageType.VIEWPORT, broadcastViewportFromMap(map));
 }
 
 function onMapReady() {
-    mapManager.map.on('moveend', () => {
+    const map = mapService.getMap();
+    if (!map) return;
+    map.on('moveend', () => {
         clearTimeout(viewportDebounce);
         viewportDebounce = setTimeout(broadcastViewport, 80);
     });
@@ -188,7 +193,7 @@ function setupHeaderControls() {
         const btn = e.target.closest('[data-value]');
         if (!btn) return;
         syncBasemapToggle(btn.dataset.value);
-        mapManager.setBasemap(btn.dataset.value);
+        mapService.setBasemap(btn.dataset.value);
         post(MessageType.MAP_CHROME, { basemap: btn.dataset.value });
     });
 
@@ -197,8 +202,8 @@ function setupHeaderControls() {
         if (!btn) return;
         const is3d = btn.dataset.value === '3d';
         syncDimensionToggle(is3d);
-        if (is3d) mapManager.enable3D();
-        else mapManager.disable3D();
+        if (is3d) mapService.enable3D();
+        else mapService.disable3D();
         post(MessageType.MAP_CHROME, { is3d });
     });
 }
@@ -210,12 +215,13 @@ function boot() {
     }
 
     channel = new DualScreenChannel(ROLE, handleMessage);
-    mapManager.init('map-container');
+    mapService.init('map-container');
     setupHeaderControls();
     initSecondaryClient({ post, getChannel: () => channel });
 
-    if (mapManager.map?.loaded()) onMapReady();
-    else mapManager.map?.once('load', onMapReady);
+    const map = mapService.getMap();
+    if (map?.loaded()) onMapReady();
+    else map?.once('load', onMapReady);
 
     post(MessageType.HELLO, {});
 

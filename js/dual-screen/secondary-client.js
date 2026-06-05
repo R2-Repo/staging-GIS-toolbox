@@ -2,7 +2,7 @@
  * Dual Screen Mode — secondary window interactions (draw, fence, popups, drop, context menu)
  */
 import bus from '../core/event-bus.js';
-import mapManager from '../map/map-manager.js';
+import mapService from '../map/map-service.js';
 import drawManager from '../map/draw-manager.js';
 import { MessageType, createMessage, buildViewportPayload } from './protocol.js';
 
@@ -46,17 +46,12 @@ function teardownDrawRelay() {
 
 function setupPopupBridge(post) {
     window._mapPopupNav = (dir) => {
-        if (!mapManager._popupHits) return;
-        const len = mapManager._popupHits.length;
-        mapManager._popupIndex = (mapManager._popupIndex + dir + len) % len;
-        mapManager._renderCyclePopup();
+        mapService.cyclePopup(dir);
     };
     window._mapPopupEdit = () => {
-        const hits = mapManager._popupHits;
-        const idx = mapManager._popupIndex ?? 0;
-        if (!hits?.[idx]) return;
-        const hit = hits[idx];
-        mapManager._closePopup();
+        const hit = mapService.getActivePopupHit();
+        if (!hit) return;
+        mapService.closePopup();
         post(MessageType.POPUP_ACTION, {
             action: 'editFeature',
             layerId: hit.layerId,
@@ -110,9 +105,9 @@ function showSecondaryContextMenu({ latlng, originalEvent, layerId, featureIndex
 
     if (feature && layerId != null) {
         items.push({ icon: '📋', label: 'View attributes', action: () => {
-            const nearby = mapManager._findFeaturesNearClick(latlng, layerId, featureIndex);
-            if (nearby.length > 0) mapManager._showMultiPopup(nearby, latlng);
-            else mapManager.showPopup(feature, null, latlng);
+            const nearby = mapService.findFeaturesNearClick(latlng, layerId, featureIndex);
+            if (nearby.length > 0) mapService.showMultiPopup(nearby, latlng);
+            else mapService.showPopup(feature, null, latlng);
         }});
         items.push({ icon: '✏️', label: 'Edit feature', action: () => {
             post(MessageType.POPUP_ACTION, { action: 'editFeature', layerId, featureIndex });
@@ -125,14 +120,14 @@ function showSecondaryContextMenu({ latlng, originalEvent, layerId, featureIndex
             .catch(() => showMapToast(text, 'info'));
     }});
 
-    if (mapManager.isOrbiting) {
+    if (mapService.isOrbiting()) {
         items.push({ icon: '⏹️', label: 'Stop camera orbit', action: () => {
-            mapManager.stopCameraOrbit();
+            mapService.stopCameraOrbit();
             showMapToast('Camera orbit stopped', 'info');
         }});
     } else {
         items.push({ icon: '🎥', label: 'Orbit camera around point', action: () => {
-            mapManager.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
+            mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
             showMapToast('Camera orbiting — right-click to stop', 'info');
         }});
     }
@@ -241,7 +236,7 @@ async function setupFenceHandlers(post) {
 }
 
 export async function handleFenceDrawCmd(post) {
-    const bbox = await mapManager.startImportFenceDraw();
+    const bbox = await mapService.startImportFenceDraw();
     if (!bbox) {
         showMapToast('Fence cancelled', 'info');
         return;
@@ -251,7 +246,7 @@ export async function handleFenceDrawCmd(post) {
 }
 
 export function handleFenceClearCmd() {
-    mapManager.clearImportFence();
+    mapService.clearImportFence();
 }
 
 export function handleDrawCmdMessage(payload, post) {
@@ -264,7 +259,7 @@ export function handleDrawCmdMessage(payload, post) {
         return;
     }
     if (payload?.action === 'applyFence' && payload.bbox) {
-        mapManager.setImportFenceFromBbox(payload.bbox);
+        mapService.setImportFenceFromBbox(payload.bbox);
         return;
     }
     handleDrawCmd(payload);

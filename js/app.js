@@ -14,6 +14,8 @@ import { importFile, importFiles } from './import/importer.js';
 import { getActiveTask } from './core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
+import mapService from './map/map-service.js';
+import { isReactMapViewEnabled } from './map/map-feature-flags.js';
 import dualScreenCoordinator from './dual-screen/coordinator.js';
 import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
 import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
@@ -50,31 +52,29 @@ import { WorkflowOverlay } from './workflow/workflow-overlay.js';
 // ============================
 // Initialize app
 // ============================
-function boot() {
+let _reactMapViewHost = null;
+let _reactMapViewUnmount = null;
+
+async function boot() {
     logger.info('App', 'Initializing GIS Toolbox');
-    initMap();
+    await initMap();
     setupEventListeners();
     setupDragDrop();
     checkMobile();
     window.addEventListener('resize', checkMobile);
     // Ensure map recalculates size after layout settles
-    setTimeout(() => { mapManager.resize(); }, 100);
+    setTimeout(() => { mapService.resize(); }, 100);
 
     // Popup navigation for multi-feature cycling
     window._mapPopupNav = (dir) => {
-        if (!mapManager._popupHits) return;
-        const len = mapManager._popupHits.length;
-        mapManager._popupIndex = (mapManager._popupIndex + dir + len) % len;
-        mapManager._renderCyclePopup();
+        mapService.cyclePopup(dir);
     };
 
     // Edit feature from popup
     window._mapPopupEdit = () => {
-        const hits = mapManager._popupHits;
-        const idx = mapManager._popupIndex;
-        if (!hits || !hits[idx]) return;
-        const hit = hits[idx];
-        mapManager._closePopup();
+        const hit = mapService.getActivePopupHit();
+        if (!hit) return;
+        mapService.closePopup();
         openFeatureEditor(hit.layerId, hit.featureIndex);
     };
 
@@ -146,7 +146,7 @@ async function restoreSessionIfAvailable() {
                             created: saved.created || new Date().toISOString()
                         };
                         addLayer(dataset);
-                        mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
+                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
                         restored++;
                     } else if (saved.type === 'table' && saved.rows) {
                         const fields = saved.rows.length > 0 ? Object.keys(saved.rows[0]) : [];
@@ -176,7 +176,7 @@ async function restoreSessionIfAvailable() {
 
             // Fit map to all restored spatial layers
             if (restored > 0) {
-                mapManager.fitToAll();
+                mapService.fitToAll();
             }
 
             showToast(`Restored ${restored} layer${restored !== 1 ? 's' : ''} from previous session`, 'success');
@@ -201,9 +201,44 @@ function _timeAgo(ts) {
     return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
-function initMap() {
+function _getOrCreateReactMapViewHost() {
+    const mapContainer = document.getElementById('map-container');
+    if (!mapContainer) {
+        throw new Error('Map container "#map-container" not found');
+    }
+
+    if (!_reactMapViewHost) {
+        _reactMapViewHost = document.createElement('div');
+        _reactMapViewHost.className = 'map-react-view-host';
+        mapContainer.prepend(_reactMapViewHost);
+    }
+
+    return _reactMapViewHost;
+}
+
+async function _mountReactMapView() {
+    if (_reactMapViewUnmount) return;
+
+    const host = _getOrCreateReactMapViewHost();
+    const { mountMapView } = await import('../react/map/mountMapView.jsx');
+    const mounted = mountMapView(host, { mapService });
+    _reactMapViewUnmount = mounted.unmount;
     try {
-        mapManager.init('map-container');
+        await mounted.ready;
+    } catch (error) {
+        _reactMapViewUnmount?.();
+        _reactMapViewUnmount = null;
+        throw error;
+    }
+}
+
+async function initMap() {
+    try {
+        if (isReactMapViewEnabled()) {
+            await _mountReactMapView();
+        } else {
+            mapService.init('map-container');
+        }
         setExportMapManager(mapManager); // Wire map styles into KML/KMZ export
     } catch (e) {
         logger.error('App', 'Map init failed', { error: e.message });
@@ -276,7 +311,7 @@ function setupDragDrop() {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
                 addLayer(result.dataset);
-                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
+                mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
                 refreshUI();
                 showToast(`Mapped ${result.withGPS} photo(s) with GPS`, 'success');
             }
@@ -371,16 +406,16 @@ async function handleFileImport(files, fenceBbox = null) {
                 totalFiltered += (before - after);
             }
             // Apply KML-extracted style before first render
-            if (ds._kmlStyle && !mapManager.getLayerStyle(ds.id)) {
-                mapManager.setLayerStyle(ds.id, { ...ds._kmlStyle });
+            if (ds._kmlStyle && !mapService.getLayerStyle(ds.id)) {
+                mapService.setLayerStyle(ds.id, { ...ds._kmlStyle });
             }
             addLayer(ds);
-            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: false });
+            mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
             importedLayerIds.push(ds.id);
         }
 
         if (importedLayerIds.length > 0) {
-            mapManager.fitToLayers(importedLayerIds);
+            mapService.fitToLayers(importedLayerIds);
         }
 
         if (expanded.length > 0) {
@@ -464,8 +499,8 @@ function setupEventListeners() {
             const existing = getLayers().find(l => l.name === name && l.source?.format === 'workflow');
             if (existing) {
                 updateLayer(existing.id, { geojson: data.geojson });
-                mapManager.removeLayer(existing.id);
-                mapManager.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
+                mapService.removeLayer(existing.id);
+                mapService.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
                 refreshUI();
                 showToast(`Layer "${name}" updated`, 'success');
                 return existing.id;
@@ -473,7 +508,7 @@ function setupEventListeners() {
             // New layer
             const dataset = createSpatialDataset(name, data.geojson, { format: 'workflow' });
             addLayer(dataset);
-            mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
+            mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
             refreshUI();
             if (!opts.workflow) showToast(`Layer "${name}" added from workflow`, 'success');
             return dataset.id;
@@ -482,12 +517,12 @@ function setupEventListeners() {
             const layer = getLayers().find(l => l.id === layerId);
             if (!layer) return;
             updateLayer(layerId, { geojson: data.geojson });
-            mapManager.removeLayer(layerId);
-            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            mapService.removeLayer(layerId);
+            mapService.addLayer(layer, getLayers().indexOf(layer));
             refreshUI();
         },
         removeFromMap: (layerId) => {
-            mapManager.removeLayer(layerId);
+            mapService.removeLayer(layerId);
             removeLayer(layerId);
             refreshUI();
         }
@@ -513,7 +548,7 @@ function setupEventListeners() {
             layer.schema = dm.analyzeSchema(layer.geojson);
             bus.emit('layer:updated', layer);
             bus.emit('layers:changed', getLayers());
-            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            mapService.addLayer(layer, getLayers().indexOf(layer));
             refreshUI();
         });
         showToast(`Added ${feature.geometry.type} to ${layer.name}`, 'success');
@@ -542,7 +577,7 @@ function setupEventListeners() {
             layer.schema = dm.analyzeSchema(layer.geojson);
             bus.emit('layer:updated', layer);
             bus.emit('layers:changed', getLayers());
-            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            mapService.addLayer(layer, getLayers().indexOf(layer));
             refreshUI();
         });
         showToast('Feature deleted', 'success');
@@ -625,13 +660,13 @@ function setupEventListeners() {
         const isCollapsed = panel?.classList.contains('collapsed');
         document.getElementById('expand-left-panel')?.classList.toggle('hidden', !isCollapsed);
         document.getElementById('toggle-left-panel').textContent = isCollapsed ? '▶' : '◀';
-        setTimeout(() => { mapManager.resize(); }, 250);
+        setTimeout(() => { mapService.resize(); }, 250);
     });
     document.getElementById('expand-left-panel')?.addEventListener('click', () => {
         document.querySelector('.panel-left')?.classList.remove('collapsed');
         document.getElementById('expand-left-panel')?.classList.add('hidden');
         document.getElementById('toggle-left-panel').textContent = '◀';
-        setTimeout(() => { mapManager.resize(); }, 250);
+        setTimeout(() => { mapService.resize(); }, 250);
     });
     document.getElementById('toggle-right-panel')?.addEventListener('click', () => {
         const panel = document.querySelector('.panel-right');
@@ -639,13 +674,13 @@ function setupEventListeners() {
         const isCollapsed = panel?.classList.contains('collapsed');
         document.getElementById('expand-right-panel')?.classList.toggle('hidden', !isCollapsed);
         document.getElementById('toggle-right-panel').textContent = isCollapsed ? '◀' : '▶';
-        setTimeout(() => { mapManager.resize(); }, 250);
+        setTimeout(() => { mapService.resize(); }, 250);
     });
     document.getElementById('expand-right-panel')?.addEventListener('click', () => {
         document.querySelector('.panel-right')?.classList.remove('collapsed');
         document.getElementById('expand-right-panel')?.classList.add('hidden');
         document.getElementById('toggle-right-panel').textContent = '▶';
-        setTimeout(() => { mapManager.resize(); }, 250);
+        setTimeout(() => { mapService.resize(); }, 250);
     });
 
     // Listen for layer changes to update UI
@@ -668,7 +703,7 @@ function setupEventListeners() {
         const btn = e.target.closest('.header-toggle-option');
         if (!btn || btn.classList.contains('active')) return;
         const val = btn.dataset.value;
-        mapManager.setBasemap(val);
+        mapService.setBasemap(val);
         document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
     });
@@ -678,7 +713,7 @@ function setupEventListeners() {
         const btn = e.target.closest('.header-toggle-option');
         if (!btn || btn.classList.contains('active')) return;
         const val = btn.dataset.value;
-        if (val === '3d') mapManager.enable3D(); else mapManager.disable3D();
+        if (val === '3d') mapService.enable3D(); else mapService.disable3D();
         document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
     });
@@ -713,7 +748,7 @@ function setupDualScreenMode() {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
                 addLayer(result.dataset);
-                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
+                mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
                 refreshUI();
                 showToast(`Imported ${imageFiles.length} photo(s)`, 'success');
             }
@@ -727,7 +762,7 @@ function setupDualScreenMode() {
         clearFence: () => {
             _fenceBbox = null;
             dualScreenCoordinator.setFenceBbox(null);
-            mapManager.clearImportFence();
+            mapService.clearImportFence();
             updateFenceButton();
             if (dualScreenCoordinator.isActive) {
                 dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
@@ -736,7 +771,7 @@ function setupDualScreenMode() {
         },
         toggleLayerVisibility: (layerId) => {
             toggleLayerVisibility(layerId);
-            mapManager.toggleLayer(layerId, getLayers().find(l => l.id === layerId)?.visible);
+            mapService.toggleLayer(layerId, getLayers().find(l => l.id === layerId)?.visible);
             renderLayerList();
         },
         zoomToLayer: (layerId) => {
@@ -744,11 +779,11 @@ function setupDualScreenMode() {
                 dualScreenCoordinator.broadcastFit('fitLayers', { layerIds: [layerId] });
                 return;
             }
-            const layer = mapManager.dataLayers.get(layerId);
+            const layer = mapService.getLayerRecord(layerId);
             if (layer?.geojson) {
                 try {
                     const bb = turf.bbox(layer.geojson);
-                    mapManager.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 });
+                    mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 });
                 } catch (_) { /* ignore */ }
             }
         },
@@ -911,13 +946,13 @@ function renderLayerList() {
 
 function moveLayerUp(id) {
     reorderLayer(id, 'up');
-    mapManager.syncLayerOrder(getLayers().map(l => l.id));
+    mapService.syncLayerOrder(getLayers().map(l => l.id));
     renderLayerList();
 }
 
 function moveLayerDown(id) {
     reorderLayer(id, 'down');
-    mapManager.syncLayerOrder(getLayers().map(l => l.id));
+    mapService.syncLayerOrder(getLayers().map(l => l.id));
     renderLayerList();
 }
 
@@ -1056,7 +1091,7 @@ function _detectGeomTypes(layer) {
 }
 
 function buildStylePanel(layer) {
-    const sty = mapManager.getLayerStyle(layer.id) || {
+    const sty = mapService.getLayerStyle(layer.id) || {
         strokeColor: '#2563eb', fillColor: '#2563eb',
         strokeWidth: 2, strokeOpacity: 0.8, fillOpacity: 0.3,
         pointSize: 6, pointSymbol: 'circle'
@@ -1212,7 +1247,7 @@ function bindStylePanel(layer, root = document) {
         let style;
         if (isMixed) {
             // Start with current base, add per-type overrides
-            const cur = mapManager.getLayerStyle(layer.id) || {};
+            const cur = mapService.getLayerStyle(layer.id) || {};
             style = { ...cur };
             if (geomTypes.has('point')) style.point = readSection('sty-pt');
             if (geomTypes.has('line')) style.line = readSection('sty-ln');
@@ -1220,7 +1255,7 @@ function bindStylePanel(layer, root = document) {
         } else {
             style = readSection('sty');
         }
-        mapManager.restyleLayer(layer.id, layer, style);
+        mapService.restyleLayer(layer.id, layer, style);
         showToast('Style applied', 'success');
     });
 }
@@ -1468,8 +1503,8 @@ function mobileShowWidgetsModal() {
 
 function mobileShowToolsModal() {
     const layers = getLayers();
-    const isSelMode = mapManager.isSelectionMode();
-    const selCount = mapManager.getSelectedIndices?.(getActiveLayer()?.id)?.length || 0;
+    const isSelMode = mapService.isSelectionMode();
+    const selCount = mapService.getSelectedIndices?.(getActiveLayer()?.id)?.length || 0;
     const items = [
         ...(layers.length >= 2 ? [{ label: '🔗 Merge Layers', action: 'mergeLayers', full: true }] : []),
         { label: '📏 Distance', action: 'openDistanceTool' },
@@ -1600,14 +1635,14 @@ function mobileShowLayersModal() {
                     }
                     case 'toggle':
                         toggleLayerVisibility(id);
-                        mapManager.toggleLayer(id, getLayers().find(l => l.id === id)?.visible);
+                        mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible);
                         renderLayerList();
                         refreshModal();
                         break;
                     case 'zoom': {
-                        const mapLayer = mapManager.dataLayers.get(id);
+                        const mapLayer = mapService.getLayerRecord(id);
                         if (mapLayer && mapLayer.geojson) {
-                            try { const bb = turf.bbox(mapLayer.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
+                            try { const bb = turf.bbox(mapLayer.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
                         }
                         close(null);
                         break;
@@ -1616,7 +1651,7 @@ function mobileShowLayersModal() {
                         confirm('Remove Layer', 'Remove this layer?').then(ok => {
                             if (ok) {
                                 removeLayer(id);
-                                mapManager.removeLayer(id);
+                                mapService.removeLayer(id);
                                 refreshUI();
                                 if (getLayers().length === 0) {
                                     close(null);
@@ -1745,7 +1780,7 @@ function mobileShowBasemapModal() {
         { value: 'voyager', label: 'Map' },
         { value: 'satellite', label: 'Satellite' }
     ];
-    const currentBasemap = mapManager.currentBasemap || 'voyager';
+    const currentBasemap = mapService.getCurrentBasemap() || 'voyager';
     const html = `
         <div style="display:flex;flex-direction:column;gap:6px;">
             ${basemapOptions.map(o => `
@@ -1761,7 +1796,7 @@ function mobileShowBasemapModal() {
             overlay.querySelectorAll('[data-basemap]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const val = btn.dataset.basemap;
-                    mapManager.setBasemap(val);
+                    mapService.setBasemap(val);
                     // Sync header toggle
                     document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === val));
                     close(null);
@@ -1776,7 +1811,7 @@ function mobileShowBasemapModal() {
 // Coordinate Search — add point from search marker
 // ============================
 function _coordSearchAddNew() {
-    const info = mapManager.getSearchLatLng();
+    const info = mapService.getSearchLatLng();
     if (!info) return showToast('No search marker active', 'warning');
 
     const feature = {
@@ -1793,14 +1828,14 @@ function _coordSearchAddNew() {
     const ds = createSpatialDataset('Search Point', { type: 'FeatureCollection', features: [feature] });
     addLayer(ds);
     setActiveLayer(ds.id);
-    mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: false });
+    mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
     refreshUI();
-    mapManager._clearSearchMarker();
+    mapService.clearSearchMarker();
     showToast('Created new layer with search point', 'success');
 }
 
 function _coordSearchAddToExisting() {
-    const info = mapManager.getSearchLatLng();
+    const info = mapService.getSearchLatLng();
     if (!info) return showToast('No search marker active', 'warning');
 
     const layers = getLayers().filter(l => l.type === 'spatial');
@@ -1872,16 +1907,16 @@ function _addSearchPointToLayer(layer, info) {
         layer.schema = dm.analyzeSchema(layer.geojson);
         bus.emit('layer:updated', layer);
         bus.emit('layers:changed', getLayers());
-        mapManager.addLayer(layer, getLayers().indexOf(layer));
+        mapService.addLayer(layer, getLayers().indexOf(layer));
         refreshUI();
     });
 
-    mapManager._clearSearchMarker();
+    mapService.clearSearchMarker();
     showToast(`Point added to "${layer.name}"`, 'success');
 }
 
 function _coordSearchClear() {
-    mapManager._clearSearchMarker();
+    mapService.clearSearchMarker();
 }
 
 // ============================
@@ -1924,7 +1959,7 @@ function mobileAddCurrentLocation() {
                     setActiveLayer(newLayer.id);
                     _mobileLocationLayerId = newLayer.id;
                     layer = newLayer;
-                    mapManager.addLayer(newLayer, 0);
+                    mapService.addLayer(newLayer, 0);
                 }
             }
 
@@ -1952,12 +1987,18 @@ function mobileAddCurrentLocation() {
                 layer.schema = dm.analyzeSchema(layer.geojson);
                 bus.emit('layer:updated', layer);
                 bus.emit('layers:changed', getLayers());
-                mapManager.addLayer(layer, getLayers().indexOf(layer));
+                mapService.addLayer(layer, getLayers().indexOf(layer));
                 refreshUI();
             });
 
-            // Pan map to location
-            mapManager.map?.setView([lat, lng], Math.max(mapManager.map.getZoom(), 15));
+            // Pan map to location (support both legacy setView and MapLibre flyTo APIs)
+            const map = mapService.getMap();
+            const zoom = Math.max(map?.getZoom?.() ?? 15, 15);
+            if (typeof map?.setView === 'function') {
+                map.setView([lat, lng], zoom);
+            } else if (typeof map?.flyTo === 'function') {
+                map.flyTo({ center: [lng, lat], zoom });
+            }
             showToast(`📍 Location added (±${Math.round(accuracy)}m)`, 'success');
         },
         (error) => {
@@ -1983,7 +2024,7 @@ function showMobileContent(tab) {
     if (tab === 'map') {
         // All panels hidden — map is visible underneath
         // Recalculate map size in case container was obscured
-        setTimeout(() => { mapManager.resize(); }, 50);
+        setTimeout(() => { mapService.resize(); }, 50);
         return;
     }
     const panel = document.getElementById(`mobile-${tab}`);
@@ -2101,7 +2142,7 @@ function renderMobileToolsPanel() {
         { value: 'voyager', label: 'Map' },
         { value: 'satellite', label: 'Satellite' }
     ];
-    const currentBasemap = mapManager.currentBasemap || 'voyager';
+    const currentBasemap = mapService.getCurrentBasemap() || 'voyager';
     const layers = getLayers();
     el.innerHTML = `
         <h3>GIS Tools</h3>
@@ -2133,7 +2174,7 @@ function renderMobileToolsPanel() {
             ${basemapOptions.map(o => `<option value="${o.value}" ${o.value === currentBasemap ? 'selected' : ''}>${o.label}</option>`).join('')}
         </select>`;
     el.querySelector('#basemap-select-mobile')?.addEventListener('change', (e) => {
-        mapManager.setBasemap(e.target.value);
+        mapService.setBasemap(e.target.value);
         // Sync header toggle
         document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === e.target.value));
     });
@@ -2218,7 +2259,7 @@ function applyTransform(name, newFeatures) {
             layer.schema = dm.analyzeSchema(layer.geojson);
             bus.emit('layer:updated', layer);
             bus.emit('layers:changed', getLayers());
-            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            mapService.addLayer(layer, getLayers().indexOf(layer));
             refreshUI();
         });
     } else if (layer.type === 'table') {
@@ -2516,7 +2557,7 @@ async function openFilterBuilder(targetLayerId) {
                             layer.schema = dm.analyzeSchema(layer.geojson);
                             bus.emit('layer:updated', layer);
                             bus.emit('layers:changed', getLayers());
-                            mapManager.addLayer(layer, getLayers().indexOf(layer));
+                            mapService.addLayer(layer, getLayers().indexOf(layer));
                             refreshUI();
                         });
                         showToast('Filter removed', 'success');
@@ -2766,7 +2807,7 @@ async function openBuffer() {
                     );
                     if (!result) return;
                     addLayer(result);
-                    mapManager.addLayer(result, getLayers().indexOf(result), { fit: true });
+                    mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast(`Buffer complete — new layer "${result.name}" created`, 'success');
                     refreshUI();
                 } catch (e) {
@@ -2802,7 +2843,7 @@ async function openSimplify() {
                     if (!simplified) return;
                     const { dataset, stats } = simplified;
                     addLayer(dataset);
-                    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                    mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                     showToast(`Simplified: ${stats.verticesBefore} → ${stats.verticesAfter} vertices`, 'success');
                     refreshUI();
                 } catch (e) {
@@ -2825,7 +2866,7 @@ async function openClip() {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
-                const bounds = mapManager.getBounds();
+                const bounds = mapService.getBounds();
                 if (!bounds) return showToast('Map bounds not available', 'warning');
                 const bbox = turf.bboxPolygon([
                     bounds.getWest(), bounds.getSouth(),
@@ -2834,7 +2875,7 @@ async function openClip() {
                 try {
                     const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
                     addLayer(result);
-                    mapManager.addLayer(result, getLayers().indexOf(result), { fit: true });
+                    mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                     refreshUI();
                 } catch (e) {
@@ -2870,7 +2911,7 @@ function requireSpatialLayer(geomTypes = null) {
  */
 function getWorkingFeatures(layer) {
     if (!layer || layer.type !== 'spatial') return null;
-    const selected = mapManager.getSelectedFeatures(layer.id, layer.geojson);
+    const selected = mapService.getSelectedFeatures(layer.id, layer.geojson);
     if (selected && selected.features.length > 0) {
         return {
             geojson: selected,
@@ -2904,37 +2945,37 @@ function getWorkingDataset(layer) {
 
 // Selection mode toggle
 function toggleSelectionMode() {
-    if (mapManager.isSelectionMode()) {
-        mapManager.exitSelectionMode();
+    if (mapService.isSelectionMode()) {
+        mapService.exitSelectionMode();
     } else {
-        mapManager.enterSelectionMode();
+        mapService.enterSelectionMode();
     }
     updateSelectionUI();
 }
 
 function clearSelection() {
-    mapManager.clearSelection();
+    mapService.clearSelection();
     updateSelectionUI();
 }
 
 function selectAllFeatures() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
-    mapManager.selectAll(layer.id, layer.geojson);
+    mapService.selectAll(layer.id, layer.geojson);
     updateSelectionUI();
 }
 
 function invertSelection() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
-    mapManager.invertSelection(layer.id, layer.geojson);
+    mapService.invertSelection(layer.id, layer.geojson);
     updateSelectionUI();
 }
 
 async function deleteSelectedFeatures() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
-    const indices = mapManager.getSelectedIndices(layer.id);
+    const indices = mapService.getSelectedIndices(layer.id);
     if (indices.length === 0) return showToast('No features selected', 'warning');
     const ok = await confirm('Delete Features', `Delete ${indices.length} selected feature(s)? This can be undone.`);
     if (!ok) return;
@@ -2948,8 +2989,8 @@ async function deleteSelectedFeatures() {
         layer.schema = dm.analyzeSchema(layer.geojson);
         bus.emit('layer:updated', layer);
         bus.emit('layers:changed', getLayers());
-        mapManager.clearSelection(layer.id);
-        mapManager.addLayer(layer, getLayers().indexOf(layer));
+        mapService.clearSelection(layer.id);
+        mapService.addLayer(layer, getLayers().indexOf(layer));
         refreshUI();
     });
     showToast(`Deleted ${indices.length} feature(s)`, 'success');
@@ -2962,9 +3003,9 @@ function updateSelectionUI() {
     if (!bar) return;
 
     const layer = getActiveLayer();
-    const count = layer ? mapManager.getSelectionCount(layer.id) : 0;
+    const count = layer ? mapService.getSelectionCount(layer.id) : 0;
     const total = layer?.geojson?.features?.length || 0;
-    const isMode = mapManager.isSelectionMode();
+    const isMode = mapService.isSelectionMode();
 
     // Update toggle button state
     if (toggleBtn) {
@@ -2997,7 +3038,7 @@ function layerOptions(filterType = null) {
 
 function addResultLayer(dataset) {
     addLayer(dataset);
-    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+    mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
     refreshUI();
 }
 
@@ -3029,11 +3070,11 @@ async function openDistanceTool() {
             overlay.querySelector('.apply-btn').onclick = async () => {
                 const units = overlay.querySelector('#dist-units').value;
                 close();
-                const pts = await mapManager.startTwoPointPick('Click the first point', 'Click the second point');
+                const pts = await mapService.startTwoPointPick('Click the first point', 'Click the second point');
                 if (!pts) return;
                 const d = gisTools.distance(turf.point(pts[0]), turf.point(pts[1]), units);
                 const line = turf.lineString([pts[0], pts[1]]);
-                const tempLayer = mapManager.showTempFeature(line, 15000);
+                const tempLayer = mapService.showTempFeature(line, 15000);
                 showToast(`Distance: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
             };
         }
@@ -3050,11 +3091,11 @@ async function openBearingTool() {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
-                const pts = await mapManager.startTwoPointPick('Click the origin point', 'Click the target point');
+                const pts = await mapService.startTwoPointPick('Click the origin point', 'Click the target point');
                 if (!pts) return;
                 const b = gisTools.bearing(turf.point(pts[0]), turf.point(pts[1]));
                 const line = turf.lineString([pts[0], pts[1]]);
-                mapManager.showTempFeature(line, 15000);
+                mapService.showTempFeature(line, 15000);
                 const cardinal = bearingToCardinal(b);
                 showToast(`Bearing: ${b.toFixed(2)}° (${cardinal})`, 'success', { duration: 10000 });
             };
@@ -3088,11 +3129,11 @@ async function openDestinationTool() {
                 const brng = parseFloat(overlay.querySelector('#dest-bearing').value);
                 const units = overlay.querySelector('#dest-units').value;
                 close();
-                const origin = await mapManager.startPointPick('Click the starting point');
+                const origin = await mapService.startPointPick('Click the starting point');
                 if (!origin) return;
                 const dest = gisTools.destination(turf.point(origin), dist, brng, units);
                 const line = turf.lineString([origin, dest.geometry.coordinates]);
-                mapManager.showTempFeature({type:'FeatureCollection',features:[dest, line]}, 15000);
+                mapService.showTempFeature({type:'FeatureCollection',features:[dest, line]}, 15000);
                 showToast(`Destination: [${dest.geometry.coordinates[1].toFixed(6)}, ${dest.geometry.coordinates[0].toFixed(6)}]`, 'success', { duration: 10000 });
             };
         }
@@ -3126,7 +3167,7 @@ async function openAlongTool() {
                 if (!line) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
                     const pt = gisTools.pointAlong(line, dist, units);
-                    mapManager.showTempFeature(pt, 15000);
+                    mapService.showTempFeature(pt, 15000);
                     showToast(`Point at ${dist} ${units}: [${pt.geometry.coordinates[1].toFixed(6)}, ${pt.geometry.coordinates[0].toFixed(6)}]`, 'success', { duration: 8000 });
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Along'));
@@ -3158,7 +3199,7 @@ async function openPointToLineDistanceTool() {
                 const lineLayer = getLayers().find(l => l.id === layerId);
                 close();
                 if (!lineLayer) return showToast('Line layer not found', 'warning');
-                const pt = await mapManager.startPointPick('Click a point to measure from');
+                const pt = await mapService.startPointPick('Click a point to measure from');
                 if (!pt) return;
                 const lineWhole = lineLayer.geojson.features.find(f =>
                     f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
@@ -3167,7 +3208,7 @@ async function openPointToLineDistanceTool() {
                     const d = gisTools.pointToLineDistance(turf.point(pt), lineWhole, units);
                     const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), units);
                     const connector = turf.lineString([pt, snap.geometry.coordinates]);
-                    mapManager.showTempFeature({type:'FeatureCollection',features:[turf.point(pt), snap, connector]}, 15000);
+                    mapService.showTempFeature({type:'FeatureCollection',features:[turf.point(pt), snap, connector]}, 15000);
                     showToast(`Distance to line: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'PointToLineDistance'));
@@ -3190,7 +3231,7 @@ async function openBboxClip() {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
-                const bbox = await mapManager.startRectangleDraw('Click and drag to draw a clip rectangle');
+                const bbox = await mapService.startRectangleDraw('Click and drag to draw a clip rectangle');
                 if (!bbox) return;
                 try {
                     const result = await gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox);
@@ -3357,7 +3398,7 @@ async function openLineSlice() {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
-                const pts = await mapManager.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
+                const pts = await mapService.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
                 if (!pts) return;
                 const work = getWorkingFeatures(layer);
                 const line = findFirstLineStringFeature(work.geojson);
@@ -3560,7 +3601,7 @@ async function openSector() {
                 const b2 = parseFloat(overlay.querySelector('#sector-b2').value);
                 const units = overlay.querySelector('#sector-units').value;
                 close();
-                const center = await mapManager.startPointPick('Click the center point for the sector');
+                const center = await mapService.startPointPick('Click the center point for the sector');
                 if (!center) return;
                 try {
                     const sector = gisTools.createSector(turf.point(center), radius, b1, b2, units);
@@ -3599,12 +3640,12 @@ async function openNearestPoint() {
                 const ptLayer = getLayers().find(l => l.id === layerId);
                 close();
                 if (!ptLayer) return;
-                const target = await mapManager.startPointPick('Click the map to find the nearest point');
+                const target = await mapService.startPointPick('Click the map to find the nearest point');
                 if (!target) return;
                 try {
                     const nearest = gisTools.nearestPoint(turf.point(target), ptLayer);
                     const line = turf.lineString([target, nearest.geometry.coordinates]);
-                    mapManager.showTempFeature({type:'FeatureCollection',features:[nearest, line]}, 15000);
+                    mapService.showTempFeature({type:'FeatureCollection',features:[nearest, line]}, 15000);
                     const distKm = nearest.properties.distanceToPoint;
                     const dist = convertKm(distKm, units);
                     const name = nearest.properties.name || nearest.properties.NAME || `Feature ${nearest.properties.featureIndex}`;
@@ -3639,7 +3680,7 @@ async function openNearestPointOnLine() {
                 const lineLayer = getLayers().find(l => l.id === layerId);
                 close();
                 if (!lineLayer) return;
-                const pt = await mapManager.startPointPick('Click the map to snap to the nearest line');
+                const pt = await mapService.startPointPick('Click the map to snap to the nearest line');
                 if (!pt) return;
                 const lineWhole = lineLayer.geojson.features.find(f =>
                     f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
@@ -3647,7 +3688,7 @@ async function openNearestPointOnLine() {
                 try {
                     const snap = gisTools.nearestPointOnLine(lineWhole, turf.point(pt), 'kilometers');
                     const connector = turf.lineString([pt, snap.geometry.coordinates]);
-                    mapManager.showTempFeature({type:'FeatureCollection',features:[snap, connector]}, 15000);
+                    mapService.showTempFeature({type:'FeatureCollection',features:[snap, connector]}, 15000);
                     const distKm = snap.properties.dist;
                     const dist = convertKm(distKm, units);
                     showToast(`Snapped to line at ${dist?.toFixed(2) || '?'} ${units}`, 'success', { duration: 10000 });
@@ -3689,7 +3730,7 @@ async function openNearestPointToLine() {
                 if (!lineWhole) return showToast('No LineString or MultiLineString found', 'warning');
                 try {
                     const nearest = gisTools.nearestPointToLine(ptsLayer.geojson, lineWhole);
-                    mapManager.showTempFeature(nearest, 15000);
+                    mapService.showTempFeature(nearest, 15000);
                     const name = nearest.properties?.name || nearest.properties?.NAME || 'Unnamed';
                     const distKm = nearest.properties?.dist;
                     const dist = convertKm(distKm, units);
@@ -4017,7 +4058,7 @@ async function processPhotoFiles(files, modalOverlay) {
         // Add photos as a layer on the map
         if (result.dataset) {
             addLayer(result.dataset);
-            mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
+            mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
             refreshUI();
         }
 
@@ -4043,7 +4084,7 @@ function openSpatialAnalyzer() {
     // Inject dependencies
     _spatialAnalyzerWidget.getLayers = getLayers;
     _spatialAnalyzerWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _spatialAnalyzerWidget.mapManager = mapManager;
+    _spatialAnalyzerWidget.mapManager = mapService;
     _spatialAnalyzerWidget.addLayer = addLayer;
     _spatialAnalyzerWidget.createSpatialDataset = createSpatialDataset;
     _spatialAnalyzerWidget.refreshUI = refreshUI;
@@ -4059,7 +4100,7 @@ function openBulkUpdate() {
     }
     _bulkUpdateWidget.getLayers = getLayers;
     _bulkUpdateWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _bulkUpdateWidget.mapManager = mapManager;
+    _bulkUpdateWidget.mapManager = mapService;
     _bulkUpdateWidget.refreshUI = refreshUI;
     _bulkUpdateWidget.showToast = showToast;
     _bulkUpdateWidget.toggle();
@@ -4073,7 +4114,7 @@ function openProximityJoin() {
     }
     _proximityJoinWidget.getLayers = getLayers;
     _proximityJoinWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _proximityJoinWidget.mapManager = mapManager;
+    _proximityJoinWidget.mapManager = mapService;
     _proximityJoinWidget.analyzeSchema = analyzeSchema;
     _proximityJoinWidget.refreshUI = refreshUI;
     _proximityJoinWidget.showToast = showToast;
@@ -4086,7 +4127,7 @@ function openProximityJoin() {
 let _fenceBbox = null; // [west, south, east, north] when fence is active
 
 function hasActiveImportFence() {
-    return !!_fenceBbox || mapManager.hasImportFence;
+    return !!_fenceBbox || mapService.hasImportFence();
 }
 
 async function startImportFence() {
@@ -4127,7 +4168,7 @@ async function startImportFence() {
     }
 
     // If fence already active, show options modal
-    if (mapManager.hasImportFence) {
+    if (mapService.hasImportFence()) {
         const html = `
             <div class="info-box text-xs mb-8">
                 ⛶ An import fence is currently active on the map. All imports (files and ArcGIS) are filtered to this area.
@@ -4151,7 +4192,7 @@ async function startImportFence() {
                     await drawNewFence();
                 });
                 overlay.querySelector('#fence-opt-clear').addEventListener('click', () => {
-                    mapManager.clearImportFence();
+                    mapService.clearImportFence();
                     _fenceBbox = null;
                     updateFenceButton();
                     close();
@@ -4167,7 +4208,7 @@ async function startImportFence() {
 }
 
 async function drawNewFence() {
-    const bbox = await mapManager.startImportFenceDraw();
+    const bbox = await mapService.startImportFenceDraw();
     if (!bbox) {
         showToast('Fence cancelled', 'info');
         return;
@@ -4221,7 +4262,7 @@ function filterDatasetByFence(dataset, bbox) {
 // ArcGIS REST Importer modal
 // ============================
 async function openArcGISImporter() {
-    const spatialFilter = mapManager.getImportFenceEsriEnvelope();
+    const spatialFilter = mapService.getImportFenceEsriEnvelope();
     const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">⛶ <strong>Import Fence active</strong> — only features inside the fence will be downloaded from the server.</div>' : '';
 
     const html = `
@@ -4317,7 +4358,7 @@ async function openArcGISImporter() {
                         return;
                     }
                     addLayer(dataset);
-                    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                    mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                     const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
                     showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
                     refreshUI();
@@ -4407,8 +4448,8 @@ async function _promptNetworkLinkAfterImport(dataset) {
                         await mergeNetworkLinksIntoDataset(dataset, hrefs, task);
 
                     const layerIdx = getLayers().indexOf(dataset);
-                    mapManager.removeLayer(dataset.id);
-                    mapManager.addLayer(dataset, Math.max(0, layerIdx), { fit: totalFeatures > 0 });
+                    mapService.removeLayer(dataset.id);
+                    mapService.addLayer(dataset, Math.max(0, layerIdx), { fit: totalFeatures > 0 });
                     refreshUI();
 
                     let msg = `Merged network links: ${addedFeatures} new feature(s); ${totalFeatures} total in layer.`;
@@ -4452,7 +4493,7 @@ async function doExport(format) {
             try {
                 const layerData = choice.map(ds => ({
                     dataset: ds,
-                    style: mapManager.getLayerStyle(ds.id) || {}
+                    style: mapService.getLayerStyle(ds.id) || {}
                 }));
                 const fname = choice.length === allLayers.length ? 'All_Layers' : choice.map(l => l.name).join('_').slice(0, 60);
                 if (format === 'kml') {
@@ -4575,7 +4616,7 @@ function _doCreateDrawLayer() {
     dataset._isDrawLayer = true;
     addLayer(dataset);
     setActiveLayer(dataset.id);
-    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
+    mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
     refreshUI();
     _openDrawToolbarOnMap(dataset.id, dataset.name);
     showToast('Draw layer created — use the toolbar to draw features', 'success');
@@ -4636,7 +4677,7 @@ async function handleMergeLayers() {
     const selected = result.map(i => layers[i]);
     const merged = mergeDatasets(selected);
     addLayer(merged);
-    mapManager.addLayer(merged, getLayers().indexOf(merged), { fit: true });
+    mapService.addLayer(merged, getLayers().indexOf(merged), { fit: true });
     showToast(`Merged ${selected.length} layers → ${merged.geojson.features.length} features`, 'success');
     refreshUI();
 }
@@ -4649,7 +4690,7 @@ function handleUndo() {
             layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
             import('./core/data-model.js').then(dm => {
                 layer.schema = dm.analyzeSchema(layer.geojson);
-                mapManager.addLayer(layer, getLayers().indexOf(layer));
+                mapService.addLayer(layer, getLayers().indexOf(layer));
                 refreshUI();
                 showToast('Undo', 'info', { duration: 1500 });
             });
@@ -4672,7 +4713,7 @@ function handleRedo() {
             layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
             import('./core/data-model.js').then(dm => {
                 layer.schema = dm.analyzeSchema(layer.geojson);
-                mapManager.addLayer(layer, getLayers().indexOf(layer));
+                mapService.addLayer(layer, getLayers().indexOf(layer));
                 refreshUI();
                 showToast('Redo', 'info', { duration: 1500 });
             });
@@ -4852,7 +4893,7 @@ function openFeatureEditor(layerId, featureIndex) {
                     layer.schema = dm.analyzeSchema(layer.geojson);
                     bus.emit('layer:updated', layer);
                     bus.emit('layers:changed', getLayers());
-                    mapManager.addLayer(layer, getLayers().indexOf(layer));
+                    mapService.addLayer(layer, getLayers().indexOf(layer));
                     refreshUI();
                 });
                 showToast('Feature updated', 'success');
@@ -4952,7 +4993,7 @@ function showDataTable() {
                             layer.schema = dm.analyzeSchema(layer.geojson);
                             bus.emit('layer:updated', layer);
                             bus.emit('layers:changed', getLayers());
-                            mapManager.addLayer(layer, getLayers().indexOf(layer));
+                            mapService.addLayer(layer, getLayers().indexOf(layer));
                             refreshUI();
                         });
                         showToast('Data edits saved', 'success');
@@ -5164,7 +5205,7 @@ function addField() {
 
                 renderFieldList();
                 renderOutputPanel();
-                mapManager.refreshLayerData(layer);
+                mapService.refreshLayerData(layer);
                 showToast(`Field "${name}" added`, 'success', { duration: 2000 });
                 close();
             };
@@ -5450,9 +5491,9 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
     // Feature-specific items
     if (feature && layer) {
         items.push({ icon: '📋', label: 'View attributes', action: () => {
-            const nearby = mapManager._findFeaturesNearClick(latlng, layerId, featureIndex);
-            if (nearby.length > 0) mapManager._showMultiPopup(nearby, latlng);
-            else mapManager.showPopup(feature, null, latlng);
+            const nearby = mapService.findFeaturesNearClick(latlng, layerId, featureIndex);
+            if (nearby.length > 0) mapService.showMultiPopup(nearby, latlng);
+            else mapService.showPopup(feature, null, latlng);
         }});
         items.push({ icon: '✏️', label: 'Edit feature', action: () => {
             openFeatureEditor(layerId, featureIndex);
@@ -5467,14 +5508,14 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
     }});
 
     // Camera orbit
-    if (mapManager.isOrbiting) {
+    if (mapService.isOrbiting()) {
         items.push({ icon: '⏹️', label: 'Stop camera orbit', action: () => {
-            mapManager.stopCameraOrbit();
+            mapService.stopCameraOrbit();
             showToast('Camera orbit stopped', 'info');
         }});
     } else {
         items.push({ icon: '🎥', label: 'Orbit camera around point', action: () => {
-            mapManager.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
+            mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
             showToast('Camera orbiting — right-click to stop', 'info');
         }});
     }
@@ -5506,7 +5547,7 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
                 while (layers.indexOf(layers.find(l => l.id === layerId)) > 0) {
                     reorderLayer(layerId, 'up');
                 }
-                mapManager.syncLayerOrder(getLayers().map(l => l.id));
+                mapService.syncLayerOrder(getLayers().map(l => l.id));
                 renderLayerList();
             }});
         }
@@ -5515,7 +5556,7 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
                 while (layers.indexOf(layers.find(l => l.id === layerId)) < layers.length - 1) {
                     reorderLayer(layerId, 'down');
                 }
-                mapManager.syncLayerOrder(getLayers().map(l => l.id));
+                mapService.syncLayerOrder(getLayers().map(l => l.id));
                 renderLayerList();
             }});
         }
@@ -5525,14 +5566,14 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
         // Hide / show
         items.push({ icon: layer.visible !== false ? '👁️‍🗨️' : '👁️', label: layer.visible !== false ? 'Hide layer' : 'Show layer', action: () => {
             toggleLayerVisibility(layerId);
-            mapManager.toggleLayer(layerId, layers.find(l => l.id === layerId)?.visible);
+            mapService.toggleLayer(layerId, layers.find(l => l.id === layerId)?.visible);
             renderLayerList();
         }});
 
         // Zoom to
         items.push({ icon: '🔍', label: 'Zoom to layer', action: () => {
-            const ll = mapManager.dataLayers.get(layerId);
-            if (ll && ll.geojson) { try { const bb = turf.bbox(ll.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {} }
+            const ll = mapService.getLayerRecord(layerId);
+            if (ll && ll.geojson) { try { const bb = turf.bbox(ll.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {} }
         }});
 
         // Set active
@@ -5593,16 +5634,16 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
 // ============================
 window.app = {
     setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); },
-    toggleVisibility: (id) => { toggleLayerVisibility(id); mapManager.toggleLayer(id, getLayers().find(l => l.id === id)?.visible); renderLayerList(); },
+    toggleVisibility: (id) => { toggleLayerVisibility(id); mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible); renderLayerList(); },
     zoomToLayer: (id) => {
-        const layer = mapManager.dataLayers.get(id);
+        const layer = mapService.getLayerRecord(id);
         if (layer && layer.geojson) {
-            try { const bb = turf.bbox(layer.geojson); mapManager.getMap().fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
+            try { const bb = turf.bbox(layer.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
         }
     },
     removeLayer: async (id) => {
         const ok = await confirm('Remove Layer', 'Remove this layer?');
-        if (ok) { removeLayer(id); mapManager.removeLayer(id); refreshUI(); }
+        if (ok) { removeLayer(id); mapService.removeLayer(id); refreshUI(); }
     },
     moveLayerUp,
     moveLayerDown,

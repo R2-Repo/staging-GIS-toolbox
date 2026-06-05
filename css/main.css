@@ -362,6 +362,11 @@ html, body {
     background: #121212;
 }
 
+.map-react-view-host {
+    width: 100%;
+    height: 100%;
+}
+
 /* Dual Screen Mode — primary layout (desktop) */
 .dual-screen-desktop-only { display: inline-flex; }
 @media (max-width: 767px) {

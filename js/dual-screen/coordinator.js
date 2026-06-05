@@ -2,7 +2,7 @@
  * Dual Screen Mode — primary-window lifecycle & sync orchestration
  */
 import { getLayers } from '../core/state.js';
-import mapManager from '../map/map-manager.js';
+import mapService from '../map/map-service.js';
 import { DualScreenChannel } from './channel.js';
 import {
     MessageType,
@@ -131,9 +131,9 @@ class DualScreenCoordinator {
             this._channel = new DualScreenChannel('primary', (msg) => this._handleMessage(msg));
         }
 
-        if (mapManager.map) {
+        if (mapService.getMap()) {
             this._lastViewport = this._captureViewport();
-            mapManager.destroy();
+            mapService.destroy();
         }
 
         this._startPoll();
@@ -199,7 +199,7 @@ class DualScreenCoordinator {
     }
 
     _captureViewport() {
-        const map = mapManager.map;
+        const map = mapService.getMap();
         if (!map) return this._lastViewport;
         const c = map.getCenter();
         const b = map.getBounds();
@@ -225,42 +225,43 @@ class DualScreenCoordinator {
         if (placeholder) placeholder.remove();
         container.classList.remove('dual-screen-map-hidden');
 
-        if (!mapManager.map) {
-            mapManager.init('map-container');
+        if (!mapService.getMap()) {
+            mapService.init('map-container');
         }
 
         const layers = getLayers().filter(l => l.type === 'spatial' && l.geojson);
         layers.forEach((layer, i) => {
-            mapManager.addLayer(layer, i, { fit: false });
+            mapService.addLayer(layer, i, { fit: false });
         });
 
-        if (this._lastViewport && mapManager.map) {
-            mapManager.map.jumpTo({
+        const map = mapService.getMap();
+        if (this._lastViewport && map) {
+            map.jumpTo({
                 center: this._lastViewport.center,
                 zoom: this._lastViewport.zoom,
                 bearing: this._lastViewport.bearing,
                 pitch: this._lastViewport.pitch
             });
         } else if (layers.length) {
-            mapManager.fitToAll();
+            mapService.fitToAll();
         }
 
-        scheduleMapResizeAfterLayout(mapManager);
-        if (mapManager.map && !mapManager.map.loaded()) {
-            mapManager.map.once('load', () => scheduleMapResizeAfterLayout(mapManager));
+        scheduleMapResizeAfterLayout(mapService);
+        if (map && !map.loaded()) {
+            map.once('load', () => scheduleMapResizeAfterLayout(mapService));
         }
     }
 
     _applyMapChrome(payload) {
         if (!payload) return;
-        if (payload.basemap && payload.basemap !== mapManager.currentBasemap) {
-            mapManager.currentBasemap = payload.basemap;
+        if (payload.basemap && payload.basemap !== mapService.getCurrentBasemap()) {
+            mapService.setCurrentBasemap(payload.basemap);
             document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.value === payload.basemap);
             });
         }
         if (payload.is3d !== undefined) {
-            mapManager._3dEnabled = !!payload.is3d;
+            mapService.set3DEnabled(!!payload.is3d);
             document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.value === (payload.is3d ? '3d' : '2d'));
             });
@@ -321,9 +322,9 @@ class DualScreenCoordinator {
         const payload = buildSnapshotPayload({
             layers: layers.filter(l => l.type === 'spatial'),
             viewport: this._lastViewport,
-            basemap: mapManager.currentBasemap || 'voyager',
-            is3d: !!mapManager._3dEnabled,
-            layerStyles: mapManager._layerStyles
+            basemap: mapService.getCurrentBasemap() || 'voyager',
+            is3d: mapService.is3DEnabled(),
+            layerStyles: mapService.getLayerStyles()
         });
         this._channel.post(createMessage('primary', MessageType.SNAPSHOT, payload));
     }
@@ -380,8 +381,8 @@ class DualScreenCoordinator {
     getBounds() {
         if (this._lastBounds) return this._lastBounds;
         if (!this._lastViewport) return null;
-        const map = mapManager.map;
-        if (map) return mapManager.getBounds();
+        const map = mapService.getMap();
+        if (map) return mapService.getBounds();
         return boundsFromViewportPayload(this._lastViewport);
     }
 

@@ -5,72 +5,87 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-04
-- **Goal**: Complete **M3 — React Flow pipeline editor** with rollback safety, while keeping build/tests green.
+- **Goal**: Start **M4 — MapService extraction + React `<MapView>`** incrementally, while preserving M3 stability and rollback safety.
 - **Branch**: `main`
 - **Fix**:
-  - Added `react/bridge.js` with Zustand-backed legacy bridge:
-    - `createLegacyBridge(...)` (testable factory),
-    - sync from legacy `state` + `event-bus` events,
-    - bridge actions (`setActiveLayer`, `setUIState`, `toggleAGOLCompat`),
-    - `initLegacyBridge()` lazy singleton for runtime wiring.
-  - Added `js/core/libs.js` external-library boundary:
-    - npm import fallback when globals are absent,
-    - global-first behavior for existing no-bundler runtime compatibility.
-  - Added initial M3 scaffold (not wired into runtime yet):
-    - `react/workflow/PipelineEditor.jsx` (React Flow rendering shell),
-    - `react/workflow/mountPipelineEditor.jsx`,
-    - installed `@xyflow/react`.
-  - Wired M3 scaffold into `js/workflow/workflow-overlay.js` and finished migration to React Flow path:
-    - added `js/workflow/workflow-feature-flags.js`,
-    - added dynamic mount/unmount of React Flow island in workflow canvas area,
-    - **React Flow is now default**, with rollback via `wfReactFlow=0` (query/localStorage/global).
-  - Wired first consumer of `initLegacyBridge()` in `react/workflow/mountPipelineEditor.jsx`.
-  - Upgraded `react/workflow/PipelineEditor.jsx` from static preview to interactive editor:
-    - custom node rendering with per-port handles,
-    - drag/move updates node positions in `WorkflowEngine`,
-    - connect/disconnect updates wires in `WorkflowEngine`,
-    - selection/double-click emits existing inspector events (`workflow:node-selected`, `workflow:node-inspect`),
-    - delete removes nodes/edges and keeps inspector sync.
-  - React interaction parity refinements:
-    - selected-node state now syncs both directions between React Flow and existing inspector/bus events,
-    - node border/status styling mirrors legacy semantics (error=red, output=green, default=node color),
-    - edge delete works from keyboard and double-click (legacy-like quick wire removal),
-    - custom delete-key handling avoids deleting nodes while typing in form fields,
-    - robust edge→wire mapping for reliable engine removal and bus notifications.
-  - Updated `js/workflow/workflow-overlay.js` to support interactive React Flow mode:
-    - no longer depends on legacy `WorkflowCanvas` when React mode is active,
-    - routes palette add/drop to engine updates compatible with React Flow mode,
-    - emits `workflow:engine-changed` for cross-island synchronization,
-    - emits fit/add-node request events consumed by React Flow island.
-  - React Flow wiring is opt-in only:
-    - query param: `?wfReactFlow=1`
-    - local storage: `localStorage.setItem('wfReactFlow', '1')`
-    - global override: `window.__WF_REACTFLOW__ = true`
-  - Migrated import/export/photo modules to `libs.js` loaders (PapaParse, XLSX, JSZip, toGeoJSON, shpjs, exifr) instead of direct global references.
-  - Added npm deps for the shared boundary: `zustand`, `papaparse`, `xlsx`, `jszip`, `@mapbox/togeojson`, `shpjs`, `exifr`.
-  - Added tests:
-    - `tests/react-bridge.test.js` (bridge sync + action forwarding),
-    - `tests/libs-loader.test.js` (global-first + npm fallback behavior),
-    - `tests/workflow-feature-flags.test.js` (flag resolution + precedence).
+  - Re-validated baseline on current working tree:
+    - `npm test` and `npm run build` are green before M4 edits.
+  - Added first M4 extraction boundary:
+    - `js/map/map-service.js` (`createMapService`, delegating lifecycle + core map ops to current `mapManager`).
+    - `js/map/map-feature-flags.js` (new map island flag resolver).
+    - **Default remains legacy map path**; React map is opt-in for rollback safety.
+  - Added initial React map island:
+    - `react/map/MapView.jsx` (owns map init/destroy through `mapService`).
+    - `react/map/mountMapView.jsx` (mount helper + readiness promise).
+    - `js/app.js` now routes map init through:
+      - legacy/default: `mapService.init('map-container')`
+      - opt-in M4 path: dynamic mount of `<MapView>` via `mapReactView` flag.
+  - Added styling support for map island host:
+    - `css/main.css`: `.map-react-view-host` fill container sizing.
+  - Added tests for new M4 slice:
+    - `tests/map-feature-flags.test.js`
+    - `tests/map-service.test.js`
+  - Continued incremental `MapService` adoption in `js/app.js` (without changing shell path):
+    - switched several low-risk calls from `mapManager` → `mapService`:
+      - map resize hooks (boot/panel-collapse/mobile-map),
+      - import/photo/workflow/draw add/remove/toggle paths,
+      - basemap/2D-3D toggles,
+      - layer reorder sync,
+      - style apply + field-refresh map updates.
+  - Expanded `MapService` wrapper surface in `js/map/map-service.js`:
+    - style helpers (`getLayerStyle`, `setLayerStyle`),
+    - basemap state (`getCurrentBasemap`),
+    - fence/search helpers (`hasImportFence`, `clearImportFence`, `startImportFenceDraw`, `getImportFenceEsriEnvelope`, `getSearchLatLng`, `clearSearchMarker`),
+    - selection helpers (`isSelectionMode`, `getSelectedIndices`, `getSelectedFeatures`, `getSelectionCount`, `enter/exit/clear/selectAll/invert`),
+    - map interaction helpers (`startPointPick`, `startTwoPointPick`, `startRectangleDraw`, `startSketchPolygon`, `startSketchCirclePolygon`, `showInteractionBanner`, `showTempFeature`),
+    - layer lookup helper (`getLayerRecord`).
+    - layer-id + adapter state helpers (`getLayerIds`, `getLayerStyles`, `setCurrentBasemap`, `is3DEnabled`, `set3DEnabled`).
+    - popup/orbit helpers (`hasPopupHits`, `cyclePopup`, `getActivePopupHit`, `closePopup`, `findFeaturesNearClick`, `showMultiPopup`, `showPopup`, `isOrbiting`, `startCameraOrbit`, `stopCameraOrbit`).
+    - compatibility getters for legacy-style consumers (`map`, `dataLayers`).
+  - Migrated `js/app.js` to consume these wrappers, removing direct `mapManager` method calls.
+    - `js/app.js` now has no direct `mapManager.*` usage; it goes through `mapService` for map operations while still passing `mapManager` into required legacy adapter hooks (`installDualScreenMapFacade`, export map-style injection).
+    - widget dependency injection now passes `mapService` (Spatial Analyzer / Bulk Update / Proximity Join).
+  - Migrated dual-screen modules to `mapService`:
+    - `js/dual-screen/secondary-client.js` now uses `mapService` for popup bridge, orbit actions, and fence commands.
+    - `js/map-window.js` now uses `mapService` for snapshot apply, layer sync, viewport fits, and map chrome toggles.
+    - `js/dual-screen/coordinator.js` now uses `mapService` for map lifecycle restore, snapshot chrome state, and bounds access.
+  - Migrated draw subsystem boundary:
+    - `js/map/draw-manager.js` now uses `mapService` instead of importing `map-manager` directly for selection, interaction cancel, rectangle draw delegation, and highlight/lookup calls.
+  - Updated widget dependency injection in `js/app.js`:
+    - Spatial Analyzer, Bulk Update, and Proximity Join now receive `mapService` as their map dependency.
+  - Extended tests:
+    - `tests/map-service.test.js` now verifies delegation for the new wrapper methods, including popup/orbit, fence set-from-bbox, layer IDs, map/dataLayers compatibility getters, sketch helpers, interaction banner, cancel/highlight helpers.
 
 ## Verification
 
-- **Vitest**: `npm test` — green (69 tests).
+- **Vitest**: `npm test` — green (78 tests).
 - **Build**: `npm run build` — succeeds; emits `dist/`.
+- **Dev server smoke**: `npm run dev -- --host 127.0.0.1 --port 4173` starts successfully (Vite ready, local URL printed).
+- **Post-migration check**: reran `npm test` + `npm run build` after additional `mapService` call-site migration — still green.
+- **Checkpoint-ready working tree**:
+  - Modified: `js/app.js`, `js/map/draw-manager.js`, `js/map-window.js`, `js/dual-screen/coordinator.js`, `js/dual-screen/secondary-client.js`, `js/map/map-service.js`, `tests/map-service.test.js`, `css/main.css`, `HANDOFF.md`.
+  - Added: `js/map/map-feature-flags.js`, `react/map/MapView.jsx`, `react/map/mountMapView.jsx`, `tests/map-feature-flags.test.js`.
 - **Notes**:
   - Vite reports chunk-size warnings and mixed dynamic/static import warnings in legacy modules; informational for now, no build failure.
+  - Full M3 **manual browser parity** checklist could not be executed from this agent runtime (no interactive browser control). Needs human/manual pass in-browser.
 
 ## Next
 
-1. **Commit this M1–M3 work** on a feature branch (large staged set; tests/build already green).
-2. Run manual browser parity checks for workflow editor:
+1. Run manual browser parity checks for workflow editor:
    - examples load/run/preview,
    - add/remove/connect/delete nodes,
    - import/export config round-trip,
    - persistence after refresh,
    - "Add to Map" behavior.
-3. Start M4 (`MapService` + `<MapView>`) after parity sign-off.
-4. Keep `index.html` runtime path unchanged until shell-flip milestone.
+2. Exercise opt-in map island path in browser (`mapReactView=1`) and confirm parity for:
+   - map initialization, resize, layer add/remove/toggle/restyle/order,
+   - basemap + 2D/3D toggles,
+   - dual-screen compatibility (legacy facade still attached).
+3. Continue M4 extraction by migrating remaining `mapManager`-centric modules where safe:
+   - `js/widgets/bulk-update.js`,
+   - `js/widgets/spatial-analyzer.js`.
+4. Keep `js/dual-screen/map-facade.js` and `js/export/exporter.js` map-style integration path as intentional compatibility layers during overlap (do not remove yet).
+5. Keep `index.html` runtime path unchanged until shell-flip milestone.
 
 **New agent prompt**: continue milestone-by-milestone from `docs/REACT_REFACTOR_PLAN.md` and keep `main` shippable.
 

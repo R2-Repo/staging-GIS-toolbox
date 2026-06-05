@@ -56,6 +56,9 @@ async function main() {
   await page.locator('#btn-workflow').click({ timeout: 10000, force: true });
   await page.waitForSelector('#wf-overlay.visible', { timeout: 10000 });
 
+  const loadingAfterOpen = await page.locator('.wf-canvas-area.wf-canvas-loading').count();
+  console.log('Canvas loading overlay after open:', loadingAfterOpen);
+
   const reactFlowHost = page.locator('.wf-reactflow-host');
   const reactFlow = page.locator('.react-flow');
   console.log('ReactFlow host visible:', await reactFlowHost.isVisible().catch(() => false));
@@ -96,7 +99,10 @@ async function main() {
     pageErrors.forEach((e) => console.log('  ', e));
   }
 
-  const pass = nodeCountAfterWait > 0;
+  const loadingAfterNodes = await page.locator('.wf-canvas-area.wf-canvas-loading').count();
+  console.log('Canvas loading overlay after add:', loadingAfterNodes);
+
+  const pass = nodeCountAfterWait > 0 && loadingAfterOpen === 0 && loadingAfterNodes === 0;
   console.log(`\n${pass ? 'PASS' : 'FAIL'}: add node to canvas`);
   await browser.close();
   process.exit(pass ? 0 : 1);

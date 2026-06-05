@@ -51,7 +51,6 @@ export class WorkflowOverlay {
         this._open = true;
         this._build();
         document.body.appendChild(this._el);
-        requestAnimationFrame(() => this._el.classList.add('visible'));
 
         // Only load from storage on first open (cold start / page refresh)
         if (!this._engineLoaded) {
@@ -59,7 +58,14 @@ export class WorkflowOverlay {
             await WorkflowStore.restoreNodeData(this.engine);
             this._engineLoaded = true;
         }
+
+        if (this._useReactFlowCanvas) {
+            this._reactFlowCanvasEl?.classList.add('wf-canvas-loading');
+            await this._ensureReactFlowCanvasMounted();
+        }
+
         this._refreshCanvasViews({ center: true });
+        this._el.classList.add('visible');
 
         bus.emit('workflow:opened');
     }
@@ -274,39 +280,67 @@ export class WorkflowOverlay {
         void this._ensureReactFlowCanvasMounted();
     }
 
+    _createReactFlowHost() {
+        if (getComputedStyle(this._reactFlowCanvasEl).position === 'static') {
+            this._reactFlowCanvasEl.style.position = 'relative';
+        }
+
+        const host = document.createElement('div');
+        host.className = 'wf-reactflow-host';
+        host.style.position = 'absolute';
+        host.style.inset = '0';
+        host.style.pointerEvents = 'auto';
+        host.style.opacity = '1';
+        host.style.zIndex = '2';
+        this._reactFlowCanvasEl.appendChild(host);
+        this._reactFlowHost = host;
+        return host;
+    }
+
+    _tearDownReactFlowHost() {
+        if (this._reactFlowUnmount) {
+            try { this._reactFlowUnmount(); } catch { /* noop */ }
+            this._reactFlowUnmount = null;
+        }
+        this._reactFlowHost?.remove();
+        this._reactFlowHost = null;
+        this._reactFlowReady = false;
+    }
+
     async _ensureReactFlowCanvasMounted() {
-        if (!this._useReactFlowCanvas || !this._reactFlowCanvasEl) return;
+        if (!this._useReactFlowCanvas || !this._reactFlowCanvasEl) return false;
+        if (this._reactFlowReady) return true;
         if (this._reactFlowMountPromise) return this._reactFlowMountPromise;
 
         this._reactFlowMountPromise = (async () => {
-            if (!this._reactFlowMountFn) {
-                const mod = await import('../../react/workflow/mountPipelineEditor.jsx');
-                this._reactFlowMountFn = mod.mountPipelineEditor;
-            }
-
-            if (!this._reactFlowHost) {
-                if (getComputedStyle(this._reactFlowCanvasEl).position === 'static') {
-                    this._reactFlowCanvasEl.style.position = 'relative';
+            try {
+                if (!this._reactFlowMountFn) {
+                    const mod = await import('../../react/workflow/mountPipelineEditor.jsx');
+                    this._reactFlowMountFn = mod.mountPipelineEditor;
                 }
-                this._reactFlowHost = document.createElement('div');
-                this._reactFlowHost.className = 'wf-reactflow-host';
-                this._reactFlowHost.style.position = 'absolute';
-                this._reactFlowHost.style.inset = '0';
-                this._reactFlowHost.style.pointerEvents = 'auto';
-                this._reactFlowHost.style.opacity = '1';
-                this._reactFlowHost.style.zIndex = '2';
-                this._reactFlowCanvasEl.appendChild(this._reactFlowHost);
-            }
 
-            if (!this._reactFlowUnmount) {
-                this._reactFlowUnmount = this._reactFlowMountFn(this._reactFlowHost, { engine: this.engine });
-            }
+                if (!this._reactFlowHost) {
+                    this._createReactFlowHost();
+                }
 
-            await new Promise((resolve) => {
-                requestAnimationFrame(() => requestAnimationFrame(resolve));
-            });
-            this._reactFlowReady = true;
-            this._reactFlowCanvasEl?.classList.remove('wf-canvas-loading');
+                if (!this._reactFlowUnmount) {
+                    this._reactFlowUnmount = this._reactFlowMountFn(this._reactFlowHost, { engine: this.engine });
+                }
+
+                await new Promise((resolve) => {
+                    requestAnimationFrame(() => requestAnimationFrame(resolve));
+                });
+
+                this._reactFlowReady = true;
+                this._reactFlowCanvasEl?.classList.remove('wf-canvas-loading');
+                return true;
+            } catch (error) {
+                console.error('Workflow React Flow mount failed:', error);
+                this._tearDownReactFlowHost();
+                this._reactFlowCanvasEl?.classList.remove('wf-canvas-loading');
+                showToast('Pipeline canvas failed to load. Try adding a node again.', 'error');
+                return false;
+            }
         })().finally(() => {
             this._reactFlowMountPromise = null;
         });
@@ -315,15 +349,7 @@ export class WorkflowOverlay {
     }
 
     _unmountReactFlowCanvas() {
-        if (this._reactFlowUnmount) {
-            this._reactFlowUnmount();
-            this._reactFlowUnmount = null;
-        }
-        if (this._reactFlowHost) {
-            this._reactFlowHost.remove();
-            this._reactFlowHost = null;
-        }
-        this._reactFlowReady = false;
+        this._tearDownReactFlowHost();
     }
 
     _emitEngineChanged() {
@@ -344,7 +370,8 @@ export class WorkflowOverlay {
         if (!this._reactFlowReady) {
             this._reactFlowCanvasEl.classList.add('wf-canvas-loading');
         }
-        await this._ensureReactFlowCanvasMounted();
+        const mounted = await this._ensureReactFlowCanvasMounted();
+        if (!mounted) return;
 
         const node = addPaletteNodeAt(this.engine, this._reactFlowCanvasEl, type, { clientX, clientY });
         if (!node) return;

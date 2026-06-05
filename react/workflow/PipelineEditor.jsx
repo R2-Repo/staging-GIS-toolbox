@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
     Background,
     Controls,
@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import bus from '../../js/core/event-bus.js';
-import { WorkflowPalette } from '../../js/workflow/workflow-palette.js';
+import { registerWorkflowScreenToFlow } from '../../js/workflow/workflow-canvas-bridge.js';
 
 const PORT_GAP = 20;
 
@@ -61,6 +61,7 @@ function WorkflowNode({ data, selected }) {
     return (
         <div
             style={{
+                position: 'relative',
                 width: 180,
                 minHeight: height,
                 borderRadius: 8,
@@ -143,6 +144,15 @@ function PipelineEditorCanvas({ engine }) {
         syncFromEngine();
     }, [syncFromEngine]);
 
+    useLayoutEffect(() => {
+        registerWorkflowScreenToFlow((point) => (
+            reactFlow.screenToFlowPosition
+                ? reactFlow.screenToFlowPosition(point)
+                : reactFlow.project(point)
+        ));
+        return () => registerWorkflowScreenToFlow(null);
+    }, [reactFlow]);
+
     useEffect(() => {
         const unsubscribers = [
             bus.on('workflow:engine-changed', syncFromEngine),
@@ -156,28 +166,6 @@ function PipelineEditorCanvas({ engine }) {
                 queueMicrotask(() => {
                     reactFlow.fitView({ duration: 200, padding: 0.2 });
                 });
-            }),
-            bus.on('workflow:add-node-request', ({ type, clientX, clientY }) => {
-                const def = WorkflowPalette.findDef(type);
-                if (!def) return;
-
-                const node = def.create();
-                const point = Number.isFinite(clientX) && Number.isFinite(clientY)
-                    ? (reactFlow.screenToFlowPosition
-                        ? reactFlow.screenToFlowPosition({ x: clientX, y: clientY })
-                        : reactFlow.project({ x: clientX, y: clientY }))
-                    : { x: 100, y: 100 };
-
-                node.position = {
-                    x: Math.round(point.x / 20) * 20,
-                    y: Math.round(point.y / 20) * 20
-                };
-
-                engine.addNode(node);
-                setSelectedNodeId(node.id);
-                setSelectedEdgeIds([]);
-                bus.emit('workflow:node-selected', { nodeId: node.id });
-                bus.emit('workflow:engine-changed');
             })
         ];
         return () => {
@@ -185,7 +173,7 @@ function PipelineEditorCanvas({ engine }) {
                 try { off(); } catch { /* noop */ }
             });
         };
-    }, [engine, reactFlow, syncFromEngine]);
+    }, [reactFlow, syncFromEngine]);
 
     const onNodesChange = useCallback((changes) => {
         setNodes((current) => applyNodeChanges(changes, current));

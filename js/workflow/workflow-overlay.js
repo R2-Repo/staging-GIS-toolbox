@@ -11,6 +11,7 @@ import { WorkflowDataPreview } from './workflow-data-preview.js';
 import { WorkflowStore } from './workflow-store.js';
 import { isWorkflowReactFlowEnabled } from './workflow-feature-flags.js';
 import { resetNodeIdCounter } from './nodes/node-base.js';
+import { addPaletteNodeAt } from './workflow-node-placement.js';
 
 export class WorkflowOverlay {
     constructor({ getLayers, importFile, addToMap, updateMapLayer, removeFromMap }) {
@@ -179,7 +180,7 @@ export class WorkflowOverlay {
             const json = e.dataTransfer.getData('application/x-wf-node');
             if (!json) return;
             const { type } = JSON.parse(json);
-            this._addNodeFromPalette(type, { clientX: e.clientX, clientY: e.clientY });
+            void this._addNodeFromPalette(type, { clientX: e.clientX, clientY: e.clientY });
         });
 
         // Palette click-to-add (adds at center of canvas viewport)
@@ -189,7 +190,7 @@ export class WorkflowOverlay {
             const rect = canvasEl.getBoundingClientRect();
             const cx = rect.left + rect.width / 2;
             const cy = rect.top + rect.height / 2;
-            this._addNodeFromPalette(type, { clientX: cx, clientY: cy });
+            void this._addNodeFromPalette(type, { clientX: cx, clientY: cy });
         }));
 
         // Delete node from inspector
@@ -244,6 +245,7 @@ export class WorkflowOverlay {
         this.preview?.destroy();
         this._unmountReactFlowCanvas();
         this._reactFlowCanvasEl = null;
+        this._reactFlowReady = false;
         this._el?.remove();
         // Engine is NOT destroyed — it persists with all node data
         this.canvas = null;
@@ -266,6 +268,9 @@ export class WorkflowOverlay {
 
     _refreshReactFlowCanvas() {
         if (!this._useReactFlowCanvas || !this._reactFlowCanvasEl) return;
+        if (!this._reactFlowReady) {
+            this._reactFlowCanvasEl.classList.add('wf-canvas-loading');
+        }
         void this._ensureReactFlowCanvasMounted();
     }
 
@@ -296,6 +301,12 @@ export class WorkflowOverlay {
             if (!this._reactFlowUnmount) {
                 this._reactFlowUnmount = this._reactFlowMountFn(this._reactFlowHost, { engine: this.engine });
             }
+
+            await new Promise((resolve) => {
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+            });
+            this._reactFlowReady = true;
+            this._reactFlowCanvasEl?.classList.remove('wf-canvas-loading');
         })().finally(() => {
             this._reactFlowMountPromise = null;
         });
@@ -312,24 +323,32 @@ export class WorkflowOverlay {
             this._reactFlowHost.remove();
             this._reactFlowHost = null;
         }
+        this._reactFlowReady = false;
     }
 
     _emitEngineChanged() {
         bus.emit('workflow:engine-changed');
     }
 
-    _addNodeFromPalette(type, { clientX, clientY }) {
-        const def = WorkflowPalette.findDef(type);
-        if (!def) return;
-
+    async _addNodeFromPalette(type, { clientX, clientY }) {
         if (!this._useReactFlowCanvas) {
+            const def = WorkflowPalette.findDef(type);
+            if (!def) return;
             const node = def.create();
             this.canvas.addNodeAt(node, clientX, clientY);
             this._refreshReactFlowCanvas();
             return;
         }
 
-        bus.emit('workflow:add-node-request', { type, clientX, clientY });
+        if (!this._reactFlowCanvasEl) return;
+        if (!this._reactFlowReady) {
+            this._reactFlowCanvasEl.classList.add('wf-canvas-loading');
+        }
+        await this._ensureReactFlowCanvasMounted();
+
+        const node = addPaletteNodeAt(this.engine, this._reactFlowCanvasEl, type, { clientX, clientY });
+        if (!node) return;
+        this._refreshCanvasViews();
     }
 
     // ── Preconfigured examples ──

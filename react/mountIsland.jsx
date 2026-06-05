@@ -1,0 +1,16 @@
+import { createRoot } from 'react-dom/client';
+
+/**
+ * Mount a React island into an existing DOM element.
+ * Returns an unmount callback for legacy teardown paths.
+ */
+export function mountIsland(element, Component, props = {}) {
+  if (!element) {
+    throw new Error('mountIsland: target element is required');
+  }
+
+  const root = createRoot(element);
+  root.render(<Component {...props} />);
+
+  return () => root.unmount();
+}

@@ -3,6 +3,7 @@
  * Supports Point, PolyLine (LineString/MultiLineString), Polygon (MultiPolygon)
  * Uses JSZip (already loaded via CDN)
  */
+import { loadJSZip } from '../core/libs.js';
 
 const SHP_NULL = 0;
 const SHP_POINT = 1;
@@ -52,8 +53,9 @@ export async function exportShapefile(dataset, options = {}, task) {
 
     const name = (options.filename || dataset.name || 'export').replace(/\.[^.]+$/, '');
 
-    if (typeof JSZip === 'undefined') throw new Error('JSZip library not loaded');
-    const zip = new JSZip();
+    const JSZipLib = await loadJSZip();
+    if (!JSZipLib) throw new Error('JSZip library not loaded');
+    const zip = new JSZipLib();
     zip.file(`${name}.shp`, shpBuf);
     zip.file(`${name}.shx`, shxBuf);
     zip.file(`${name}.dbf`, dbfBuf);

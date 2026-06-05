@@ -9,6 +9,7 @@ import { WorkflowPalette } from './workflow-palette.js';
 import { WorkflowInspector } from './workflow-inspector.js';
 import { WorkflowDataPreview } from './workflow-data-preview.js';
 import { WorkflowStore } from './workflow-store.js';
+import { isWorkflowReactFlowEnabled } from './workflow-feature-flags.js';
 import { resetNodeIdCounter } from './nodes/node-base.js';
 
 export class WorkflowOverlay {
@@ -30,6 +31,13 @@ export class WorkflowOverlay {
 
         this._el = null;
         this._open = false;
+
+        this._useReactFlowCanvas = false;
+        this._reactFlowCanvasEl = null;
+        this._reactFlowHost = null;
+        this._reactFlowUnmount = null;
+        this._reactFlowMountFn = null;
+        this._reactFlowMountPromise = null;
     }
 
     toggle() {
@@ -50,8 +58,7 @@ export class WorkflowOverlay {
             await WorkflowStore.restoreNodeData(this.engine);
             this._engineLoaded = true;
         }
-        this.canvas.renderAll();
-        this.canvas.centerView();
+        this._refreshCanvasViews({ center: true });
 
         bus.emit('workflow:opened');
     }
@@ -70,6 +77,8 @@ export class WorkflowOverlay {
     // ── Build DOM ──
 
     _build() {
+        this._useReactFlowCanvas = isWorkflowReactFlowEnabled();
+
         this._el = document.createElement('div');
         this._el.id = 'wf-overlay';
         this._el.className = 'wf-overlay';
@@ -120,10 +129,12 @@ export class WorkflowOverlay {
         this._el.appendChild(previewEl);
 
         // ── Instantiate UI modules (engine already exists) ──
-        this.canvas = new WorkflowCanvas(canvasEl, this.engine);
+        this.canvas = this._useReactFlowCanvas ? null : new WorkflowCanvas(canvasEl, this.engine);
         this.palette = new WorkflowPalette(paletteEl);
         this.inspector = new WorkflowInspector(inspectorEl, this.engine);
         this.preview = new WorkflowDataPreview(previewEl);
+        this._reactFlowCanvasEl = canvasEl;
+        this._refreshReactFlowCanvas();
 
         // Wire inspector providers
         this.inspector.setLayersProvider(() => this._getLayers());
@@ -139,7 +150,7 @@ export class WorkflowOverlay {
 
         topBar.querySelector('#wf-clear').addEventListener('click', () => {
             this.engine.clear();
-            this.canvas.renderAll();
+            this._refreshCanvasViews();
             this.inspector.clear();
             this.preview.hide();
             WorkflowStore.clear();
@@ -168,30 +179,27 @@ export class WorkflowOverlay {
             const json = e.dataTransfer.getData('application/x-wf-node');
             if (!json) return;
             const { type } = JSON.parse(json);
-            const def = WorkflowPalette.findDef(type);
-            if (!def) return;
-            const node = def.create();
-            this.canvas.addNodeAt(node, e.clientX, e.clientY);
+            this._addNodeFromPalette(type, { clientX: e.clientX, clientY: e.clientY });
         });
 
         // Palette click-to-add (adds at center of canvas viewport)
         this._unsubs = [];
         this._unsubs.push(bus.on('workflow:palette-add', ({ type }) => {
             if (!this._open) return;
-            const def = WorkflowPalette.findDef(type);
-            if (!def) return;
-            const node = def.create();
             const rect = canvasEl.getBoundingClientRect();
             const cx = rect.left + rect.width / 2;
             const cy = rect.top + rect.height / 2;
-            this.canvas.addNodeAt(node, cx, cy);
+            this._addNodeFromPalette(type, { clientX: cx, clientY: cy });
         }));
 
         // Delete node from inspector
         this._unsubs.push(bus.on('workflow:delete-node', ({ nodeId }) => {
             if (!this._open) return;
             this.engine.removeNode(nodeId);
-            this.canvas.renderAll();
+            if (this._useReactFlowCanvas) {
+                bus.emit('workflow:node-deselected');
+            }
+            this._refreshCanvasViews();
             this.inspector.clear();
         }));
 
@@ -209,10 +217,11 @@ export class WorkflowOverlay {
         this._keyHandler = (e) => {
             if (!this._open) return;
             if (e.key === 'Escape') this.close();
-            if ((e.key === 'Delete' || e.key === 'Backspace') && this.canvas.selectedNodeId) {
+            if (!this._useReactFlowCanvas && (e.key === 'Delete' || e.key === 'Backspace') && this.canvas.selectedNodeId) {
                 // Only delete if not focused on an input
                 if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;
                 this.canvas.removeSelected();
+                this._refreshReactFlowCanvas();
             }
         };
         document.addEventListener('keydown', this._keyHandler);
@@ -233,6 +242,8 @@ export class WorkflowOverlay {
         this.palette?.destroy();
         this.inspector?.destroy();
         this.preview?.destroy();
+        this._unmountReactFlowCanvas();
+        this._reactFlowCanvasEl = null;
         this._el?.remove();
         // Engine is NOT destroyed — it persists with all node data
         this.canvas = null;
@@ -240,6 +251,85 @@ export class WorkflowOverlay {
         this.inspector = null;
         this.preview = null;
         this._el = null;
+    }
+
+    _refreshCanvasViews({ center = false } = {}) {
+        if (this.canvas) {
+            this.canvas.renderAll();
+            if (center) this.canvas.centerView();
+        } else if (center) {
+            bus.emit('workflow:fit-view');
+        }
+        this._refreshReactFlowCanvas();
+        this._emitEngineChanged();
+    }
+
+    _refreshReactFlowCanvas() {
+        if (!this._useReactFlowCanvas || !this._reactFlowCanvasEl) return;
+        void this._ensureReactFlowCanvasMounted();
+    }
+
+    async _ensureReactFlowCanvasMounted() {
+        if (!this._useReactFlowCanvas || !this._reactFlowCanvasEl) return;
+        if (this._reactFlowMountPromise) return this._reactFlowMountPromise;
+
+        this._reactFlowMountPromise = (async () => {
+            if (!this._reactFlowMountFn) {
+                const mod = await import('../../react/workflow/mountPipelineEditor.jsx');
+                this._reactFlowMountFn = mod.mountPipelineEditor;
+            }
+
+            if (!this._reactFlowHost) {
+                if (getComputedStyle(this._reactFlowCanvasEl).position === 'static') {
+                    this._reactFlowCanvasEl.style.position = 'relative';
+                }
+                this._reactFlowHost = document.createElement('div');
+                this._reactFlowHost.className = 'wf-reactflow-host';
+                this._reactFlowHost.style.position = 'absolute';
+                this._reactFlowHost.style.inset = '0';
+                this._reactFlowHost.style.pointerEvents = 'auto';
+                this._reactFlowHost.style.opacity = '1';
+                this._reactFlowHost.style.zIndex = '2';
+                this._reactFlowCanvasEl.appendChild(this._reactFlowHost);
+            }
+
+            if (!this._reactFlowUnmount) {
+                this._reactFlowUnmount = this._reactFlowMountFn(this._reactFlowHost, { engine: this.engine });
+            }
+        })().finally(() => {
+            this._reactFlowMountPromise = null;
+        });
+
+        return this._reactFlowMountPromise;
+    }
+
+    _unmountReactFlowCanvas() {
+        if (this._reactFlowUnmount) {
+            this._reactFlowUnmount();
+            this._reactFlowUnmount = null;
+        }
+        if (this._reactFlowHost) {
+            this._reactFlowHost.remove();
+            this._reactFlowHost = null;
+        }
+    }
+
+    _emitEngineChanged() {
+        bus.emit('workflow:engine-changed');
+    }
+
+    _addNodeFromPalette(type, { clientX, clientY }) {
+        const def = WorkflowPalette.findDef(type);
+        if (!def) return;
+
+        if (!this._useReactFlowCanvas) {
+            const node = def.create();
+            this.canvas.addNodeAt(node, clientX, clientY);
+            this._refreshReactFlowCanvas();
+            return;
+        }
+
+        bus.emit('workflow:add-node-request', { type, clientX, clientY });
     }
 
     // ── Preconfigured examples ──
@@ -301,7 +391,7 @@ export class WorkflowOverlay {
                 }
                 // Save hydrated data to IndexedDB so it persists
                 WorkflowStore.save(this.engine);
-                this.canvas.renderAll();
+                this._refreshCanvasViews();
             }
 
             showToast(`Loaded example: ${fileName.replace(/\.json$/i, '')}`, 'success');
@@ -403,8 +493,7 @@ export class WorkflowOverlay {
         }
 
         // Refresh UI
-        this.canvas.renderAll();
-        this.canvas.centerView();
+        this._refreshCanvasViews({ center: true });
         this._engineLoaded = true;
         WorkflowStore.save(this.engine);
         showToast(`Imported ${this.engine.nodes.size} nodes.`, 'success');
@@ -438,9 +527,13 @@ export class WorkflowOverlay {
             };
 
             await this.engine.run(context);
-            this.canvas.refreshNodeBadges();
+            this.canvas?.refreshNodeBadges();
+            this._refreshReactFlowCanvas();
+            this._emitEngineChanged();
         } catch (err) {
-            this.canvas.refreshNodeBadges();
+            this.canvas?.refreshNodeBadges();
+            this._refreshReactFlowCanvas();
+            this._emitEngineChanged();
             showToast(`Pipeline error: ${err.message}`, 'error');
         } finally {
             runBtn.disabled = false;

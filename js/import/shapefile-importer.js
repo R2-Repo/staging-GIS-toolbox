@@ -4,11 +4,13 @@
  */
 import { createSpatialDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadShpjs } from '../core/libs.js';
 
 export async function importShapefile(file, task) {
     task.updateProgress(10, 'Loading shapefile library...');
 
-    if (typeof shp === 'undefined') {
+    const shp = await loadShpjs();
+    if (typeof shp !== 'function') {
         throw new AppError('Shapefile (shpjs) library not loaded', ErrorCategory.PARSE_FAILED);
     }
 

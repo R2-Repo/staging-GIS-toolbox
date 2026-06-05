@@ -4,6 +4,7 @@
  */
 import { createTableDataset, createSpatialDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadPapaParse } from '../core/libs.js';
 import { dmsToDd } from '../tools/coordinates.js';
 
 /** Parse a coordinate value — handles DD numbers and DMS strings */
@@ -26,8 +27,8 @@ function parseCoordValue(val) {
 export async function importCSV(file, task) {
     task.updateProgress(20, 'Loading PapaParse...');
 
-    // PapaParse loaded via CDN in index.html
-    if (typeof Papa === 'undefined') {
+    const papa = await loadPapaParse();
+    if (!papa?.parse) {
         throw new AppError('PapaParse library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
@@ -35,7 +36,7 @@ export async function importCSV(file, task) {
     const text = await file.text();
 
     return new Promise((resolve, reject) => {
-        Papa.parse(text, {
+        papa.parse(text, {
             header: true,
             dynamicTyping: true,
             skipEmptyLines: 'greedy',

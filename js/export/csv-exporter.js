@@ -2,15 +2,18 @@
  * CSV exporter using PapaParse
  * Supports lat/lon columns for points, optional WKT column
  */
+import { loadPapaParse } from '../core/libs.js';
+
 export async function exportCSV(dataset, options = {}, task) {
     const rows = getRowsForCSV(dataset, options);
-    if (typeof Papa === 'undefined') {
+    const papa = await loadPapaParse().catch(() => null);
+    if (!papa?.unparse) {
         // Fallback: manual CSV
         const text = manualCSV(rows);
         task?.updateProgress(90);
         return { text, mimeType: 'text/csv' };
     }
-    const text = Papa.unparse(rows);
+    const text = papa.unparse(rows);
     task?.updateProgress(90, 'Done');
     return { text, mimeType: 'text/csv' };
 }

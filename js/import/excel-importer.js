@@ -3,6 +3,7 @@
  */
 import { createTableDataset, createSpatialDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadXLSX } from '../core/libs.js';
 import { dmsToDd } from '../tools/coordinates.js';
 
 /** Parse a coordinate value — handles DD numbers and DMS strings */
@@ -20,7 +21,8 @@ function parseCoordValue(val) {
 export async function importExcel(file, task) {
     task.updateProgress(20, 'Loading SheetJS...');
 
-    if (typeof XLSX === 'undefined') {
+    const xlsx = await loadXLSX();
+    if (!xlsx?.read || !xlsx?.utils) {
         throw new AppError('SheetJS library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
@@ -30,7 +32,7 @@ export async function importExcel(file, task) {
     task.updateProgress(50, 'Parsing workbook...');
     let workbook;
     try {
-        workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+        workbook = xlsx.read(buffer, { type: 'array', cellDates: true });
     } catch (e) {
         throw new AppError('Failed to parse Excel file: ' + e.message, ErrorCategory.PARSE_FAILED);
     }
@@ -45,7 +47,7 @@ export async function importExcel(file, task) {
     const sheet = workbook.Sheets[sheetName];
 
     task.updateProgress(70, `Parsing sheet: ${sheetName}...`);
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+    const rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
 
     if (rows.length === 0) {
         throw new AppError('Excel sheet is empty', ErrorCategory.PARSE_FAILED);

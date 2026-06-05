@@ -6,6 +6,7 @@ import logger from '../core/logger.js';
 import { createSpatialDataset } from '../core/data-model.js';
 import { TaskRunner } from '../core/task-runner.js';
 import bus from '../core/event-bus.js';
+import { loadExifr } from '../core/libs.js';
 
 export class PhotoMapper {
     constructor() {
@@ -130,14 +131,14 @@ export class PhotoMapper {
     }
 
     async extractEXIF(file) {
-        // Use exifr library if available
-        if (typeof exifr !== 'undefined') {
+        const exifrLib = await loadExifr().catch(() => null);
+        if (exifrLib?.gps && exifrLib?.parse) {
             try {
                 // First pass: get GPS coordinates (let exifr compute lat/lon with hemisphere)
-                const gps = await exifr.gps(file).catch(() => null);
+                const gps = await exifrLib.gps(file).catch(() => null);
 
                 // Second pass: get other EXIF tags
-                const data = await exifr.parse(file, {
+                const data = await exifrLib.parse(file, {
                     tiff: true,
                     exif: true,
                     gps: true,
@@ -199,9 +200,10 @@ export class PhotoMapper {
 
         // Strategy 2: <img> + manual EXIF orientation via canvas transforms
         let orientation = 1;
-        if (typeof exifr !== 'undefined') {
+        const exifrLib = await loadExifr().catch(() => null);
+        if (exifrLib?.orientation) {
             try {
-                const o = await exifr.orientation(file);
+                const o = await exifrLib.orientation(file);
                 if (o) orientation = o;
             } catch (_) { }
         }

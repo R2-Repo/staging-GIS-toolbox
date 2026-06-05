@@ -3,6 +3,7 @@
  */
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { analyzeSchema, explodeGeometryCollectionsInFeatureCollection } from '../core/data-model.js';
+import { loadToGeoJSON } from '../core/libs.js';
 
 const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -83,15 +84,15 @@ export async function fetchKmlWithLimits(url, opts = {}) {
     return new TextDecoder('utf-8', { fatal: false }).decode(buf);
 }
 
-function _featuresFromKmlText(kmlText) {
+function _featuresFromKmlText(kmlText, toGeoJsonLib) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(kmlText, 'text/xml');
     const pe = doc.querySelector('parsererror');
     if (pe) throw new AppError('Invalid linked KML/XML', ErrorCategory.PARSE_FAILED);
-    if (typeof toGeoJSON === 'undefined') {
+    if (!toGeoJsonLib?.kml) {
         throw new AppError('toGeoJSON library not loaded', ErrorCategory.PARSE_FAILED);
     }
-    const gj = toGeoJSON.kml(doc);
+    const gj = toGeoJsonLib.kml(doc);
     return gj?.features || [];
 }
 
@@ -103,6 +104,9 @@ function _featuresFromKmlText(kmlText) {
  * @param {import('../core/task-runner.js').TaskRunner} [task]
  */
 export async function mergeNetworkLinksIntoDataset(dataset, hrefs, task) {
+    // Ensure toGeoJSON is available in both legacy (CDN global) and bundler paths.
+    const toGeoJsonLib = await loadToGeoJSON();
+
     const initialLen = dataset.geojson?.features?.length || 0;
     const merged = [...(dataset.geojson?.features || [])];
     const failures = [];
@@ -123,7 +127,7 @@ export async function mergeNetworkLinksIntoDataset(dataset, hrefs, task) {
         );
         try {
             const text = await fetchKmlWithLimits(href);
-            const feats = _featuresFromKmlText(text);
+            const feats = _featuresFromKmlText(text, toGeoJsonLib);
             for (const f of feats) {
                 const props = { ...(f.properties || {}), _networkLinkHref: href };
                 merged.push({ ...f, properties: props });

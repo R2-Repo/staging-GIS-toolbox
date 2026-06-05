@@ -1,19 +1,22 @@
 /**
  * Excel exporter using SheetJS
  */
+import { loadXLSX } from '../core/libs.js';
+
 export async function exportExcel(dataset, options = {}, task) {
-    if (typeof XLSX === 'undefined') {
+    const xlsx = await loadXLSX();
+    if (!xlsx?.utils || !xlsx?.write) {
         throw new Error('SheetJS library not loaded');
     }
 
     task?.updateProgress(30, 'Building spreadsheet...');
     const rows = getRows(dataset);
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, options.sheetName || 'Data');
+    const ws = xlsx.utils.json_to_sheet(rows);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, options.sheetName || 'Data');
 
     task?.updateProgress(70, 'Generating file...');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const buf = xlsx.write(wb, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
     task?.updateProgress(90, 'Done');

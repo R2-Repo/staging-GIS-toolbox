@@ -2,10 +2,12 @@
  * KMZ exporter — zip of KML + optionally images, with styling & folders
  */
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadJSZip } from '../core/libs.js';
 import { exportKML, geometryToKML, escapeXml } from './kml-exporter.js';
 
 export async function exportKMZ(dataset, options = {}, task) {
-    if (typeof JSZip === 'undefined') {
+    const JSZipLib = await loadJSZip();
+    if (!JSZipLib) {
         throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
@@ -22,7 +24,7 @@ export async function exportKMZ(dataset, options = {}, task) {
     let kmlText = kmlResult.text;
 
     task?.updateProgress(60, 'Creating KMZ archive...');
-    const zip = new JSZip();
+    const zip = new JSZipLib();
 
     // Embed attachment files from attachment fields
     const attachments = _collectAttachments(dataset);
@@ -52,7 +54,8 @@ export async function exportKMZ(dataset, options = {}, task) {
 }
 
 async function buildPhotoKMZ(dataset, options, task) {
-    const zip = new JSZip();
+    const JSZipLib = await loadJSZip();
+    const zip = new JSZipLib();
     const imgFolder = zip.folder('images');
     const photos = options.photos || [];
     const features = dataset.geojson?.features || [];
@@ -120,7 +123,8 @@ ${placemarks.join('\n')}
  */
 export async function exportMultiLayerKMZ(layers, options = {}, task) {
     const { exportMultiLayerKML } = await import('./kml-exporter.js');
-    if (typeof JSZip === 'undefined') {
+    const JSZipLib = await loadJSZip();
+    if (!JSZipLib) {
         throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
@@ -128,7 +132,7 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
     const kmlResult = await exportMultiLayerKML(layers, options, task);
 
     task?.updateProgress(60, 'Creating KMZ archive...');
-    const zip = new JSZip();
+    const zip = new JSZipLib();
     let kmlText = kmlResult.text;
 
     // Embed attachments from all layers

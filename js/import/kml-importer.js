@@ -4,6 +4,7 @@
  */
 import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadToGeoJSON } from '../core/libs.js';
 import { collectNetworkLinkHrefs } from './kml-networklink.js';
 
 /**
@@ -33,13 +34,14 @@ export async function importKML(file, task, meta = {}) {
         });
     }
 
-    if (typeof toGeoJSON === 'undefined') {
+    const toGeoJsonLib = await loadToGeoJSON();
+    if (!toGeoJsonLib?.kml) {
         throw new AppError('toGeoJSON library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
     let geojson;
     try {
-        geojson = toGeoJSON.kml(kmlDoc);
+        geojson = toGeoJsonLib.kml(kmlDoc);
     } catch (e) {
         throw new AppError('Failed to convert KML to GeoJSON: ' + e.message, ErrorCategory.PARSE_FAILED);
     }

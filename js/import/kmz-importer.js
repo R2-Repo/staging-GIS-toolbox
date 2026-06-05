@@ -3,6 +3,7 @@
  */
 import { importKML } from './kml-importer.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
+import { loadJSZip } from '../core/libs.js';
 import logger from '../core/logger.js';
 
 function _normalizeZipPath(p) {
@@ -116,7 +117,8 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task) {
 export async function importKMZ(file, task) {
     task.updateProgress(10, 'Loading JSZip...');
 
-    if (typeof JSZip === 'undefined') {
+    const JSZipLib = await loadJSZip();
+    if (!JSZipLib?.loadAsync) {
         throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
@@ -124,7 +126,7 @@ export async function importKMZ(file, task) {
     const buffer = await file.arrayBuffer();
     let zip;
     try {
-        zip = await JSZip.loadAsync(buffer);
+        zip = await JSZipLib.loadAsync(buffer);
     } catch (e) {
         throw new AppError('Failed to unzip KMZ: ' + e.message, ErrorCategory.PARSE_FAILED);
     }

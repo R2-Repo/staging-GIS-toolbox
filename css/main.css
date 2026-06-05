@@ -382,9 +382,13 @@ html, body {
     max-width: none;
     width: auto;
 }
+#map-container.dual-screen-map-hidden {
+    position: relative;
+}
+#map-container.dual-screen-map-hidden .map-react-view-host,
 #map-container.dual-screen-map-hidden .maplibregl-map,
 #map-container.dual-screen-map-hidden .map-overlay {
-    visibility: hidden;
+    display: none !important;
     pointer-events: none;
 }
 .dual-screen-placeholder {
@@ -398,6 +402,11 @@ html, body {
     padding: 24px;
     text-align: center;
     color: var(--text-muted);
+}
+#map-container.dual-screen-map-hidden .dual-screen-placeholder {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
 }
 .dual-screen-placeholder p { margin: 0; }
 #btn-dual-screen.active {

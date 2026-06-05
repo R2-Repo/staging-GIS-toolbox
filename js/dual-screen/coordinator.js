@@ -123,18 +123,20 @@ class DualScreenCoordinator {
         this._pendingActivation = false;
         this._clearActivateTimeout();
 
-        this.isActive = true;
-        setDualScreenActiveHint(typeof sessionStorage !== 'undefined' ? sessionStorage : null, true);
-        this._secondaryReady = false;
-
         if (!this._channel) {
             this._channel = new DualScreenChannel('primary', (msg) => this._handleMessage(msg));
         }
 
+        // Capture and destroy before isActive=true. The map-service decorator returns
+        // null from getMap() while dual-screen is active, so teardown must happen first.
         if (mapService.getMap()) {
             this._lastViewport = this._captureViewport();
             mapService.destroy();
         }
+
+        this.isActive = true;
+        setDualScreenActiveHint(typeof sessionStorage !== 'undefined' ? sessionStorage : null, true);
+        this._secondaryReady = false;
 
         this._startPoll();
         this._notify();
@@ -224,6 +226,11 @@ class DualScreenCoordinator {
         const placeholder = container.querySelector('.dual-screen-placeholder');
         if (placeholder) placeholder.remove();
         container.classList.remove('dual-screen-map-hidden');
+
+        if (this._handlers.restorePrimaryMap) {
+            this._handlers.restorePrimaryMap({ lastViewport: this._lastViewport });
+            return;
+        }
 
         if (!mapService.getMap()) {
             mapService.init('map-container');

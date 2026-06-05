@@ -31,7 +31,7 @@ describe('dual-screen layout', () => {
         const raf = vi.fn((cb) => cb());
         vi.stubGlobal('requestAnimationFrame', raf);
 
-        scheduleMapResizeAfterLayout({ resize, map: null });
+        scheduleMapResizeAfterLayout({ resize });
         expect(resize).toHaveBeenCalled();
 
         vi.advanceTimersByTime(250);

@@ -201,9 +201,6 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         stopCameraOrbit() {
             return mapAdapter.stopCameraOrbit();
         },
-        getLegacyMapManager() {
-            return mapAdapter;
-        }
     };
 }
 

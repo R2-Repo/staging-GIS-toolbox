@@ -26,8 +26,8 @@ export function resolveReactMapViewFlag({
     const storageParsed = parseFlagValue(storageValue);
     if (storageParsed != null) return storageParsed;
 
-    // M4 incremental rollout: keep legacy map path as default.
-    return false;
+    // M11 shell flip: React map view is the primary runtime path.
+    return true;
 }
 
 export function isReactMapViewEnabled(env = globalThis) {

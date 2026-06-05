@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 
 /**
  * Mount a React island into an existing DOM element.
- * Returns an unmount callback for legacy teardown paths.
+ * Returns an unmount callback for caller-managed teardown paths.
  */
 export function mountIsland(element, Component, props = {}) {
   if (!element) {

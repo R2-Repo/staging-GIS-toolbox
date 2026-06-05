@@ -94,10 +94,10 @@ flowchart TB
     App[app.js + panels / WorkflowOverlay]
     State[state.js - source of truth]
     Coord[DualScreenCoordinator]
-    Facade[map facade when dual ON]
+    Decorator[mapService decorator when dual ON]
     App --> State
-    App --> Facade
-    Facade --> Coord
+    App --> Decorator
+    Decorator --> Coord
     Coord --> State
   end
   subgraph sync [BroadcastChannel gis-toolbox-dual-screen]
@@ -119,11 +119,11 @@ flowchart TB
 2. **Dual on:** **one live MapLibre** instance (secondary only); primary **destroys** embedded map (`mapManager.destroy()`).
 3. **Primary** owns `state.js`, `sessionStore`, import, workflow, modals.
 4. **Secondary** does **not** run full `app.js` or session restore.
-5. **`mapManager` facade** on primary: when dual active, layer/viewport operations **sync** instead of rendering locally.
+5. **`mapService` decorator** on primary: when dual active, layer/viewport operations **sync** instead of rendering locally.
 
 ### Why not two full apps?
 
-Loading `index.html` twice duplicates state, breaks session save, and strands tools. Use **`map-window.html` + coordinator + facade**.
+Loading `index.html` twice duplicates state, breaks session save, and strands tools. Use **`map-window.html` + coordinator + MapService decorator**.
 
 ---
 
@@ -183,17 +183,17 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 | `js/dual-screen/channel.js` | BroadcastChannel wrapper |
 | `js/dual-screen/coordinator.js` | Activate/deactivate, window lifecycle, snapshots |
 | `js/dual-screen/storage-hint.js` | `dualScreenActive` sessionStorage UX hint |
-| `js/dual-screen/map-facade.js` | Patch `mapManager` when dual active |
+| `js/dual-screen/dual-screen-map-service.js` | Decorate `mapService` when dual active |
 | `map-window.html` | Secondary shell |
 | `css/map-window.css` | Fullscreen map + minimal header |
 | `js/map-window.js` | Secondary bootstrap |
 | `js/map/map-manager.js` | `destroy()` for primary teardown |
-| `js/app.js` | Dual Screen button, hooks, facade install |
+| `js/app.js` | Dual Screen button, hooks, decorator install |
 | `index.html` | `#btn-dual-screen` |
 | `css/main.css` | `.dual-screen-active` layout |
 | `js/workflow/workflow-overlay.js` | Workflow top bar button (Phase 3) |
 | `tests/dual-screen-protocol.test.js` | Protocol unit tests |
-| `sw.js` | Cache new assets (bump `CACHE_VERSION`) |
+| `vite.config.js` | `vite-plugin-pwa` config (precache/runtime cache for dual-screen assets) |
 
 ---
 
@@ -205,20 +205,20 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 - [x] `map-window.html`, `map-window.css`, `map-window.js`
 - [x] Viewport sync + `HELLO` / `SNAPSHOT` skeleton
 - [x] Vitest: `tests/dual-screen-protocol.test.js`
-- [x] `sw.js` cache entries
+- [x] `vite-plugin-pwa` cache coverage for dual-screen assets
 
 **Exit:** Two windows connect; viewport sync works in manual test.
 
 ### Phase 1 — Section 1 MVP ✅
 
 - [x] `coordinator.js`: activate/deactivate, window `closed` poll, snapshot, restore
-- [x] `map-facade.js`: core methods delegated when dual active
+- [x] `dual-screen-map-service.js`: core methods delegated when dual active
 - [x] `#btn-dual-screen` in main header (hidden on mobile via CSS)
 - [x] CSS `.app-layout.dual-screen-active` — hide center map, widen panels
 - [x] Hide primary basemap/dimension toggles while dual on
 - [x] `bus.on('layers:changed')` → sync when active
 - [x] Close secondary → restore map in `#map-container` from `getLayers()`
-- [x] `LAYER_ORDER`, `MAP_CHROME`, `refreshLayerData` facade; viewport bounds sync
+- [x] `LAYER_ORDER`, `MAP_CHROME`, `refreshLayerData` decorator path; viewport bounds sync
 - [x] `npm test` green (incl. `boundsFromViewportPayload`)
 - [ ] Manual QA: import + layer sync + fit bounds on dual map
 
@@ -238,7 +238,7 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 ### Phase 3 — Section 2 (workflow) (partial)
 
 - [x] Dual Screen button on `wf-topbar` (`#wf-dual-screen`)
-- [x] `addToMap` / `updateMapLayer` / `removeFromMap` through facade (unchanged API)
+- [x] `addToMap` / `updateMapLayer` / `removeFromMap` through MapService decorator path (unchanged API)
 - [ ] Manual QA: workflow + dual open → Run → Add to map → visible on external map
 
 ### Phase 4 — Polish ✅
@@ -253,23 +253,23 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 
 ---
 
-## Primary map facade (design)
+## Primary map service decorator (design)
 
 When `coordinator.isActive`:
 
-| `mapManager` method | Behavior |
+| `mapService` method | Behavior |
 |---------------------|----------|
 | `addLayer` / `removeLayer` / `toggleLayer` / `setLayerStyle` / `syncLayerOrder` / `refreshLayerData` | Broadcast to secondary; no local map |
 | `fitToAll` / `fitToLayers` | Broadcast `VIEWPORT` or fit command |
 | `setBasemap` / `enable3D` / `disable3D` | Broadcast `MAP_CHROME` (or secondary-only in dual) |
 | `getBounds` | Return last secondary viewport bounds |
 | `getMap()` | `null` on primary while dual on |
-| `resize()` | No-op on primary; secondary handles |
+| `resize()` | Safe pass-through; no-op if primary map is absent |
 | `destroy()` | Called on activate (primary) |
 
-When dual off: pass through to real `mapManager` methods.
+When dual off: pass through to regular `mapService` methods.
 
-Install from `app.js` after imports: `installDualScreenMapFacade(mapManager, coordinator)`.
+Install from `app.js` after imports: `installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator)`.
 
 ---
 
@@ -307,14 +307,14 @@ Install from `app.js` after imports: `installDualScreenMapFacade(mapManager, coo
 ### Manual regression
 
 - [x] Fresh load, import, export — dual **off** (Vitest suite; dual modules inactive by default)
-- [x] Dual on: import, visibility, style, delete layer (facade + `layers:changed` snapshot)
+- [x] Dual on: import, visibility, style, delete layer (decorator + `layers:changed` snapshot)
 - [x] Pan/zoom secondary; clip-to-extent uses correct bounds (`VIEWPORT` + `boundsFromViewportPayload`)
 - [x] Draw polygon on secondary (Phase 2 — `DRAW_CMD` / `DRAW_EVENT`)
 - [x] Import fence on secondary (Phase 2 — `FENCE_SET` / fence draw cmd)
 - [x] Popup → Edit opens modal on primary (Phase 2 — `POPUP_ACTION`)
 - [x] Drop file on secondary map (Phase 2 — `FILE_DROP`)
 - [x] Close secondary → map restored in center (`BYE` + poll + `_restorePrimaryMap`)
-- [x] Workflow + dual → Run → Add to map (Phase 3 — facade `addLayer`)
+- [x] Workflow + dual → Run → Add to map (Phase 3 — decorator `addLayer`)
 - [x] Workflow Back to Map with dual **off** (unchanged `#wf-back` path)
 - [x] Mobile width: no dual button; existing mobile map tab OK (`.dual-screen-desktop-only` + `isMobile` guard)
 

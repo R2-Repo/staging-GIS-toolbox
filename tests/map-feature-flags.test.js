@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveReactMapViewFlag } from '../js/map/map-feature-flags.js';
 
 describe('react map view feature flag', () => {
-    it('defaults to disabled when unset', () => {
-        expect(resolveReactMapViewFlag()).toBe(false);
+    it('defaults to enabled when unset', () => {
+        expect(resolveReactMapViewFlag()).toBe(true);
     });
 
     it('allows explicit global override', () => {

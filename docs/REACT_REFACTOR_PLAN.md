@@ -67,7 +67,7 @@ Vanilla ES modules, **no bundler**. `index.html` loads CDN libs + `js/app.js`.
 | Persistence | `js/core/session-store.js` | IndexedDB autosave (2s debounce) |
 | Tasks | `js/core/task-runner.js` | Cancel + `processInChunks` |
 | Map | `js/map/map-manager.js` (2389), `draw-manager.js` (1046) | Imperative MapLibre singleton |
-| Dual screen | `js/dual-screen/*` | 2nd window + BroadcastChannel + map facade monkey-patch |
+| Dual screen | `js/dual-screen/*` | 2nd window + BroadcastChannel + MapService decorator relay |
 | Import | `js/import/*` | Mostly pure; CDN globals (Papa/XLSX/JSZip/toGeoJSON/shp) |
 | Export | `js/export/*` | Mostly pure; `downloadBlob` is DOM |
 | Dataprep | `js/dataprep/*` | Pure transforms + undo snapshots |
@@ -277,7 +277,7 @@ Each lists: **Goal → Steps → Verify → Rollback → Perf**.
 
 ### M10 — Dual screen on the new architecture
 - **Goal:** Port second-window sync without the monkey-patch.
-- **Steps:** Turn `installDualScreenMapFacade` into a `DualScreenMapService`
+- **Steps:** Turn the legacy dual-screen map facade into `installDualScreenMapServiceDecorator`
   decorator over `MapService`. Keep BroadcastChannel protocol (`protocol.js`)
   unchanged. `map-window.html` becomes a minimal React (or kept-light) entry using
   the same `MapService` + protocol client. Port draw/fence/popup/context relays.

@@ -1,6 +1,6 @@
 # Agent instructions — GIS Toolbox
 
-This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). The **shipped app** has **no build step**: ES modules load from `index.html`. **Dev-only**: `package.json` exists for **Vitest** (`npm test`), not for bundling the site.
+This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). The app now ships through the **Vite build/preview pipeline** (`npm run build`, `npm run preview`), with React islands integrated into the main shell.
 
 ## Layout (quick map)
 
@@ -16,7 +16,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `js/arcgis/`, `js/agol/` | ArcGIS Online / REST integration |
 | `css/` | `main.css`, `mobile.css`, `workflow.css` |
 | `pipelines/` | Saved pipeline JSON + `index.json` |
-| `manifest.json`, `sw.js` | PWA manifest and service worker |
+| `manifest.json`, `vite.config.js` | PWA manifest and `vite-plugin-pwa` service worker config |
 | `tests/` | Vitest specs (`*.test.js`) |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
 
@@ -38,13 +38,10 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 From the repo root:
 
 ```bash
-python3 -m http.server 8080
-```
-
-Open `http://localhost:8080/` (browsers restrict some APIs on `file://`, so always use a local server).
-
-```bash
 npm install   # once, for Vitest
+npm run dev   # Vite dev server
+npm run build
+npm run preview
 npm test
 ```
 
@@ -52,7 +49,7 @@ Supplement with browser checks after substantive map/UI changes (Vitest runs in 
 
 ## Cursor Cloud Agents
 
-- **Environment**: `.cursor/environment.json` defines a lightweight static server and forwarded port for smoke checks in the cloud VM.
+- **Environment**: `.cursor/environment.json` defines the Vite build + preview command and forwarded preview port for smoke checks in the cloud VM.
 - **Persistent guidance**: project rules live under `.cursor/rules/`; this file (`AGENTS.md`) is the human-oriented overview. Keep both aligned when workflows change.
 - **GitHub / secrets**: connect the repo and manage Cloud Agent secrets in the [Cursor Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents); do not put credentials in tracked files.
 - **Branches / PRs**: use normal feature branches off `main`, commit in logical chunks, push, and open PRs for review (match your team’s naming conventions).

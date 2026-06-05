@@ -3,12 +3,11 @@
  * Reactive state with change notifications
  */
 import bus from './event-bus.js';
+import { analyzeSchema } from './data-model.js';
 
 const state = {
     layers: [],           // Array of canonical datasets
     activeLayerId: null,
-    transformHistory: [],  // Array of { id, layerId, name, timestamp, snapshot }
-    historyIndex: -1,
     filters: [],
     agolCompatMode: false,
     ui: {
@@ -57,11 +56,9 @@ export function updateLayer(id, updates) {
     if (layer) {
         Object.assign(layer, updates);
         if (updates.geojson) {
-            import('./data-model.js').then(dm => {
-                layer.schema = dm.analyzeSchema(layer.geojson);
-                bus.emit('layer:updated', layer);
-                bus.emit('layers:changed', state.layers);
-            });
+            layer.schema = analyzeSchema(layer.geojson);
+            bus.emit('layer:updated', layer);
+            bus.emit('layers:changed', state.layers);
             return;
         }
         bus.emit('layer:updated', layer);
@@ -73,12 +70,9 @@ export function updateLayerData(id, geojson) {
     const layer = state.layers.find(l => l.id === id);
     if (!layer) return;
     layer.geojson = geojson;
-    // Dynamically import to avoid circular dep
-    import('./data-model.js').then(dm => {
-        layer.schema = dm.analyzeSchema(geojson);
-        bus.emit('layer:updated', layer);
-        bus.emit('layers:changed', state.layers);
-    });
+    layer.schema = analyzeSchema(geojson);
+    bus.emit('layer:updated', layer);
+    bus.emit('layers:changed', state.layers);
 }
 
 export function toggleLayerVisibility(id) {
@@ -98,55 +92,6 @@ export function reorderLayer(id, direction) {
     state.layers.splice(newIdx, 0, item);
     bus.emit('layers:changed', state.layers);
     bus.emit('layers:reordered', state.layers);
-}
-
-// Transform history
-export function pushTransform(layerId, name, snapshotGeojson) {
-    // Truncate any redo history
-    state.transformHistory = state.transformHistory.slice(0, state.historyIndex + 1);
-    state.transformHistory.push({
-        id: Date.now(),
-        layerId,
-        name,
-        timestamp: new Date().toISOString(),
-        snapshot: JSON.parse(JSON.stringify(snapshotGeojson))
-    });
-    state.historyIndex = state.transformHistory.length - 1;
-    bus.emit('history:changed', { history: state.transformHistory, index: state.historyIndex });
-}
-
-export function undo() {
-    if (state.historyIndex <= 0) return false;
-    state.historyIndex--;
-    const entry = state.transformHistory[state.historyIndex];
-    const layer = state.layers.find(l => l.id === entry.layerId);
-    if (layer && layer.type === 'spatial') {
-        layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
-        import('./data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', state.layers);
-        });
-    }
-    bus.emit('history:changed', { history: state.transformHistory, index: state.historyIndex });
-    return true;
-}
-
-export function redo() {
-    if (state.historyIndex >= state.transformHistory.length - 1) return false;
-    state.historyIndex++;
-    const entry = state.transformHistory[state.historyIndex];
-    const layer = state.layers.find(l => l.id === entry.layerId);
-    if (layer && layer.type === 'spatial') {
-        layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
-        import('./data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', state.layers);
-        });
-    }
-    bus.emit('history:changed', { history: state.transformHistory, index: state.historyIndex });
-    return true;
 }
 
 // UI state
@@ -173,6 +118,5 @@ window.addEventListener('resize', checkMobile);
 export default {
     getState, getLayers, getActiveLayer, addLayer, removeLayer, setActiveLayer,
     updateLayer, updateLayerData, toggleLayerVisibility, reorderLayer,
-    pushTransform, undo, redo,
     setUIState, toggleAGOLCompat
 };

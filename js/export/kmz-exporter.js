@@ -3,7 +3,7 @@
  */
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadJSZip } from '../core/libs.js';
-import { exportKML, geometryToKML, escapeXml } from './kml-exporter.js';
+import { exportKML, exportMultiLayerKML, geometryToKML, escapeXml } from './kml-exporter.js';
 
 export async function exportKMZ(dataset, options = {}, task) {
     const JSZipLib = await loadJSZip();
@@ -122,7 +122,6 @@ ${placemarks.join('\n')}
  * @param {Array<{dataset, style}>} layers
  */
 export async function exportMultiLayerKMZ(layers, options = {}, task) {
-    const { exportMultiLayerKML } = await import('./kml-exporter.js');
     const JSZipLib = await loadJSZip();
     if (!JSZipLib) {
         throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);

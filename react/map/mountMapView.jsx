@@ -1,11 +1,7 @@
 import { mountIsland } from '../mountIsland.jsx';
-import { initLegacyBridge } from '../bridge.js';
 import { MapView } from './MapView.jsx';
 
 export function mountMapView(element, props = {}) {
-    // Keep React islands synchronized with the legacy state/bus overlap period.
-    void initLegacyBridge();
-
     let resolveReady;
     let rejectReady;
     const ready = new Promise((resolve, reject) => {

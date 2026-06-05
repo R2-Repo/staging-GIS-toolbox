@@ -20,8 +20,9 @@ import { isReactRightPanelEnabled } from './ui/right-panel-feature-flags.js';
 import { isReactModalEnabled } from './ui/modal-feature-flags.js';
 import { isReactToastEnabled } from './ui/toast-feature-flags.js';
 import { isReactToolDialogsEnabled } from './ui/tool-dialog-feature-flags.js';
+import { isReactHeaderEnabled } from './ui/header-feature-flags.js';
 import dualScreenCoordinator from './dual-screen/coordinator.js';
-import { installDualScreenMapFacade } from './dual-screen/map-facade.js';
+import { installDualScreenMapServiceDecorator } from './dual-screen/dual-screen-map-service.js';
 import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
 import {
     POPUP_BLOCKED_MESSAGE,
@@ -33,7 +34,7 @@ import {
     syncDualScreenHeaderButton
 } from './dual-screen/layout.js';
 
-installDualScreenMapFacade(mapService.getLegacyMapManager());
+installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator);
 import { showToast, showErrorToast } from './ui/toast.js';
 import { showModal, confirm, showProgressModal } from './ui/modals.js';
 import * as transforms from './dataprep/transforms.js';
@@ -44,6 +45,7 @@ import { arcgisImporter } from './arcgis/rest-importer.js';
 import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
+import { convertFeatureCoords } from './tools/coordinates.js';
 import { findFirstLineStringFeature, listLineStringFeatures } from './tools/line-geojson.js';
 
 import drawManager from './map/draw-manager.js';
@@ -67,12 +69,17 @@ let _isReactToast = false;
 let _reactModalUnmount = null;
 let _isReactModal = false;
 let _isReactToolDialogs = false;
+let _reactHeaderUnmount = null;
+let _isReactHeader = false;
+let _importInputEl = null;
+let _workflowOverlay = null;
 
 async function boot() {
     logger.info('App', 'Initializing GIS Toolbox');
     _isReactToolDialogs = isReactToolDialogsEnabled();
     _isReactModal = isReactModalEnabled();
     _isReactToast = isReactToastEnabled();
+    _isReactHeader = isReactHeaderEnabled();
     _isReactLeftPanel = isReactLeftPanelEnabled();
     _isReactRightPanel = isReactRightPanelEnabled();
     if (_isReactModal) {
@@ -108,6 +115,14 @@ async function boot() {
             _isReactRightPanel = false;
             logger.error('App', 'React right panel mount failed; falling back to legacy panel', { error: error.message });
             showToast('React right panel failed to initialize. Using legacy panel.', 'warning');
+        }
+    }
+    if (_isReactHeader) {
+        try {
+            await _mountReactHeader();
+        } catch (error) {
+            _isReactHeader = false;
+            logger.error('App', 'React header mount failed; falling back to legacy header', { error: error.message });
         }
     }
     setupEventListeners();
@@ -261,6 +276,36 @@ function _getOrCreateModalHost() {
         document.body.appendChild(host);
     }
     return host;
+}
+
+function _getReactHeaderTarget() {
+    const element = document.querySelector('.header');
+    if (!element) {
+        throw new Error('Header container ".header" not found');
+    }
+    return element;
+}
+
+async function _mountReactHeader() {
+    if (_reactHeaderUnmount) return;
+    const element = _getReactHeaderTarget();
+    const { mountHeaderBar } = await import('../react/header/mountHeaderBar.jsx');
+    const mounted = mountHeaderBar(element, {
+        onImport: () => openImportFlow(),
+        onFence: () => startImportFence(),
+        onPhotoMapper: () => openPhotoMapper(),
+        onArcGIS: () => openArcGISImporter(),
+        onDrawLayer: () => createDrawLayer(),
+        onUndo: () => handleUndo(),
+        onRedo: () => handleRedo(),
+        onMergeLayers: () => handleMergeLayers(),
+        onWorkflow: () => _workflowOverlay?.toggle(),
+        onBasemapChange: (value) => applyBasemapHeaderSelection(value),
+        onDimensionChange: (value) => applyDimensionHeaderSelection(value),
+        onLogs: () => toggleLogs(),
+        onInfo: () => showToolInfo()
+    });
+    _reactHeaderUnmount = mounted.unmount;
 }
 
 async function _mountReactModalHost() {
@@ -649,95 +694,224 @@ async function handleFileImport(files, fenceBbox = null) {
     }
 }
 
+function triggerLegacyImportInput() {
+    if (!_importInputEl) return;
+    _importInputEl.value = '';
+    _importInputEl.click();
+}
+
+function openImportFlow() {
+    if (_isReactToolDialogs) {
+        const rootId = `import-flow-react-${Date.now()}`;
+        showModal('Import Files', `<div id="${rootId}"></div>`, {
+            width: '560px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountImportFlowDialog } = await import('../react/tools/mountImportFlowDialog.jsx');
+                const mounted = mountImportFlowDialog(root, {
+                    onCancel: () => close(),
+                    onImportFiles: async (files) => {
+                        close();
+                        await handleFileImport(files, _fenceBbox);
+                    },
+                    onOpenArcGIS: () => {
+                        close();
+                        openArcGISImporter();
+                    },
+                    onOpenPhotoMapper: () => {
+                        close();
+                        openPhotoMapper();
+                    },
+                    onOpenFence: () => {
+                        close();
+                        startImportFence();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    triggerLegacyImportInput();
+}
+
+function setBasemapToggleActive(value) {
+    document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach((button) => {
+        button.classList.toggle('active', button.dataset.value === value);
+    });
+}
+
+function setDimensionToggleActive(value) {
+    document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach((button) => {
+        button.classList.toggle('active', button.dataset.value === value);
+    });
+}
+
+function applyBasemapHeaderSelection(value) {
+    if (!value) return;
+    mapService.setBasemap(value);
+    setBasemapToggleActive(value);
+}
+
+function applyDimensionHeaderSelection(value) {
+    if (!value) return;
+    if (value === '3d') mapService.enable3D();
+    else mapService.disable3D();
+    setDimensionToggleActive(value);
+}
+
+function togglePanelSectionHeader(header) {
+    if (!header) return;
+    header.classList.toggle('collapsed');
+    const body = header.nextElementSibling;
+    if (body) body.classList.toggle('hidden');
+}
+
+function setPanelCollapsed(side, collapsed) {
+    const panel = document.querySelector(`.panel-${side}`);
+    if (!panel) return;
+    panel.classList.toggle('collapsed', !!collapsed);
+
+    const expandId = side === 'left' ? 'expand-left-panel' : 'expand-right-panel';
+    const toggleId = side === 'left' ? 'toggle-left-panel' : 'toggle-right-panel';
+    const collapsedGlyph = side === 'left' ? '▶' : '◀';
+    const expandedGlyph = side === 'left' ? '◀' : '▶';
+
+    document.getElementById(expandId)?.classList.toggle('hidden', !collapsed);
+    const toggleButton = document.getElementById(toggleId);
+    if (toggleButton) {
+        toggleButton.textContent = collapsed ? collapsedGlyph : expandedGlyph;
+    }
+    setTimeout(() => { mapService.resize(); }, 250);
+}
+
+function togglePanelCollapsed(side) {
+    const panel = document.querySelector(`.panel-${side}`);
+    if (!panel) return;
+    const willCollapse = !panel.classList.contains('collapsed');
+    setPanelCollapsed(side, willCollapse);
+}
+
+function invokeAppAction(action, arg) {
+    if (!action) return;
+    const fn = APP_ACTIONS[action];
+    if (typeof fn !== 'function') return;
+    if (arg == null) {
+        fn();
+        return;
+    }
+    if (arg === 'true') {
+        fn(true);
+        return;
+    }
+    if (arg === 'false') {
+        fn(false);
+        return;
+    }
+    fn(arg);
+}
+
 // ============================
 // Setup all event listeners
 // ============================
 function setupEventListeners() {
     // Import button — use a persistent hidden input (iOS-safe)
-    const importInput = document.createElement('input');
-    importInput.type = 'file';
-    importInput.multiple = true;
-    importInput.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml';
-    importInput.style.cssText = 'opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
-    document.body.appendChild(importInput);
-    importInput.addEventListener('change', () => {
-        if (importInput.files.length > 0) {
-            const files = Array.from(importInput.files);
+    _importInputEl = document.createElement('input');
+    _importInputEl.type = 'file';
+    _importInputEl.multiple = true;
+    _importInputEl.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml';
+    _importInputEl.setAttribute('aria-label', 'Import files');
+    _importInputEl.style.cssText = 'opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
+    document.body.appendChild(_importInputEl);
+    _importInputEl.addEventListener('change', () => {
+        if (_importInputEl.files.length > 0) {
+            const files = Array.from(_importInputEl.files);
             handleFileImport(files, _fenceBbox);
         }
     });
-    document.getElementById('btn-import')?.addEventListener('click', () => {
-        importInput.value = ''; // reset so re-selecting same files triggers change
-        importInput.click();
-    });
+    if (!_isReactHeader) {
+        document.getElementById('btn-import')?.addEventListener('click', openImportFlow);
+    }
 
     // Mobile import
-    document.getElementById('btn-import-mobile')?.addEventListener('click', () => {
-        document.getElementById('btn-import')?.click();
-    });
+    document.getElementById('btn-import-mobile')?.addEventListener('click', openImportFlow);
 
     // Photo Mapper
-    document.getElementById('btn-photo-mapper')?.addEventListener('click', openPhotoMapper);
+    if (!_isReactHeader) {
+        document.getElementById('btn-photo-mapper')?.addEventListener('click', openPhotoMapper);
+    }
     document.getElementById('btn-photo-mapper-mobile')?.addEventListener('click', openPhotoMapper);
 
     // Import Fence
-    document.getElementById('btn-fence')?.addEventListener('click', startImportFence);
+    if (!_isReactHeader) {
+        document.getElementById('btn-fence')?.addEventListener('click', startImportFence);
+    }
 
     // Workflow editor
-    const workflowOverlay = new WorkflowOverlay({
-        getLayers: () => getLayers(),
-        importFile: (file) => importFile(file),
-        addToMap: (data, name, opts = {}) => {
-            if (data.type !== 'spatial') {
-                // Tables: just add to state, no map layer
-                const dataset = createTableDataset(name, data.rows, null, { format: 'workflow' });
+    if (!_workflowOverlay) {
+        _workflowOverlay = new WorkflowOverlay({
+            getLayers: () => getLayers(),
+            importFile: (file) => importFile(file),
+            addToMap: (data, name, opts = {}) => {
+                if (data.type !== 'spatial') {
+                    // Tables: just add to state, no map layer
+                    const dataset = createTableDataset(name, data.rows, null, { format: 'workflow' });
+                    addLayer(dataset);
+                    refreshUI();
+                    showToast(`Table "${name}" added from workflow`, 'success');
+                    return dataset.id;
+                }
+                // Check if a workflow layer with this name already exists → update in place
+                const existing = getLayers().find(l => l.name === name && l.source?.format === 'workflow');
+                if (existing) {
+                    updateLayer(existing.id, { geojson: data.geojson });
+                    mapService.removeLayer(existing.id);
+                    mapService.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
+                    refreshUI();
+                    showToast(`Layer "${name}" updated`, 'success');
+                    return existing.id;
+                }
+                // New layer
+                const dataset = createSpatialDataset(name, data.geojson, { format: 'workflow' });
                 addLayer(dataset);
+                mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
                 refreshUI();
-                showToast(`Table "${name}" added from workflow`, 'success');
+                if (!opts.workflow) showToast(`Layer "${name}" added from workflow`, 'success');
                 return dataset.id;
-            }
-            // Check if a workflow layer with this name already exists → update in place
-            const existing = getLayers().find(l => l.name === name && l.source?.format === 'workflow');
-            if (existing) {
-                updateLayer(existing.id, { geojson: data.geojson });
-                mapService.removeLayer(existing.id);
-                mapService.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
+            },
+            updateMapLayer: (layerId, data) => {
+                const layer = getLayers().find(l => l.id === layerId);
+                if (!layer) return;
+                updateLayer(layerId, { geojson: data.geojson });
+                mapService.removeLayer(layerId);
+                mapService.addLayer(layer, getLayers().indexOf(layer));
                 refreshUI();
-                showToast(`Layer "${name}" updated`, 'success');
-                return existing.id;
+            },
+            removeFromMap: (layerId) => {
+                mapService.removeLayer(layerId);
+                removeLayer(layerId);
+                refreshUI();
             }
-            // New layer
-            const dataset = createSpatialDataset(name, data.geojson, { format: 'workflow' });
-            addLayer(dataset);
-            mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
-            refreshUI();
-            if (!opts.workflow) showToast(`Layer "${name}" added from workflow`, 'success');
-            return dataset.id;
-        },
-        updateMapLayer: (layerId, data) => {
-            const layer = getLayers().find(l => l.id === layerId);
-            if (!layer) return;
-            updateLayer(layerId, { geojson: data.geojson });
-            mapService.removeLayer(layerId);
-            mapService.addLayer(layer, getLayers().indexOf(layer));
-            refreshUI();
-        },
-        removeFromMap: (layerId) => {
-            mapService.removeLayer(layerId);
-            removeLayer(layerId);
-            refreshUI();
-        }
-    });
-    document.getElementById('btn-workflow')?.addEventListener('click', () => workflowOverlay.toggle());
+        });
+    }
+    if (!_isReactHeader) {
+        document.getElementById('btn-workflow')?.addEventListener('click', () => _workflowOverlay.toggle());
+    }
 
     setupDualScreenMode();
 
     // ArcGIS REST Import
-    document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
+    if (!_isReactHeader) {
+        document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
+    }
     document.getElementById('btn-arcgis-mobile')?.addEventListener('click', openArcGISImporter);
 
     // Draw Layer
-    document.getElementById('btn-draw-layer')?.addEventListener('click', createDrawLayer);
+    if (!_isReactHeader) {
+        document.getElementById('btn-draw-layer')?.addEventListener('click', createDrawLayer);
+    }
 
     // Handle drawn features
     bus.on('draw:featureCreated', ({ layerId, feature }) => {
@@ -745,13 +919,11 @@ function setupEventListeners() {
         if (!layer || layer.type !== 'spatial') return;
         saveSnapshot(layer.id, 'Draw feature', layer.geojson);
         layer.geojson.features.push(feature);
-        import('./core/data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            mapService.addLayer(layer, getLayers().indexOf(layer));
-            refreshUI();
-        });
+        layer.schema = analyzeSchema(layer.geojson);
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        mapService.addLayer(layer, getLayers().indexOf(layer));
+        refreshUI();
         showToast(`Added ${feature.geometry.type} to ${layer.name}`, 'success');
     });
 
@@ -760,12 +932,10 @@ function setupEventListeners() {
         const layer = getLayers().find(l => l.id === layerId);
         if (!layer || layer.type !== 'spatial') return;
         saveSnapshot(layer.id, 'Edit feature', layer.geojson);
-        import('./core/data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            refreshUI();
-        });
+        layer.schema = analyzeSchema(layer.geojson);
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        refreshUI();
     });
 
     // Handle deleted features
@@ -774,24 +944,28 @@ function setupEventListeners() {
         if (!layer || layer.type !== 'spatial') return;
         saveSnapshot(layer.id, 'Delete feature', layer.geojson);
         layer.geojson.features.splice(featureIndex, 1);
-        import('./core/data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            mapService.addLayer(layer, getLayers().indexOf(layer));
-            refreshUI();
-        });
+        layer.schema = analyzeSchema(layer.geojson);
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        mapService.addLayer(layer, getLayers().indexOf(layer));
+        refreshUI();
         showToast('Feature deleted', 'success');
     });
 
     // Logs
-    document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
+    if (!_isReactHeader) {
+        document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
+    }
 
     // Info / Tool Guide
-    document.getElementById('btn-info')?.addEventListener('click', showToolInfo);
+    if (!_isReactHeader) {
+        document.getElementById('btn-info')?.addEventListener('click', showToolInfo);
+    }
 
     // Merge layers
-    document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
+    if (!_isReactHeader) {
+        document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
+    }
 
     // Mobile dropdown menu
     const mobileMenuBtn = document.getElementById('btn-mobile-menu');
@@ -823,7 +997,7 @@ function setupEventListeners() {
             const action = item.dataset.action;
             closeMobileMenu();
             switch (action) {
-                case 'import': document.getElementById('btn-import')?.click(); break;
+                case 'import': openImportFlow(); break;
                 case 'photos': openPhotoMapper(); break;
                 case 'arcgis': openArcGISImporter(); break;
 
@@ -835,8 +1009,10 @@ function setupEventListeners() {
     }
 
     // Undo / Redo
-    document.getElementById('btn-undo')?.addEventListener('click', handleUndo);
-    document.getElementById('btn-redo')?.addEventListener('click', handleRedo);
+    if (!_isReactHeader) {
+        document.getElementById('btn-undo')?.addEventListener('click', handleUndo);
+        document.getElementById('btn-redo')?.addEventListener('click', handleRedo);
+    }
 
     // Mobile nav tabs
     document.querySelectorAll('.mobile-nav-item').forEach(el => {
@@ -854,35 +1030,66 @@ function setupEventListeners() {
     // ============================
     setupMobileFlyoutMenus();
 
+    // App action delegation for HTML-rendered tool buttons (replaces inline onclick usage)
+    document.addEventListener('click', (event) => {
+        const actionButton = event.target.closest('[data-app-action]');
+        if (!actionButton) return;
+        const { appAction, appArg } = actionButton.dataset;
+        if (!appAction) return;
+        event.preventDefault();
+        event.stopPropagation();
+        invokeAppAction(appAction, appArg);
+    });
+
+    // Layer list activation (desktop + mobile legacy render paths)
+    document.addEventListener('click', (event) => {
+        const layerItem = event.target.closest('.layer-item[data-layer-id]');
+        if (!layerItem) return;
+        if (event.target.closest('[data-app-action]')) return;
+        setActiveLayerAndRefresh(layerItem.dataset.layerId);
+    });
+
+    // Inline rename gestures
+    document.addEventListener('dblclick', (event) => {
+        const layerName = event.target.closest('.layer-name[data-layer-rename-id]');
+        if (layerName) {
+            event.preventDefault();
+            event.stopPropagation();
+            renameLayer(layerName.dataset.layerRenameId, layerName);
+            return;
+        }
+        const fieldName = event.target.closest('.field-name[data-field-rename-id]');
+        if (fieldName) {
+            event.preventDefault();
+            renameField(fieldName.dataset.fieldRenameId, fieldName);
+        }
+    });
+
+    // Field list controls (desktop + mobile legacy render paths)
+    document.addEventListener('input', (event) => {
+        if (event.target.id === 'field-search') {
+            filterFields(event.target.value);
+        }
+    });
+    document.addEventListener('change', (event) => {
+        const fieldToggle = event.target.closest('input[data-field-toggle]');
+        if (!fieldToggle) return;
+        toggleField(fieldToggle.dataset.fieldToggle, fieldToggle.checked);
+    });
+
+    // Panel section collapse/expand (replaces inline onclick handlers)
+    document.addEventListener('click', (event) => {
+        const header = event.target.closest('.panel-section-header');
+        if (!header) return;
+        if (header.dataset.collapsible !== 'true') return;
+        togglePanelSectionHeader(header);
+    });
+
     // Panel collapse
-    document.getElementById('toggle-left-panel')?.addEventListener('click', () => {
-        const panel = document.querySelector('.panel-left');
-        panel?.classList.toggle('collapsed');
-        const isCollapsed = panel?.classList.contains('collapsed');
-        document.getElementById('expand-left-panel')?.classList.toggle('hidden', !isCollapsed);
-        document.getElementById('toggle-left-panel').textContent = isCollapsed ? '▶' : '◀';
-        setTimeout(() => { mapService.resize(); }, 250);
-    });
-    document.getElementById('expand-left-panel')?.addEventListener('click', () => {
-        document.querySelector('.panel-left')?.classList.remove('collapsed');
-        document.getElementById('expand-left-panel')?.classList.add('hidden');
-        document.getElementById('toggle-left-panel').textContent = '◀';
-        setTimeout(() => { mapService.resize(); }, 250);
-    });
-    document.getElementById('toggle-right-panel')?.addEventListener('click', () => {
-        const panel = document.querySelector('.panel-right');
-        panel?.classList.toggle('collapsed');
-        const isCollapsed = panel?.classList.contains('collapsed');
-        document.getElementById('expand-right-panel')?.classList.toggle('hidden', !isCollapsed);
-        document.getElementById('toggle-right-panel').textContent = isCollapsed ? '◀' : '▶';
-        setTimeout(() => { mapService.resize(); }, 250);
-    });
-    document.getElementById('expand-right-panel')?.addEventListener('click', () => {
-        document.querySelector('.panel-right')?.classList.remove('collapsed');
-        document.getElementById('expand-right-panel')?.classList.add('hidden');
-        document.getElementById('toggle-right-panel').textContent = '▶';
-        setTimeout(() => { mapService.resize(); }, 250);
-    });
+    document.getElementById('toggle-left-panel')?.addEventListener('click', () => togglePanelCollapsed('left'));
+    document.getElementById('expand-left-panel')?.addEventListener('click', () => setPanelCollapsed('left', false));
+    document.getElementById('toggle-right-panel')?.addEventListener('click', () => togglePanelCollapsed('right'));
+    document.getElementById('expand-right-panel')?.addEventListener('click', () => setPanelCollapsed('right', false));
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);
@@ -898,26 +1105,27 @@ function setupEventListeners() {
 
     // Right-click context menu
     bus.on('map:contextmenu', showMapContextMenu);
+    bus.on('coord-search:add-new', _coordSearchAddNew);
+    bus.on('coord-search:add-existing', _coordSearchAddToExisting);
+    bus.on('coord-search:clear', _coordSearchClear);
 
     // Basemap toggle
-    document.getElementById('basemap-toggle')?.addEventListener('click', (e) => {
-        const btn = e.target.closest('.header-toggle-option');
-        if (!btn || btn.classList.contains('active')) return;
-        const val = btn.dataset.value;
-        mapService.setBasemap(val);
-        document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-    });
+    if (!_isReactHeader) {
+        document.getElementById('basemap-toggle')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('.header-toggle-option');
+            if (!btn || btn.classList.contains('active')) return;
+            applyBasemapHeaderSelection(btn.dataset.value);
+        });
+    }
 
     // 2D/3D toggle
-    document.getElementById('dimension-toggle')?.addEventListener('click', (e) => {
-        const btn = e.target.closest('.header-toggle-option');
-        if (!btn || btn.classList.contains('active')) return;
-        const val = btn.dataset.value;
-        if (val === '3d') mapService.enable3D(); else mapService.disable3D();
-        document.querySelectorAll('#dimension-toggle .header-toggle-option').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-    });
+    if (!_isReactHeader) {
+        document.getElementById('dimension-toggle')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('.header-toggle-option');
+            if (!btn || btn.classList.contains('active')) return;
+            applyDimensionHeaderSelection(btn.dataset.value);
+        });
+    }
 
     // AGOL compat toggle
     document.getElementById('agol-toggle')?.addEventListener('change', () => {
@@ -1123,30 +1331,29 @@ function renderLayerList() {
         const geomBadge = layer.schema?.geometryType
             ? `<span class="badge badge-info">${layer.schema.geometryType}</span>` : '';
         const filterBadge = layer._activeFilter
-            ? `<span class="layer-filter-badge" title="Filter active – click to edit" onclick="event.stopPropagation(); window.app.openFilterBuilder('${layer.id}')">FILTERED</span>`
+            ? `<span class="layer-filter-badge" title="Filter active – click to edit" data-app-action="openFilterBuilder" data-app-arg="${layer.id}">FILTERED</span>`
             : '';
 
         return `
-            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${layer.id}" onclick="window.app.setActiveLayer('${layer.id}')">
+            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${layer.id}" data-layer-id="${layer.id}">
                 <span class="layer-icon">${icon}</span>
                 <div class="layer-name-row">
-                    <div class="layer-name" ondblclick="event.stopPropagation(); window.app.renameLayer('${layer.id}', this)">${layer.name}</div>
+                    <div class="layer-name" data-layer-rename-id="${layer.id}">${layer.name}</div>
                     ${filterBadge}
                     <div class="layer-order-btns">
-                        <button title="Move up" ${idx === 0 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerUp('${layer.id}')">▲</button>
-                        <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerDown('${layer.id}')">▼</button>
+                        <button title="Move up" ${idx === 0 ? 'disabled' : ''} data-app-action="moveLayerUp" data-app-arg="${layer.id}">▲</button>
+                        <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} data-app-action="moveLayerDown" data-app-arg="${layer.id}">▼</button>
                     </div>
                 </div>
                 <div class="layer-bottom-row">
                     <div class="layer-meta">${count} · ${layer.schema?.fields?.length || 0} fields ${geomBadge}</div>
                     <div class="layer-actions">
-                        <button class="btn-icon" title="Rename" onclick="event.stopPropagation(); window.app.renameLayer('${layer.id}')">✏️</button>
-                        <button class="btn-icon" title="Toggle visibility" onclick="event.stopPropagation(); window.app.toggleVisibility('${layer.id}')">
+                        <button class="btn-icon" title="Rename" data-app-action="renameLayer" data-app-arg="${layer.id}">✏️</button>
+                        <button class="btn-icon" title="Toggle visibility" data-app-action="toggleVisibility" data-app-arg="${layer.id}">
                             ${layer.visible ? '👁️' : '👁️‍🗨️'}
                         </button>
-                        </button>
-                        <button class="btn-icon" title="Zoom to layer" onclick="event.stopPropagation(); window.app.zoomToLayer('${layer.id}')">🔍</button>
-                        <button class="btn-icon" title="Remove" onclick="event.stopPropagation(); window.app.removeLayer('${layer.id}')">🗑️</button>
+                        <button class="btn-icon" title="Zoom to layer" data-app-action="zoomToLayer" data-app-arg="${layer.id}">🔍</button>
+                        <button class="btn-icon" title="Remove" data-app-action="removeLayer" data-app-arg="${layer.id}">🗑️</button>
                     </div>
                 </div>
             </div>`;
@@ -1214,18 +1421,18 @@ function renderFieldList() {
 
     const fields = layer.schema?.fields || [];
     const searchHtml = `<div class="input-with-btn" style="margin-bottom:8px;">
-        <input type="search" id="field-search" placeholder="Search fields..." oninput="window.app.filterFields(this.value)">
-        <button class="btn btn-sm btn-secondary" onclick="window.app.selectAllFields(true)">All</button>
-        <button class="btn btn-sm btn-secondary" onclick="window.app.selectAllFields(false)">None</button>
-        <button class="btn btn-sm btn-primary" onclick="window.app.addField()" title="Add new field">+ Field</button>
+        <input type="search" id="field-search" placeholder="Search fields...">
+        <button class="btn btn-sm btn-secondary" data-app-action="selectAllFields" data-app-arg="true">All</button>
+        <button class="btn btn-sm btn-secondary" data-app-action="selectAllFields" data-app-arg="false">None</button>
+        <button class="btn btn-sm btn-primary" data-app-action="addField" title="Add new field">+ Field</button>
     </div>`;
 
     const fieldRows = fields.map(f => `
         <div class="field-item" data-field="${f.name}">
-            <input type="checkbox" ${f.selected ? 'checked' : ''} onchange="window.app.toggleField('${f.name}', this.checked)">
-            <span class="field-name" ondblclick="window.app.renameField('${f.name}', this)" title="Double-click to rename">${f.outputName || f.name}</span>
+            <input type="checkbox" ${f.selected ? 'checked' : ''} data-field-toggle="${f.name}">
+            <span class="field-name" data-field-rename-id="${f.name}" title="Double-click to rename">${f.outputName || f.name}</span>
             <span class="field-type">${f.type}</span>
-            <button class="btn-icon" style="font-size:10px;padding:2px;" title="Rename field" onclick="window.app.renameField('${f.name}')">✏️</button>
+            <button class="btn-icon" style="font-size:10px;padding:2px;" title="Rename field" data-app-action="renameField" data-app-arg="${f.name}">✏️</button>
         </div>
     `).join('');
 
@@ -1264,7 +1471,7 @@ function renderOutputPanel() {
                 ? '<div class="success-box">✅ All checks passed</div>'
                 : check.issues.map(i => `<div class="warning-box text-xs mb-8">${i.type}: ${i.field || ''} ${i.message || i.fixed ? '→ ' + i.fixed : ''}</div>`).join('')
             }
-                ${check.issues.length > 0 ? '<button class="btn btn-sm btn-primary w-full mt-8" onclick="window.app.fixAGOL()">Fix All</button>' : ''}
+                ${check.issues.length > 0 ? '<button class="btn btn-sm btn-primary w-full mt-8" data-app-action="fixAGOL">Fix All</button>' : ''}
             </div>
         </div>`;
     }
@@ -1291,7 +1498,7 @@ function renderOutputPanel() {
                 </label>
                 <div style="display:flex; flex-wrap:wrap; gap:6px;">
                     ${formatsList.map(fmt =>
-                        `<button class="btn btn-sm btn-primary" onclick="window.app.doExport('${fmt.key}')">${fmt.label}</button>`
+                        `<button class="btn btn-sm btn-primary" data-app-action="doExport" data-app-arg="${fmt.key}">${fmt.label}</button>`
                     ).join('')}
                 </div>
             </div>
@@ -1302,7 +1509,7 @@ function renderOutputPanel() {
         <div class="panel-section">
             <div class="panel-section-header">Data Preview</div>
             <div class="panel-section-body">
-                <button class="btn btn-sm btn-secondary w-full" onclick="window.app.showDataTable()">Show Data Table</button>
+                <button class="btn btn-sm btn-secondary w-full" data-app-action="showDataTable">Show Data Table</button>
             </div>
         </div>
 
@@ -1411,7 +1618,7 @@ function buildStylePanel(layer) {
 
     return `
         <div class="panel-section style-panel">
-            <div class="panel-section-header" onclick="toggleSection(this)">
+            <div class="panel-section-header" data-collapsible="true">
                 Layer Style <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
@@ -1515,95 +1722,95 @@ function renderDataPrepTools() {
     const hasFilter = !!layer?._activeFilter;
     return `
         <div class="panel-section">
-            <div class="panel-section-header" onclick="toggleSection(this)">
+            <div class="panel-section-header" data-collapsible="true">
                 Layer Data Tools <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openSplitColumn()">Split Column</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openCombineColumns()">Combine</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openTemplateBuilder()">Template</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openReplaceClean()">Replace/Clean</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openTypeConvert()">Type Convert</button>
-                    <button class="btn btn-sm ${hasFilter ? 'btn-primary' : 'btn-secondary'}" onclick="window.app.openFilterBuilder()">${hasFilter ? '⚙ Filter ✓' : 'Filter'}</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openDeduplicate()">Dedup</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openJoinTool()">Join</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openValidation()">Validate</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.addUID()">Add UID</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openSplitColumn">Split Column</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openCombineColumns">Combine</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openTemplateBuilder">Template</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openReplaceClean">Replace/Clean</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openTypeConvert">Type Convert</button>
+                    <button class="btn btn-sm ${hasFilter ? 'btn-primary' : 'btn-secondary'}" data-app-action="openFilterBuilder">${hasFilter ? '⚙ Filter ✓' : 'Filter'}</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openDeduplicate">Dedup</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openJoinTool">Join</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="openValidation">Validate</button>
+                    <button class="btn btn-sm btn-secondary" data-app-action="addUID">Add UID</button>
                 </div>
             </div>
         </div>
 
         <div class="panel-section">
-            <div class="panel-section-header" onclick="toggleSection(this)">
+            <div class="panel-section-header" data-collapsible="true">
                 GIS Widgets <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Pre-built workflows for common GIS tasks.</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openSpatialAnalyzer()">🔎 Find Features in Area</button><span class="geo-tip">Search for features from one layer that fall inside a drawn area or polygon layer.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBulkUpdate()">✏️ Bulk Update</button><span class="geo-tip">Select multiple features and update their attribute fields in bulk.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openProximityJoin()">↔️ Proximity Join</button><span class="geo-tip">Copy attributes from the nearest feature in a target layer to each source feature.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSpatialAnalyzer">🔎 Find Features in Area</button><span class="geo-tip">Search for features from one layer that fall inside a drawn area or polygon layer.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBulkUpdate">✏️ Bulk Update</button><span class="geo-tip">Select multiple features and update their attribute fields in bulk.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openProximityJoin">↔️ Proximity Join</button><span class="geo-tip">Copy attributes from the nearest feature in a target layer to each source feature.</span></span>
                 </div>
             </div>
         </div>
 
         <div class="panel-section">
-            <div class="panel-section-header" onclick="toggleSection(this)">
+            <div class="panel-section-header" data-collapsible="true">
                 GIS Tools <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
 
                 <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                    <button id="btn-selection-toggle" class="btn-selection-toggle" onclick="window.app.toggleSelectionMode()" title="Toggle feature selection mode — click features to select them">✦ Select</button>
+                    <button id="btn-selection-toggle" class="btn-selection-toggle" data-app-action="toggleSelectionMode" title="Toggle feature selection mode — click features to select them">✦ Select</button>
                     <span style="font-size:10px;color:var(--text-muted);">Click features to select, or Shift+click to multi-select</span>
                 </div>
                 <div id="selection-bar" class="selection-bar hidden"></div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Coordinates</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openCoordConverter()">🌐 Coord Convert</button><span class="geo-tip">Convert coordinates between formats: Decimal Degrees, DMS, Degrees Decimal Minutes, and UTM.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openCoordConverter">🌐 Coord Convert</button><span class="geo-tip">Convert coordinates between formats: Decimal Degrees, DMS, Degrees Decimal Minutes, and UTM.</span></span>
                 </div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Measurement</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDistanceTool()">📏 Distance</button><span class="geo-tip">Straight-line distance between two clicks (great-circle). For path length along several clicks, use the map ruler control (Measure).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBearingTool()">🧭 Bearing</button><span class="geo-tip">Find the compass direction (in degrees) from one point to another on the map.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDestinationTool()">📌 Destination</button><span class="geo-tip">Given a start point, distance, and compass direction, find where you'd end up.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openAlongTool()">📍 Along</button><span class="geo-tip">Find a point at a specific distance along a line — like finding the 5-mile mark on a road.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openPointToLineDistanceTool()">↔ Pt→Line</button><span class="geo-tip">Measure how far a point is from the nearest spot on a line (shortest perpendicular distance).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDistanceTool">📏 Distance</button><span class="geo-tip">Straight-line distance between two clicks (great-circle). For path length along several clicks, use the map ruler control (Measure).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBearingTool">🧭 Bearing</button><span class="geo-tip">Find the compass direction (in degrees) from one point to another on the map.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDestinationTool">📌 Destination</button><span class="geo-tip">Given a start point, distance, and compass direction, find where you'd end up.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openAlongTool">📍 Along</button><span class="geo-tip">Find a point at a specific distance along a line — like finding the 5-mile mark on a road.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPointToLineDistanceTool">↔ Pt→Line</button><span class="geo-tip">Measure how far a point is from the nearest spot on a line (shortest perpendicular distance).</span></span>
                 </div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Transformation</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBuffer()">⭕ Buffer</button><span class="geo-tip">Draw a zone around features at a set distance — like showing "everything within 1 mile of a road."</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBboxClip()">✂️ BBox Clip</button><span class="geo-tip">Draw a rectangle on the map and cut away everything outside it.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openClip()">🔲 Clip Extent</button><span class="geo-tip">Cut features to the current visible map area.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openSimplify()">〰️ Simplify</button><span class="geo-tip">Reduce detail in shapes by removing extra points — makes files smaller and rendering faster.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openBezierSpline()">🌊 Spline</button><span class="geo-tip">Smooth jagged lines into gentle, flowing curves (bezier splines).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openPolygonSmooth()">🔵 Smooth</button><span class="geo-tip">Round off rough polygon edges by averaging corner positions — makes shapes look more natural.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openLineOffset()">↔ Offset</button><span class="geo-tip">Create a parallel copy of a line shifted left or right by a set distance.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openSector()">🥧 Sector</button><span class="geo-tip">Create a pie-slice shaped area from a center point — useful for coverage areas or viewsheds.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBuffer">⭕ Buffer</button><span class="geo-tip">Draw a zone around features at a set distance — like showing "everything within 1 mile of a road."</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBboxClip">✂️ BBox Clip</button><span class="geo-tip">Draw a rectangle on the map and cut away everything outside it.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openClip">🔲 Clip Extent</button><span class="geo-tip">Cut features to the current visible map area.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSimplify">〰️ Simplify</button><span class="geo-tip">Reduce detail in shapes by removing extra points — makes files smaller and rendering faster.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBezierSpline">🌊 Spline</button><span class="geo-tip">Smooth jagged lines into gentle, flowing curves (bezier splines).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPolygonSmooth">🔵 Smooth</button><span class="geo-tip">Round off rough polygon edges by averaging corner positions — makes shapes look more natural.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineOffset">↔ Offset</button><span class="geo-tip">Create a parallel copy of a line shifted left or right by a set distance.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSector">🥧 Sector</button><span class="geo-tip">Create a pie-slice shaped area from a center point — useful for coverage areas or viewsheds.</span></span>
                 </div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Line Operations</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openLineSliceAlong()">✂ Slice Along</button><span class="geo-tip">Cut out a section of a line using start and end distances — like "give me the road from mile 2 to mile 5."</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openLineSlice()">✂ Slice Pts</button><span class="geo-tip">Click two points on the map to cut out the section of line between them.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openLineIntersect()">✖ Intersect</button><span class="geo-tip">Find all points where two sets of lines cross each other.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openKinks()">⚠ Kinks</button><span class="geo-tip">Find self-intersections — spots where a line or polygon edge crosses over itself (geometry errors).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineSliceAlong">✂ Slice Along</button><span class="geo-tip">Cut out a section of a line using start and end distances — like "give me the road from mile 2 to mile 5."</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineSlice">✂ Slice Pts</button><span class="geo-tip">Click two points on the map to cut out the section of line between them.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineIntersect">✖ Intersect</button><span class="geo-tip">Find all points where two sets of lines cross each other.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openKinks">⚠ Kinks</button><span class="geo-tip">Find self-intersections — spots where a line or polygon edge crosses over itself (geometry errors).</span></span>
                 </div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Combine & Analyze</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openCombine()">🔗 Combine</button><span class="geo-tip">Merge all features of the same type into one multi-feature (multiple Points → one MultiPoint).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openUnion()">🔶 Union</button><span class="geo-tip">Merge all polygons into a single shape. Overlapping areas are dissolved together.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openDissolve()">🫧 Dissolve</button><span class="geo-tip">Merge polygons by a shared attribute, or merge all polygons into one when no field is chosen.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openPointsWithinPolygon()">📍🔷 Pts in Poly</button><span class="geo-tip">Find which points fall inside which polygons — like counting how many stores are in each district.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestPoint()">🎯 Nearest Pt</button><span class="geo-tip">Click the map to find the closest feature in a point layer to that location.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestPointOnLine()">📍→ Snap</button><span class="geo-tip">Click near a line to find the closest point directly on that line (snaps to it).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestPointToLine()">📍↔ Pt to Ln</button><span class="geo-tip">Find which point feature in a layer is closest to a given line.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openNearestNeighborAnalysis()">📊 NN Analysis</button><span class="geo-tip">Statistically test whether points are clustered together, spread apart, or randomly distributed.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openCombine">🔗 Combine</button><span class="geo-tip">Merge all features of the same type into one multi-feature (multiple Points → one MultiPoint).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openUnion">🔶 Union</button><span class="geo-tip">Merge all polygons into a single shape. Overlapping areas are dissolved together.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDissolve">🫧 Dissolve</button><span class="geo-tip">Merge polygons by a shared attribute, or merge all polygons into one when no field is chosen.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPointsWithinPolygon">📍🔷 Pts in Poly</button><span class="geo-tip">Find which points fall inside which polygons — like counting how many stores are in each district.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPoint">🎯 Nearest Pt</button><span class="geo-tip">Click the map to find the closest feature in a point layer to that location.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPointOnLine">📍→ Snap</button><span class="geo-tip">Click near a line to find the closest point directly on that line (snaps to it).</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPointToLine">📍↔ Pt to Ln</button><span class="geo-tip">Find which point feature in a layer is closest to a given line.</span></span>
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestNeighborAnalysis">📊 NN Analysis</button><span class="geo-tip">Statistically test whether points are clustered together, spread apart, or randomly distributed.</span></span>
                 </div>
             </div>
         </div>`;
@@ -1678,7 +1885,7 @@ function setupMobileFlyoutMenus() {
         const action = item.dataset.action;
         closeFlyouts();
         switch (action) {
-            case 'import': document.getElementById('btn-import')?.click(); break;
+            case 'import': openImportFlow(); break;
             case 'arcgis': openArcGISImporter(); break;
             case 'photos': openPhotoMapper(); break;
             case 'draw': createDrawLayer(); break;
@@ -1719,7 +1926,7 @@ function mobileShowExportModal() {
                 btn.addEventListener('click', () => {
                     const fmt = btn.dataset.export;
                     close(null);
-                    window.app.doExport(fmt);
+                    doExport(fmt);
                 });
             });
         }
@@ -1741,7 +1948,7 @@ function mobileShowWidgetsModal() {
                 btn.addEventListener('click', () => {
                     const fn = btn.dataset.action;
                     close(null);
-                    if (window.app[fn]) window.app[fn]();
+                    invokeAppAction(fn);
                 });
             });
         }
@@ -1786,7 +1993,7 @@ function mobileShowToolsModal() {
                 btn.addEventListener('click', () => {
                     const fn = btn.dataset.action;
                     close(null);
-                    if (window.app[fn]) window.app[fn]();
+                    invokeAppAction(fn);
                 });
             });
         }
@@ -2015,7 +2222,7 @@ function mobileShowDataToolsModal() {
                 btn.addEventListener('click', () => {
                     const fn = btn.dataset.action;
                     close(null);
-                    if (window.app[fn]) window.app[fn]();
+                    invokeAppAction(fn);
                 });
             });
         }
@@ -2123,13 +2330,13 @@ function _coordSearchAddToExisting() {
         width: '360px',
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
             overlay.querySelectorAll('.coord-layer-pick-btn').forEach(btn => {
-                btn.onclick = () => {
+                btn.addEventListener('click', () => {
                     const layer = getLayers().find(l => l.id === btn.dataset.id);
                     if (layer) _addSearchPointToLayer(layer, info);
                     close();
-                };
+                });
             });
         }
     });
@@ -2150,13 +2357,11 @@ function _addSearchPointToLayer(layer, info) {
     saveSnapshot(layer.id, 'Add search point', layer.geojson);
     layer.geojson.features.push(feature);
 
-    import('./core/data-model.js').then(dm => {
-        layer.schema = dm.analyzeSchema(layer.geojson);
-        bus.emit('layer:updated', layer);
-        bus.emit('layers:changed', getLayers());
-        mapService.addLayer(layer, getLayers().indexOf(layer));
-        refreshUI();
-    });
+    layer.schema = analyzeSchema(layer.geojson);
+    bus.emit('layer:updated', layer);
+    bus.emit('layers:changed', getLayers());
+    mapService.addLayer(layer, getLayers().indexOf(layer));
+    refreshUI();
 
     mapService.clearSearchMarker();
     showToast(`Point added to "${layer.name}"`, 'success');
@@ -2230,13 +2435,11 @@ function mobileAddCurrentLocation() {
             saveSnapshot(layer.id, 'Add current location', layer.geojson);
             layer.geojson.features.push(feature);
 
-            import('./core/data-model.js').then(dm => {
-                layer.schema = dm.analyzeSchema(layer.geojson);
-                bus.emit('layer:updated', layer);
-                bus.emit('layers:changed', getLayers());
-                mapService.addLayer(layer, getLayers().indexOf(layer));
-                refreshUI();
-            });
+            layer.schema = analyzeSchema(layer.geojson);
+            bus.emit('layer:updated', layer);
+            bus.emit('layers:changed', getLayers());
+            mapService.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
 
             // Pan map to location (support both legacy setView and MapLibre flyTo APIs)
             const map = mapService.getMap();
@@ -2310,28 +2513,28 @@ function renderMobileDataPanel() {
             const geomBadge = l.schema?.geometryType
                 ? `<span class="badge badge-info">${l.schema.geometryType}</span>` : '';
             const filterBadge = l._activeFilter
-                ? `<span class="layer-filter-badge" title="Filter active" onclick="event.stopPropagation(); window.app.openFilterBuilder('${l.id}')">FILTERED</span>`
+                ? `<span class="layer-filter-badge" title="Filter active" data-app-action="openFilterBuilder" data-app-arg="${l.id}">FILTERED</span>`
                 : '';
             return `
-                <div class="layer-item ${isActive ? 'active' : ''}" data-id="${l.id}" onclick="window.app.setActiveLayer('${l.id}')">
+                <div class="layer-item ${isActive ? 'active' : ''}" data-id="${l.id}" data-layer-id="${l.id}">
                     <span class="layer-icon">${icon}</span>
                     <div class="layer-name-row">
-                        <div class="layer-name">${l.name}</div>
+                        <div class="layer-name" data-layer-rename-id="${l.id}">${l.name}</div>
                         ${filterBadge}
                         <div class="layer-order-btns">
-                            <button title="Move up" ${idx === 0 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerUp('${l.id}')">▲</button>
-                            <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerDown('${l.id}')">▼</button>
+                            <button title="Move up" ${idx === 0 ? 'disabled' : ''} data-app-action="moveLayerUp" data-app-arg="${l.id}">▲</button>
+                            <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} data-app-action="moveLayerDown" data-app-arg="${l.id}">▼</button>
                         </div>
                     </div>
                     <div class="layer-bottom-row">
                         <div class="layer-meta">${count} · ${l.schema?.fields?.length || 0} fields ${geomBadge}</div>
                         <div class="layer-actions">
-                            <button class="btn-icon" title="Rename" onclick="event.stopPropagation(); window.app.renameLayer('${l.id}')">✏️</button>
-                            <button class="btn-icon" title="Toggle visibility" onclick="event.stopPropagation(); window.app.toggleVisibility('${l.id}')">
+                            <button class="btn-icon" title="Rename" data-app-action="renameLayer" data-app-arg="${l.id}">✏️</button>
+                            <button class="btn-icon" title="Toggle visibility" data-app-action="toggleVisibility" data-app-arg="${l.id}">
                                 ${l.visible !== false ? '👁️' : '👁️‍🗨️'}
                             </button>
-                            <button class="btn-icon" title="Zoom to layer" onclick="event.stopPropagation(); window.app.zoomToLayer('${l.id}')">🔍</button>
-                            <button class="btn-icon" title="Remove" onclick="event.stopPropagation(); window.app.removeLayer('${l.id}')">🗑️</button>
+                            <button class="btn-icon" title="Zoom to layer" data-app-action="zoomToLayer" data-app-arg="${l.id}">🔍</button>
+                            <button class="btn-icon" title="Remove" data-app-action="removeLayer" data-app-arg="${l.id}">🗑️</button>
                         </div>
                     </div>
                 </div>`;
@@ -2344,7 +2547,7 @@ function renderMobileDataPanel() {
         html += `<div style="display:flex;flex-direction:column;gap:1px;">`;
         html += (layer.schema?.fields || []).map(f => `
             <div class="field-item">
-                <input type="checkbox" ${f.selected ? 'checked' : ''} onchange="window.app.toggleField('${f.name}', this.checked)">
+                <input type="checkbox" ${f.selected ? 'checked' : ''} data-field-toggle="${f.name}">
                 <span class="field-name">${f.name}</span>
                 <span class="field-type">${f.type}</span>
             </div>
@@ -2369,16 +2572,16 @@ function renderMobilePrepPanel() {
     el.innerHTML = `
         <h3>Layer Data Tools</h3>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openSplitColumn()">Split Column</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openCombineColumns()">Combine</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openTemplateBuilder()">Template</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openReplaceClean()">Replace/Clean</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openTypeConvert()">Type Convert</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openFilterBuilder()">Filter</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openDeduplicate()">Dedup</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openJoinTool()">Join</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openValidation()">Validate</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.addUID()">Add UID</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openSplitColumn">Split Column</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openCombineColumns">Combine</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openTemplateBuilder">Template</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openReplaceClean">Replace/Clean</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openTypeConvert">Type Convert</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openFilterBuilder">Filter</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openDeduplicate">Dedup</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openJoinTool">Join</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openValidation">Validate</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="addUID">Add UID</button>
         </div>`;
 }
 
@@ -2394,27 +2597,27 @@ function renderMobileToolsPanel() {
     el.innerHTML = `
         <h3>GIS Tools</h3>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-            <button class="btn-selection-toggle" onclick="window.app.toggleSelectionMode()">✦ Select</button>
-            <button class="btn btn-sm btn-secondary" onclick="window.app.clearSelection()">Clear</button>
+            <button class="btn-selection-toggle" data-app-action="toggleSelectionMode">✦ Select</button>
+            <button class="btn btn-sm btn-secondary" data-app-action="clearSelection">Clear</button>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" onclick="window.app.mergeLayers()">🔗 Merge Layers</button>' : ''}
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openDistanceTool()">📏 Distance</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openBearingTool()">🧭 Bearing</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openBuffer()">⭕ Buffer</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openBboxClip()">✂️ BBox Clip</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openClip()">🔲 Clip Extent</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openSimplify()">〰️ Simplify</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openBezierSpline()">🌊 Spline</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openPolygonSmooth()">🔵 Smooth</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openUnion()">🔶 Union</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openDissolve()">🫧 Dissolve</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openCombine()">🔗 Combine</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openKinks()">⚠ Kinks</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openNearestNeighborAnalysis()">📊 NN Analysis</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openCoordConverter()">🌐 Coord Convert</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openPhotoMapper()">📷 Photo Map</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openArcGISImporter()">🌐 ArcGIS REST</button>
+            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" data-app-action="mergeLayers">🔗 Merge Layers</button>' : ''}
+            <button class="btn btn-secondary btn-sm" data-app-action="openDistanceTool">📏 Distance</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openBearingTool">🧭 Bearing</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openBuffer">⭕ Buffer</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openBboxClip">✂️ BBox Clip</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openClip">🔲 Clip Extent</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openSimplify">〰️ Simplify</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openBezierSpline">🌊 Spline</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openPolygonSmooth">🔵 Smooth</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openUnion">🔶 Union</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openDissolve">🫧 Dissolve</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openCombine">🔗 Combine</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openKinks">⚠ Kinks</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openNearestNeighborAnalysis">📊 NN Analysis</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openCoordConverter">🌐 Coord Convert</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openPhotoMapper">📷 Photo Map</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openArcGISImporter">🌐 ArcGIS REST</button>
         </div>
         <h3 style="margin-top:10px;">Basemap</h3>
         <select id="basemap-select-mobile" style="width:100%;">
@@ -2444,8 +2647,8 @@ function renderMobileExportPanel() {
             <span>AGOL Compatible</span>
         </label>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
-            ${formats.map(f =>
-                `<button class="btn btn-primary btn-sm" onclick="window.app.doExport('${f.key}')">${f.label}</button>`
+            ${formats.map((f) =>
+                `<button class="btn btn-primary btn-sm" data-app-action="doExport" data-app-arg="${f.key}">${f.label}</button>`
             ).join('')}
         </div>`;
     el.querySelector('#agol-toggle-mobile')?.addEventListener('change', () => {
@@ -2502,22 +2705,18 @@ function applyTransform(name, newFeatures) {
     if (layer.type === 'spatial') {
         saveSnapshot(layer.id, name, layer.geojson);
         layer.geojson = { type: 'FeatureCollection', features: newFeatures };
-        import('./core/data-model.js').then(dm => {
-            layer.schema = dm.analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            mapService.addLayer(layer, getLayers().indexOf(layer));
-            refreshUI();
-        });
+        layer.schema = analyzeSchema(layer.geojson);
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        mapService.addLayer(layer, getLayers().indexOf(layer));
+        refreshUI();
     } else if (layer.type === 'table') {
         saveSnapshot(layer.id, name, layer.rows);
         layer.rows = newFeatures.map(f => f.properties ? { ...f.properties } : f);
-        import('./core/data-model.js').then(dm => {
-            layer.schema = dm.analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            refreshUI();
-        });
+        layer.schema = analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        refreshUI();
     }
     showToast(`Applied: ${name}`, 'success');
 }
@@ -2526,6 +2725,34 @@ function applyTransform(name, newFeatures) {
 async function openSplitColumn() {
     const fields = getFieldNames();
     if (fields.length === 0) return showToast('No fields available', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `split-column-react-${Date.now()}`;
+        showModal('Split Column', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountSplitColumnDialog } = await import('../react/tools/mountSplitColumnDialog.jsx');
+                const mounted = mountSplitColumnDialog(root, {
+                    fields,
+                    onCancel: () => close(),
+                    onApply: ({ field, delimiter, customDelimiter, trim, maxParts }) => {
+                        let delim = delimiter;
+                        if (delim === 'custom') delim = customDelimiter || ',';
+                        const result = transforms.splitColumn(getFeatures(), field, {
+                            delimiter: delim,
+                            trim,
+                            maxParts: parseInt(maxParts) || 0
+                        });
+                        applyTransform(`Split: ${field}`, result);
+                        close();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     const html = `
         <div class="form-group"><label>Field to split</label>
@@ -2541,11 +2768,11 @@ async function openSplitColumn() {
     showModal('Split Column', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('#sc-delim').onchange = (e) => {
+            overlay.querySelector('#sc-delim')?.addEventListener('change', (e) => {
                 overlay.querySelector('#sc-custom-wrap').classList.toggle('hidden', e.target.value !== 'custom');
-            };
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            });
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 let delim = overlay.querySelector('#sc-delim').value;
                 if (delim === 'custom') delim = overlay.querySelector('#sc-custom').value || ',';
                 const field = overlay.querySelector('#sc-field').value;
@@ -2556,7 +2783,7 @@ async function openSplitColumn() {
                 });
                 applyTransform(`Split: ${field}`, result);
                 close();
-            };
+            });
         }
     });
 }
@@ -2565,6 +2792,33 @@ async function openSplitColumn() {
 async function openCombineColumns() {
     const fields = getFieldNames();
     if (fields.length < 2) return showToast('Need at least 2 fields', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `combine-columns-react-${Date.now()}`;
+        showModal('Combine Columns', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountCombineColumnsDialog } = await import('../react/tools/mountCombineColumnsDialog.jsx');
+                const mounted = mountCombineColumnsDialog(root, {
+                    fields,
+                    onCancel: () => close(),
+                    onApply: ({ selectedFields, delimiter, outputField, skipBlanks }) => {
+                        if (selectedFields.length === 0) return showToast('Select at least one field', 'warning');
+                        const result = transforms.combineColumns(getFeatures(), selectedFields, {
+                            delimiter,
+                            outputField: outputField || 'combined',
+                            skipBlanks
+                        });
+                        applyTransform('Combine columns', result);
+                        close();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     const html = `
         <div class="form-group"><label>Select fields to combine</label>
@@ -2580,8 +2834,8 @@ async function openCombineColumns() {
     showModal('Combine Columns', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const selected = Array.from(overlay.querySelectorAll('#cc-fields-list input[type=checkbox]:checked')).map(el => el.value).filter(Boolean);
                 if (selected.length === 0) return showToast('Select at least one field', 'warning');
                 const result = transforms.combineColumns(getFeatures(), selected, {
@@ -2591,7 +2845,7 @@ async function openCombineColumns() {
                 });
                 applyTransform('Combine columns', result);
                 close();
-            };
+            });
         }
     });
 }
@@ -2645,7 +2899,7 @@ async function openTemplateBuilder() {
             textarea.addEventListener('input', updatePreview);
             overlay.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', updatePreview));
 
-            overlay.querySelector('#tb-insert').onclick = () => {
+            overlay.querySelector('#tb-insert')?.addEventListener('click', () => {
                 const field = overlay.querySelector('#tb-field-select').value;
                 const pos = textarea.selectionStart;
                 const before = textarea.value.slice(0, pos);
@@ -2653,10 +2907,10 @@ async function openTemplateBuilder() {
                 textarea.value = before + `{${field}}` + after;
                 textarea.focus();
                 updatePreview();
-            };
+            });
 
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const template = textarea.value;
                 if (!template) return showToast('Enter a template', 'warning');
                 const outputField = overlay.querySelector('#tb-output').value || 'template_result';
@@ -2670,7 +2924,7 @@ async function openTemplateBuilder() {
                 const result = applyTemplate(features, template, outputField, opts);
                 applyTransform(`Template: ${outputField}`, result);
                 close();
-            };
+            });
 
             updatePreview();
         }
@@ -2681,6 +2935,34 @@ async function openTemplateBuilder() {
 async function openReplaceClean() {
     const fields = getFieldNames();
     if (fields.length === 0) return showToast('No fields available', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `replace-clean-react-${Date.now()}`;
+        showModal('Replace / Clean Text', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountReplaceCleanDialog } = await import('../react/tools/mountReplaceCleanDialog.jsx');
+                const mounted = mountReplaceCleanDialog(root, {
+                    fields,
+                    onCancel: () => close(),
+                    onApply: ({ field, find, replace, trimWhitespace, collapseSpaces, caseTransform }) => {
+                        const result = transforms.replaceText(getFeatures(), field, {
+                            find,
+                            replace,
+                            trimWhitespace,
+                            collapseSpaces,
+                            caseTransform: caseTransform || null
+                        });
+                        applyTransform('Replace/Clean', result);
+                        close();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     const html = `
         <div class="form-group"><label>Field</label>
@@ -2697,8 +2979,8 @@ async function openReplaceClean() {
     showModal('Replace / Clean Text', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const result = transforms.replaceText(getFeatures(), overlay.querySelector('#rc-field').value, {
                     find: overlay.querySelector('#rc-find').value,
                     replace: overlay.querySelector('#rc-replace').value,
@@ -2708,7 +2990,7 @@ async function openReplaceClean() {
                 });
                 applyTransform('Replace/Clean', result);
                 close();
-            };
+            });
         }
     });
 }
@@ -2716,6 +2998,34 @@ async function openReplaceClean() {
 // Type Convert
 async function openTypeConvert() {
     const fields = getFieldNames();
+
+    if (_isReactToolDialogs) {
+        const rootId = `type-convert-react-${Date.now()}`;
+        showModal('Type Convert', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountTypeConvertDialog } = await import('../react/tools/mountTypeConvertDialog.jsx');
+                const mounted = mountTypeConvertDialog(root, {
+                    fields,
+                    onCancel: () => close(),
+                    onApply: ({ field, type }) => {
+                        const { features: result, failures } = transforms.typeConvert(
+                            getFeatures(),
+                            field,
+                            type
+                        );
+                        applyTransform('Type Convert', result);
+                        if (failures > 0) showToast(`${failures} values could not be converted`, 'warning');
+                        close();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <div class="form-group"><label>Field</label>
             <select id="tc-field">${fields.map(f => `<option>${f}</option>`).join('')}</select></div>
@@ -2725,8 +3035,8 @@ async function openTypeConvert() {
     showModal('Type Convert', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const { features: result, failures } = transforms.typeConvert(
                     getFeatures(),
                     overlay.querySelector('#tc-field').value,
@@ -2735,7 +3045,7 @@ async function openTypeConvert() {
                 applyTransform('Type Convert', result);
                 if (failures > 0) showToast(`${failures} values could not be converted`, 'warning');
                 close();
-            };
+            });
         }
     });
 }
@@ -2776,7 +3086,7 @@ async function openFilterBuilder(targetLayerId) {
                     <select class="rule-field" style="flex:1">${fields.map(f => `<option ${preset?.field === f ? 'selected' : ''}>${f}</option>`).join('')}</select>
                     <select class="rule-op" style="flex:1">${operators.map(o => `<option value="${o.value}" ${preset?.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}</select>
                     <input type="text" class="rule-val" placeholder="value" style="flex:1" value="${preset?.value ?? ''}">
-                    <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
+                    <button class="btn-icon" data-remove-parent="true">✕</button>
                 </div>`;
                 rulesContainer.insertAdjacentHTML('beforeend', ruleHtml);
             };
@@ -2788,34 +3098,39 @@ async function openFilterBuilder(targetLayerId) {
                 addRule();
             }
 
-            overlay.querySelector('#fb-add-rule').onclick = () => addRule();
-            overlay.querySelector('.cancel-btn').onclick = () => close();
+            rulesContainer.addEventListener('click', (event) => {
+                const removeButton = event.target.closest('[data-remove-parent="true"]');
+                if (!removeButton) return;
+                event.preventDefault();
+                removeButton.parentElement?.remove();
+            });
+
+            overlay.querySelector('#fb-add-rule')?.addEventListener('click', () => addRule());
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
 
             // Remove filter button
             const removeFilterBtn = overlay.querySelector('#fb-remove-filter');
             if (removeFilterBtn) {
-                removeFilterBtn.onclick = () => {
+                removeFilterBtn.addEventListener('click', () => {
                     if (layer._preFilterSnapshot) {
                         saveSnapshot(layer.id, 'Remove Filter', layer.geojson);
                         layer.geojson = JSON.parse(JSON.stringify(layer._preFilterSnapshot));
                         delete layer._activeFilter;
                         delete layer._preFilterSnapshot;
-                        import('./core/data-model.js').then(dm => {
-                            layer.schema = dm.analyzeSchema(layer.geojson);
-                            bus.emit('layer:updated', layer);
-                            bus.emit('layers:changed', getLayers());
-                            mapService.addLayer(layer, getLayers().indexOf(layer));
-                            refreshUI();
-                        });
+                        layer.schema = analyzeSchema(layer.geojson);
+                        bus.emit('layer:updated', layer);
+                        bus.emit('layers:changed', getLayers());
+                        mapService.addLayer(layer, getLayers().indexOf(layer));
+                        refreshUI();
                         showToast('Filter removed', 'success');
                     } else {
                         showToast('No snapshot — use Undo to revert', 'info');
                     }
                     close();
-                };
+                });
             }
 
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const rules = Array.from(rulesContainer.querySelectorAll('[data-rule]')).map(el => ({
                     field: el.querySelector('.rule-field').value,
                     operator: el.querySelector('.rule-op').value,
@@ -2849,7 +3164,7 @@ async function openFilterBuilder(targetLayerId) {
                 }
                 layer._activeFilter = { rules, logic };
                 applyTransform(`Filter (${result.length} results)`, result);
-            };
+            });
         }
     });
 }
@@ -2857,6 +3172,34 @@ async function openFilterBuilder(targetLayerId) {
 // Deduplicate
 async function openDeduplicate() {
     const fields = getFieldNames();
+
+    if (_isReactToolDialogs) {
+        const rootId = `deduplicate-react-${Date.now()}`;
+        showModal('Deduplicate', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountDeduplicateDialog } = await import('../react/tools/mountDeduplicateDialog.jsx');
+                const mounted = mountDeduplicateDialog(root, {
+                    fields,
+                    onCancel: () => close(),
+                    onApply: ({ keyFields, keep }) => {
+                        if (keyFields.length === 0) return showToast('Select at least one key field', 'warning');
+                        const { features: result, removed } = transforms.deduplicate(
+                            getFeatures(),
+                            keyFields,
+                            keep
+                        );
+                        applyTransform(`Deduplicate (${removed} removed)`, result);
+                        close();
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <div class="form-group"><label>Key fields for dedup</label>
             <div style="max-height:150px;overflow-y:auto;">
@@ -2868,8 +3211,8 @@ async function openDeduplicate() {
     showModal('Deduplicate', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const keyFields = Array.from(overlay.querySelectorAll('input[type=checkbox]:checked')).map(el => el.value);
                 if (keyFields.length === 0) return showToast('Select at least one key field', 'warning');
                 const { features: result, removed } = transforms.deduplicate(
@@ -2877,7 +3220,7 @@ async function openDeduplicate() {
                 );
                 applyTransform(`Deduplicate (${removed} removed)`, result);
                 close();
-            };
+            });
         }
     });
 }
@@ -2902,7 +3245,7 @@ async function openJoinTool() {
         onMount: (overlay, close) => {
             let joinRows = [];
 
-            overlay.querySelector('#join-file').onchange = async (e) => {
+            overlay.querySelector('#join-file')?.addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 try {
@@ -2923,10 +3266,10 @@ async function openJoinTool() {
                 } catch (err) {
                     showToast('Failed to load join file: ' + err.message, 'error');
                 }
-            };
+            });
 
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const leftKey = overlay.querySelector('#join-left-key').value;
                 const rightKey = overlay.querySelector('#join-right-key').value;
                 const fieldsToJoin = Array.from(overlay.querySelectorAll('#join-fields-list input:checked')).map(el => el.value);
@@ -2948,7 +3291,7 @@ async function openJoinTool() {
                 }
                 const { features: result, matched, unmatched } = joinResult;
                 applyTransform(`Join (${matched} matched, ${unmatched} unmatched)`, result);
-            };
+            });
         }
     });
 }
@@ -2978,14 +3321,20 @@ async function openValidation() {
                             <option value="allowed_values">Allowed Values</option>
                         </select>
                         <input type="text" class="val-extra" placeholder="min,max or val1,val2" style="flex:1">
-                        <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
+                        <button class="btn-icon" data-remove-parent="true">✕</button>
                     </div>`);
             };
 
             addRule();
-            overlay.querySelector('#val-add').onclick = addRule;
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            container.addEventListener('click', (event) => {
+                const removeButton = event.target.closest('[data-remove-parent="true"]');
+                if (!removeButton) return;
+                event.preventDefault();
+                removeButton.parentElement?.remove();
+            });
+            overlay.querySelector('#val-add')?.addEventListener('click', addRule);
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const rules = Array.from(container.querySelectorAll('[data-rule]')).map(el => {
                     const rule = {
                         field: el.querySelector('.val-field').value,
@@ -3009,7 +3358,7 @@ async function openValidation() {
                     showToast(`First errors:\n${detail}`, 'warning', { duration: 10000 });
                 }
                 close();
-            };
+            });
         }
     });
 }
@@ -3078,8 +3427,8 @@ async function openBuffer() {
     showModal('Buffer', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Buffer</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const dist = parseFloat(overlay.querySelector('#buf-dist').value);
                 const units = overlay.querySelector('#buf-units').value;
                 close();
@@ -3095,7 +3444,7 @@ async function openBuffer() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Buffer'));
                 }
-            };
+            });
         }
     });
 }
@@ -3148,8 +3497,8 @@ async function openSimplify() {
     showModal('Simplify Geometries', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Simplify</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const tol = parseFloat(overlay.querySelector('#simp-tol').value);
                 close();
                 try {
@@ -3165,7 +3514,7 @@ async function openSimplify() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Simplify'));
                 }
-            };
+            });
         }
     });
 }
@@ -3215,8 +3564,8 @@ async function openClip() {
     showModal('Clip to Current Map Extent', `<p>This will clip features to the current visible map area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Clip</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 const bounds = mapService.getBounds();
                 if (!bounds) return showToast('Map bounds not available', 'warning');
@@ -3233,7 +3582,7 @@ async function openClip() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Clip'));
                 }
-            };
+            });
         }
     });
 }
@@ -3337,14 +3686,12 @@ async function deleteSelectedFeatures() {
     saveSnapshot(layer.id, `Delete ${indices.length} feature(s)`, layer.geojson);
     layer.geojson = { type: 'FeatureCollection', features: remaining };
 
-    import('./core/data-model.js').then(dm => {
-        layer.schema = dm.analyzeSchema(layer.geojson);
-        bus.emit('layer:updated', layer);
-        bus.emit('layers:changed', getLayers());
-        mapService.clearSelection(layer.id);
-        mapService.addLayer(layer, getLayers().indexOf(layer));
-        refreshUI();
-    });
+    layer.schema = analyzeSchema(layer.geojson);
+    bus.emit('layer:updated', layer);
+    bus.emit('layers:changed', getLayers());
+    mapService.clearSelection(layer.id);
+    mapService.addLayer(layer, getLayers().indexOf(layer));
+    refreshUI();
     showToast(`Deleted ${indices.length} feature(s)`, 'success');
 }
 
@@ -3369,10 +3716,10 @@ function updateSelectionUI() {
         bar.classList.remove('hidden');
         bar.innerHTML = `
             <span class="sel-count">${count}</span> of ${total} features selected
-            <button class="sel-btn" onclick="window.app.selectAllFeatures()">All</button>
-            <button class="sel-btn" onclick="window.app.invertSelection()">Invert</button>
-            <button class="sel-btn" onclick="window.app.deleteSelectedFeatures()" title="Delete selected features" style="color:var(--error);">🗑 Delete</button>
-            <button class="sel-btn sel-clear" onclick="window.app.clearSelection()">✕ Clear</button>
+            <button class="sel-btn" data-app-action="selectAllFeatures">All</button>
+            <button class="sel-btn" data-app-action="invertSelection">Invert</button>
+            <button class="sel-btn" data-app-action="deleteSelectedFeatures" title="Delete selected features" style="color:var(--error);">🗑 Delete</button>
+            <button class="sel-btn sel-clear" data-app-action="clearSelection">✕ Clear</button>
         `;
     } else {
         bar.classList.add('hidden');
@@ -3457,8 +3804,8 @@ async function openDistanceTool() {
     showModal('Measure Distance', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const units = overlay.querySelector('#dist-units').value;
                 close();
                 const pts = await mapService.startTwoPointPick('Click the first point', 'Click the second point');
@@ -3467,7 +3814,7 @@ async function openDistanceTool() {
                 const line = turf.lineString([pts[0], pts[1]]);
                 mapService.showTempFeature(line, 15000);
                 showToast(`Distance: ${d.toFixed(4)} ${units}`, 'success', { duration: 10000 });
-            };
+            });
         }
     });
 }
@@ -3506,8 +3853,8 @@ async function openBearingTool() {
     showModal('Measure Bearing', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 const pts = await mapService.startTwoPointPick('Click the origin point', 'Click the target point');
                 if (!pts) return;
@@ -3516,7 +3863,7 @@ async function openBearingTool() {
                 mapService.showTempFeature(line, 15000);
                 const cardinal = bearingToCardinal(b);
                 showToast(`Bearing: ${b.toFixed(2)}° (${cardinal})`, 'success', { duration: 10000 });
-            };
+            });
         }
     });
 }
@@ -3567,8 +3914,8 @@ async function openDestinationTool() {
     showModal('Find Destination Point', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Origin on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const dist = parseFloat(overlay.querySelector('#dest-dist').value);
                 const brng = parseFloat(overlay.querySelector('#dest-bearing').value);
                 const units = overlay.querySelector('#dest-units').value;
@@ -3579,7 +3926,7 @@ async function openDestinationTool() {
                 const line = turf.lineString([origin, dest.geometry.coordinates]);
                 mapService.showTempFeature({type:'FeatureCollection',features:[dest, line]}, 15000);
                 showToast(`Destination: [${dest.geometry.coordinates[1].toFixed(6)}, ${dest.geometry.coordinates[0].toFixed(6)}]`, 'success', { duration: 10000 });
-            };
+            });
         }
     });
 }
@@ -3632,8 +3979,8 @@ async function openAlongTool() {
     showModal('Point Along Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Point</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const dist = parseFloat(overlay.querySelector('#along-dist').value);
                 const units = overlay.querySelector('#along-units').value;
                 close();
@@ -3646,7 +3993,7 @@ async function openAlongTool() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Along'));
                 }
-            };
+            });
         }
     });
 }
@@ -3715,8 +4062,8 @@ async function openPointToLineDistanceTool() {
     showModal('Point to Line Distance', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Point on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const layerId = overlay.querySelector('#ptl-layer').value;
                 const units = overlay.querySelector('#ptl-units').value;
                 const lineLayer = getLayers().find(l => l.id === layerId);
@@ -3736,7 +4083,7 @@ async function openPointToLineDistanceTool() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'PointToLineDistance'));
                 }
-            };
+            });
         }
     });
 }
@@ -3781,8 +4128,8 @@ async function openBboxClip() {
     showModal('BBox Clip', `<p>Draw a rectangle on the map to clip features to that area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Draw Rectangle on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 const bbox = await mapService.startRectangleDraw('Click and drag to draw a clip rectangle');
                 if (!bbox) return;
@@ -3793,7 +4140,7 @@ async function openBboxClip() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'BBoxClip'));
                 }
-            };
+            });
         }
     });
 }
@@ -3843,8 +4190,8 @@ async function openBezierSpline() {
     showModal('Bezier Spline', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const res = parseInt(overlay.querySelector('#spline-res').value);
                 const sharp = parseFloat(overlay.querySelector('#spline-sharp').value);
                 close();
@@ -3855,7 +4202,7 @@ async function openBezierSpline() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'BezierSpline'));
                 }
-            };
+            });
         }
     });
 }
@@ -3906,8 +4253,8 @@ async function openPolygonSmooth() {
     showModal('Polygon Smooth', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Smooth</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const iter = parseInt(overlay.querySelector('#smooth-iter').value);
                 close();
                 try {
@@ -3920,7 +4267,7 @@ async function openPolygonSmooth() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'PolygonSmooth'));
                 }
-            };
+            });
         }
     });
 }
@@ -3970,8 +4317,8 @@ async function openLineOffset() {
     showModal('Line Offset', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Offset</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const dist = parseFloat(overlay.querySelector('#offset-dist').value);
                 const units = overlay.querySelector('#offset-units').value;
                 close();
@@ -3982,7 +4329,7 @@ async function openLineOffset() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'LineOffset'));
                 }
-            };
+            });
         }
     });
 }
@@ -4036,8 +4383,8 @@ async function openLineSliceAlong() {
     showModal('Line Slice Along', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Slice</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const start = parseFloat(overlay.querySelector('#slice-start').value);
                 const stop = parseFloat(overlay.querySelector('#slice-stop').value);
                 const units = overlay.querySelector('#slice-units').value;
@@ -4055,7 +4402,7 @@ async function openLineSliceAlong() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'LineSliceAlong'));
                 }
-            };
+            });
         }
     });
 }
@@ -4103,8 +4450,8 @@ async function openLineSlice() {
     showModal('Line Slice Between Points', '<p>Click two points on the map. The section of the line between those points (snapped to nearest vertices) will be extracted.</p>', {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 const pts = await mapService.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
                 if (!pts) return;
@@ -4121,7 +4468,7 @@ async function openLineSlice() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'LineSlice'));
                 }
-            };
+            });
         }
     });
 }
@@ -4195,8 +4542,8 @@ async function openLineIntersect() {
     showModal('Line Intersect', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Intersections</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const l1 = getLayers().find(l => l.id === overlay.querySelector('#lint-layer1').value);
                 const l2 = getLayers().find(l => l.id === overlay.querySelector('#lint-layer2').value);
                 close();
@@ -4218,7 +4565,7 @@ async function openLineIntersect() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'LineIntersect'));
                 }
-            };
+            });
         }
     });
 }
@@ -4261,8 +4608,8 @@ async function openKinks() {
     showModal('Find Kinks (Self-Intersections)', `<p>Find all points where lines or polygon edges cross over themselves. Useful for detecting geometry errors.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Kinks</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 try {
                     const result = await gisTools.findKinks(getWorkingDataset(layer));
@@ -4271,7 +4618,7 @@ async function openKinks() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Kinks'));
                 }
-            };
+            });
         }
     });
 }
@@ -4314,8 +4661,8 @@ async function openCombine() {
     showModal('Combine Features', `<p>Merge all features of the same geometry type into a single Multi-geometry feature (e.g., multiple Points → one MultiPoint).</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Combine</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 close();
                 try {
                     const result = gisTools.combineFeatures(getWorkingDataset(layer));
@@ -4324,7 +4671,7 @@ async function openCombine() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Combine'));
                 }
-            };
+            });
         }
     });
 }
@@ -4372,8 +4719,8 @@ async function openUnion() {
         ${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Union</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 close();
                 try {
                     const result = await gisTools.unionFeatures(getWorkingDataset(layer));
@@ -4382,7 +4729,7 @@ async function openUnion() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Union'));
                 }
-            };
+            });
         }
     });
 }
@@ -4439,8 +4786,8 @@ async function openDissolve() {
     showModal('Dissolve', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Dissolve</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const field = overlay.querySelector('#diss-field').value;
                 close();
                 try {
@@ -4454,7 +4801,7 @@ async function openDissolve() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Dissolve'));
                 }
-            };
+            });
         }
     });
 }
@@ -4507,8 +4854,8 @@ async function openSector() {
     showModal('Create Sector', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Center on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const radius = parseFloat(overlay.querySelector('#sector-radius').value);
                 const b1 = parseFloat(overlay.querySelector('#sector-b1').value);
                 const b2 = parseFloat(overlay.querySelector('#sector-b2').value);
@@ -4526,7 +4873,7 @@ async function openSector() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'Sector'));
                 }
-            };
+            });
         }
     });
 }
@@ -4594,8 +4941,8 @@ async function openNearestPoint() {
     showModal('Nearest Point', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Location on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const layerId = overlay.querySelector('#np-layer').value;
                 const units = overlay.querySelector('#np-units').value;
                 const ptLayer = getLayers().find(l => l.id === layerId);
@@ -4614,7 +4961,7 @@ async function openNearestPoint() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPoint'));
                 }
-            };
+            });
         }
     });
 }
@@ -4685,8 +5032,8 @@ async function openNearestPointOnLine() {
     showModal('Nearest Point on Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Point on Map</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const layerId = overlay.querySelector('#npol-layer').value;
                 const units = overlay.querySelector('#npol-units').value;
                 const lineLayer = getLayers().find(l => l.id === layerId);
@@ -4707,7 +5054,7 @@ async function openNearestPointOnLine() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPointOnLine'));
                 }
-            };
+            });
         }
     });
 }
@@ -4792,8 +5139,8 @@ async function openNearestPointToLine() {
     showModal('Nearest Point to Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const ptsLayer = getLayers().find(l => l.id === overlay.querySelector('#nptl-pts').value);
                 const lineLayer = getLayers().find(l => l.id === overlay.querySelector('#nptl-line').value);
                 const units = overlay.querySelector('#nptl-units').value;
@@ -4812,7 +5159,7 @@ async function openNearestPointToLine() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPointToLine'));
                 }
-            };
+            });
         }
     });
 }
@@ -4864,8 +5211,8 @@ async function openNearestNeighborAnalysis() {
     showModal('Nearest Neighbor Analysis', '<p>Analyze the spatial distribution of points. Returns statistical metrics that indicate whether points are clustered, random, or dispersed.</p>', {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Run Analysis</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 close();
                 try {
                     const result = gisTools.nearestNeighborAnalysis(layer);
@@ -4904,7 +5251,7 @@ async function openNearestNeighborAnalysis() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestNeighborAnalysis'));
                 }
-            };
+            });
         }
     });
 }
@@ -4912,9 +5259,67 @@ async function openNearestNeighborAnalysis() {
 // --- Points Within Polygon ---
 async function openPointsWithinPolygon() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
-    const ptLayers = layerOptions(['Point']);
-    const polyLayers = layerOptions(['Polygon', 'MultiPolygon']);
-    if (!ptLayers || !polyLayers) return showToast('Need both a point layer and a polygon layer', 'warning');
+    const pointLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) => f.geometry && f.geometry.type === 'Point'))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    const polygonLayerDefs = getLayers()
+        .filter((layer) =>
+            layer.type === 'spatial'
+            && layer.geojson.features.some((f) =>
+                f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')))
+        .map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            count: layer.geojson.features.length
+        }));
+    if (pointLayerDefs.length === 0 || polygonLayerDefs.length === 0) return showToast('Need both a point layer and a polygon layer', 'warning');
+
+    if (_isReactToolDialogs) {
+        const rootId = `points-within-polygon-react-${Date.now()}`;
+        showModal('Points Within Polygon', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountPointsWithinPolygonDialog } = await import('../react/tools/mountPointsWithinPolygonDialog.jsx');
+                const mounted = mountPointsWithinPolygonDialog(root, {
+                    pointLayers: pointLayerDefs,
+                    polygonLayers: polygonLayerDefs,
+                    onCancel: () => close(),
+                    onFind: ({ pointLayerId, polygonLayerId }) => {
+                        const ptsLayer = getLayers().find((layer) => layer.id === pointLayerId);
+                        const polyLayer = getLayers().find((layer) => layer.id === polygonLayerId);
+                        close();
+                        if (!ptsLayer || !polyLayer) return;
+                        try {
+                            const result = gisTools.pointsWithinPolygon(ptsLayer, polyLayer);
+                            addResultLayer(result);
+                            const total = ptsLayer.geojson.features.length;
+                            const inside = result.geojson.features.length;
+                            showToast(`${inside} of ${total} points are within the polygon(s)`, 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'GISTools', 'PointsWithinPolygon'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
+    const ptLayers = pointLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
+    const polyLayers = polygonLayerDefs
+        .map((layer) => `<option value="${layer.id}">${layer.name} (${layer.count})</option>`)
+        .join('');
 
     const html = `
         <p>Find all points from one layer that fall inside polygons from another layer.</p>
@@ -4925,8 +5330,8 @@ async function openPointsWithinPolygon() {
     showModal('Points Within Polygon', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Points</button>',
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const ptsLayer = getLayers().find(l => l.id === overlay.querySelector('#pwp-pts').value);
                 const polyLayer = getLayers().find(l => l.id === overlay.querySelector('#pwp-polys').value);
                 close();
@@ -4940,7 +5345,7 @@ async function openPointsWithinPolygon() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'PointsWithinPolygon'));
                 }
-            };
+            });
         }
     });
 }
@@ -4970,6 +5375,49 @@ async function openCoordConverter() {
     // Auto-detect lat/lon fields
     const latGuess = fields.find(f => /^(lat|latitude|y)$/i.test(f)) || fields[0] || '';
     const lonGuess = fields.find(f => /^(lon|lng|longitude|long|x)$/i.test(f)) || (fields[1] || '');
+
+    if (_isReactToolDialogs) {
+        const rootId = `coord-converter-react-${Date.now()}`;
+        showModal('Coordinate Converter', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountCoordConverterDialog } = await import('../react/tools/mountCoordConverterDialog.jsx');
+                const mounted = mountCoordConverterDialog(root, {
+                    isSpatial,
+                    fields,
+                    latGuess,
+                    lonGuess,
+                    onCancel: () => close(),
+                    onConvert: async ({ source, toFormat, prefix, fromFormat, latField, lonField }) => {
+                        close();
+                        try {
+                            const features = getFeatures();
+
+                            const opts = {
+                                toFormat,
+                                useGeometry: source === 'geometry',
+                                fromFormat: source === 'geometry' ? 'dd' : fromFormat,
+                                latField: source === 'fields' ? latField : null,
+                                lonField: source === 'fields' ? lonField : null,
+                                outputPrefix: prefix?.trim() || undefined
+                            };
+
+                            const { features: converted, converted: count, failed } = convertFeatureCoords(features, opts);
+                            applyTransform('Coordinate Convert', converted);
+                            const msg = `Converted ${count} coordinates to ${toFormat.toUpperCase()}`;
+                            showToast(failed > 0 ? `${msg} (${failed} failed)` : msg, failed > 0 ? 'warning' : 'success');
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'Coordinates', 'Convert'));
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
 
     const html = `
         <div class="form-group"><label>Coordinate Source</label>
@@ -5009,15 +5457,14 @@ async function openCoordConverter() {
                 overlay.querySelector('#cc-field-opts').style.display = e.target.value === 'geometry' ? 'none' : '';
             });
 
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = async () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
                 const source = overlay.querySelector('#cc-source').value;
                 const toFormat = overlay.querySelector('#cc-to').value;
                 const prefix = overlay.querySelector('#cc-prefix').value.trim() || undefined;
 
                 close();
                 try {
-                    const { convertFeatureCoords } = await import('./tools/coordinates.js');
                     const features = getFeatures();
 
                     const opts = {
@@ -5036,7 +5483,7 @@ async function openCoordConverter() {
                 } catch (e) {
                     showErrorToast(handleError(e, 'Coordinates', 'Convert'));
                 }
-            };
+            });
         }
     });
 }
@@ -5045,6 +5492,30 @@ async function openCoordConverter() {
 // Photo Mapper modal
 // ============================
 async function openPhotoMapper() {
+    if (_isReactToolDialogs) {
+        const rootId = `photo-mapper-react-${Date.now()}`;
+        showModal('Photo Mapper', `<div id="${rootId}"></div>`, {
+            width: '700px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountPhotoMapperDialog } = await import('../react/tools/mountPhotoMapperDialog.jsx');
+                const mounted = mountPhotoMapperDialog(root, {
+                    onCancel: () => close(),
+                    onProcessFiles: async (files) => processPhotoFilesForReact(files),
+                    onConfirm: ({ useFullSize }) => {
+                        photoMapper._useFullSize = !!useFullSize;
+                        close();
+                        showToast('Photos added to map. Use Export to save in any format.', 'success');
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         <div class="drop-zone" id="photo-drop" style="margin-bottom:16px;">
             <div style="font-size:24px; margin-bottom:8px;">📷</div>
@@ -5114,7 +5585,7 @@ async function openPhotoMapper() {
     });
 }
 
-async function processPhotoFiles(files, modalOverlay) {
+async function processPhotoFilesCore(files) {
     // Broad filter — iOS may report no type for some images
     const imageFiles = files.filter(f =>
         f.type.startsWith('image/') ||
@@ -5123,7 +5594,7 @@ async function processPhotoFiles(files, modalOverlay) {
     );
     if (imageFiles.length === 0) {
         showToast('No image files found', 'warning');
-        return;
+        return null;
     }
 
     logger.info('PhotoMapper', 'processPhotoFiles called', {
@@ -5144,9 +5615,37 @@ async function processPhotoFiles(files, modalOverlay) {
 
     try {
         const result = await photoMapper.processPhotos(imageFiles);
+        if (!result) return null;
+
+        // Add photos as a layer on the map
+        if (result.dataset) {
+            addLayer(result.dataset);
+            mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
+            refreshUI();
+        }
+
+        if (result.withoutGPS > 0) {
+            showToast(`${result.withoutGPS} photo(s) have no GPS data. They won't appear on the map.`, 'warning');
+        }
+
+        return result;
+    } catch (e) {
+        showErrorToast(handleError(e, 'PhotoMapper', 'Process photos'));
+        return null;
+    } finally {
         progress.close();
         bus.off('task:progress', onPhotoProgress);
-        if (!result) return;
+    }
+}
+
+async function processPhotoFilesForReact(files) {
+    return processPhotoFilesCore(files);
+}
+
+async function processPhotoFiles(files, modalOverlay) {
+    try {
+        const result = await processPhotoFilesCore(files);
+        if (!result) return null;
 
         // Show results
         const resultsEl = modalOverlay.querySelector('#photo-results');
@@ -5167,21 +5666,10 @@ async function processPhotoFiles(files, modalOverlay) {
                 ${!p.hasGPS ? '<div style="position:absolute;top:4px;right:4px;background:#d97706;color:white;font-size:9px;padding:1px 4px;border-radius:3px;">No GPS</div>' : ''}
             </div>
         `).join('');
-
-        // Add photos as a layer on the map
-        if (result.dataset) {
-            addLayer(result.dataset);
-            mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
-            refreshUI();
-        }
-
-        if (result.withoutGPS > 0) {
-            showToast(`${result.withoutGPS} photo(s) have no GPS data. They won't appear on the map.`, 'warning');
-        }
-
+        return result;
     } catch (e) {
-        progress.close();
         showErrorToast(handleError(e, 'PhotoMapper', 'Process photos'));
+        return null;
     }
 }
 
@@ -5191,6 +5679,179 @@ async function processPhotoFiles(files, modalOverlay) {
 let _spatialAnalyzerWidget = null;
 
 function openSpatialAnalyzer() {
+    if (_isReactToolDialogs) {
+        const rootId = `spatial-analyzer-react-${Date.now()}`;
+        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
+        const layerOptions = spatialLayers.map((layer) => {
+            const hasPolygons = (layer.geojson?.features || []).some((feature) =>
+                feature?.geometry?.type === 'Polygon' || feature?.geometry?.type === 'MultiPolygon'
+            );
+            return {
+                id: layer.id,
+                name: layer.name,
+                featureCount: layer.geojson?.features?.length || 0,
+                hasPolygons
+            };
+        });
+
+        showModal('Find Features in Area', `<div id="${rootId}"></div>`, {
+            width: '560px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountSpatialAnalyzerDialog } = await import('../react/tools/mountSpatialAnalyzerDialog.jsx');
+                const { SPATIAL_RELATIONS, runSpatialAnalysis } = await import('./widgets/spatial-analyzer-engine.js');
+                const mounted = mountSpatialAnalyzerDialog(root, {
+                    layers: layerOptions,
+                    relationOptions: SPATIAL_RELATIONS,
+                    onCancel: () => close(),
+                    onDrawArea: async (mode) => {
+                        if (mode === 'rectangle') {
+                            showToast('Draw a rectangle on the map', 'info');
+                            const bbox = await mapService.startRectangleDraw('Click and drag to draw your search area');
+                            if (!bbox) return null;
+                            const [west, south, east, north] = bbox;
+                            const analysisArea = turf.bboxPolygon([west, south, east, north]);
+                            mapService.showTempFeature(analysisArea, 15000);
+                            return { analysisArea, areaSource: 'draw' };
+                        }
+
+                        if (mode === 'polygon') {
+                            showToast('Click to place points, double-click or Enter to finish', 'info');
+                            const geometry = await mapService.startSketchPolygon({
+                                bannerText: 'Click to add points. Double-click or Enter to finish the area.',
+                                onInsufficientVertices: () => showToast('Need at least 3 points to make an area', 'warning')
+                            });
+                            if (!geometry) return null;
+                            const analysisArea = turf.feature(geometry);
+                            mapService.showTempFeature(analysisArea, 15000);
+                            return { analysisArea, areaSource: 'draw' };
+                        }
+
+                        if (mode === 'circle') {
+                            showToast('Click center, then click to set radius', 'info');
+                            const geometry = await mapService.startSketchCirclePolygon({
+                                bannerText: 'Click center, then click for radius. Esc cancels.',
+                                onRadiusTooSmall: () => showToast('Radius too small', 'warning')
+                            });
+                            if (!geometry) return null;
+                            const analysisArea = turf.feature(geometry);
+                            mapService.showTempFeature(analysisArea, 15000);
+                            return { analysisArea, areaSource: 'draw' };
+                        }
+
+                        return null;
+                    },
+                    onUseLayerArea: async (areaLayerId) => {
+                        const layer = getLayers().find((entry) => entry.id === areaLayerId);
+                        if (!layer?.geojson?.features?.length) {
+                            throw new Error('Selected polygon layer has no features.');
+                        }
+
+                        const polygons = layer.geojson.features.filter((feature) =>
+                            feature?.geometry &&
+                            (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')
+                        );
+
+                        if (polygons.length === 0) {
+                            throw new Error('No polygon features found in selected layer.');
+                        }
+
+                        let analysisArea = polygons[0];
+                        if (polygons.length > 1) {
+                            try {
+                                let merged = polygons[0];
+                                for (let i = 1; i < polygons.length; i++) {
+                                    const unionResult = turf.union(turf.featureCollection([merged, polygons[i]]));
+                                    if (unionResult) merged = unionResult;
+                                }
+                                analysisArea = merged;
+                            } catch {
+                                const hull = turf.convex(turf.featureCollection(polygons));
+                                analysisArea = hull || polygons[0];
+                            }
+                        }
+
+                        mapService.showTempFeature(analysisArea, 15000);
+                        return { analysisArea, areaSource: 'layer' };
+                    },
+                    onRun: async ({ targetLayerId, analysisArea, spatialRelation }) => {
+                        const targetLayer = getLayers().find((layer) => layer.id === targetLayerId);
+                        if (!targetLayer?.geojson?.features?.length) {
+                            throw new Error('Target layer has no features.');
+                        }
+
+                        const { matchedFeatures, stats } = await runSpatialAnalysis({
+                            features: targetLayer.geojson.features,
+                            analysisArea,
+                            spatialRelation
+                        });
+
+                        mapService.showTempFeature(
+                            { type: 'FeatureCollection', features: matchedFeatures },
+                            15000
+                        );
+
+                        return {
+                            matched: matchedFeatures.length,
+                            total: targetLayer.geojson.features.length,
+                            features: matchedFeatures,
+                            stats,
+                            targetLayerName: targetLayer.name
+                        };
+                    },
+                    onAddResults: (result) => {
+                        if (!result?.features?.length) {
+                            showToast('No matching features to add', 'warning');
+                            return;
+                        }
+
+                        const featureCollection = {
+                            type: 'FeatureCollection',
+                            features: result.features
+                        };
+                        const dataset = createSpatialDataset(
+                            `${result.targetLayerName}_analysis_results`,
+                            featureCollection,
+                            { format: 'derived' }
+                        );
+                        addLayer(dataset);
+                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                        refreshUI();
+                        showToast(`Added ${result.matched} matched features as a new layer`, 'success');
+                    },
+                    onAddArea: ({ analysisArea, areaSource }) => {
+                        if (!analysisArea) {
+                            showToast('No analysis area available', 'warning');
+                            return;
+                        }
+                        const featureCollection = {
+                            type: 'FeatureCollection',
+                            features: [
+                                {
+                                    ...analysisArea,
+                                    properties: {
+                                        ...(analysisArea.properties || {}),
+                                        name: 'Analysis Area',
+                                        source: areaSource || 'draw'
+                                    }
+                                }
+                            ]
+                        };
+                        const dataset = createSpatialDataset('Analysis_Area', featureCollection, { format: 'derived' });
+                        addLayer(dataset);
+                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                        refreshUI();
+                        showToast('Analysis area added as new layer', 'success');
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     if (!_spatialAnalyzerWidget) {
         _spatialAnalyzerWidget = new SpatialAnalyzerWidget();
     }
@@ -5208,6 +5869,121 @@ function openSpatialAnalyzer() {
 let _bulkUpdateWidget = null;
 
 function openBulkUpdate() {
+    if (_isReactToolDialogs) {
+        const rootId = `bulk-update-react-${Date.now()}`;
+        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
+        const layerOptions = spatialLayers.map((layer) => {
+            const fields = new Set();
+            (layer.geojson?.features || []).slice(0, 200).forEach((feature) => {
+                Object.keys(feature?.properties || {}).forEach((key) => fields.add(key));
+            });
+            return {
+                id: layer.id,
+                name: layer.name,
+                featureCount: layer.geojson?.features?.length || 0,
+                fields: [...fields].sort()
+            };
+        });
+
+        showModal('Bulk Update', `<div id="${rootId}"></div>`, {
+            width: '560px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountBulkUpdateDialog } = await import('../react/tools/mountBulkUpdateDialog.jsx');
+
+                const mounted = mountBulkUpdateDialog(root, {
+                    layers: layerOptions,
+                    onCancel: () => {
+                        mapService.exitSelectionMode();
+                        updateSelectionUI();
+                        close();
+                    },
+                    onStartSelection: (layerId) => {
+                        if (!layerId) return;
+                        setActiveLayer(layerId);
+                        refreshUI();
+                        mapService.enterSelectionMode();
+                        updateSelectionUI();
+                        showToast('Click features on the map to select them', 'info');
+                    },
+                    onStopSelection: () => {
+                        mapService.exitSelectionMode();
+                        updateSelectionUI();
+                    },
+                    onSelectAll: (layerId) => {
+                        const layer = getLayers().find((entry) => entry.id === layerId);
+                        if (!layer) return;
+                        mapService.selectAll(layer.id, layer.geojson);
+                        updateSelectionUI();
+                    },
+                    onInvertSelection: (layerId) => {
+                        const layer = getLayers().find((entry) => entry.id === layerId);
+                        if (!layer) return;
+                        mapService.invertSelection(layer.id, layer.geojson);
+                        updateSelectionUI();
+                    },
+                    onClearSelection: (layerId) => {
+                        mapService.clearSelection(layerId || null);
+                        updateSelectionUI();
+                    },
+                    onGetSelectionCount: (layerId) => {
+                        if (!layerId) return 0;
+                        return mapService.getSelectionCount(layerId) || 0;
+                    },
+                    onApply: ({ layerId, updates }) => {
+                        const layer = getLayers().find((entry) => entry.id === layerId);
+                        if (!layer?.geojson?.features) throw new Error('Target layer not found.');
+
+                        const selectedIndices = mapService.getSelectedIndices(layer.id) || [];
+                        if (selectedIndices.length === 0) {
+                            throw new Error('No selected features found for this layer.');
+                        }
+
+                        const safeUpdates = (updates || []).filter((entry) => entry?.field);
+                        if (safeUpdates.length === 0) {
+                            throw new Error('Add at least one field update.');
+                        }
+
+                        let updatedCount = 0;
+                        selectedIndices.forEach((index) => {
+                            const feature = layer.geojson.features[index];
+                            if (!feature) return;
+                            if (!feature.properties) feature.properties = {};
+
+                            safeUpdates.forEach((entry) => {
+                                const rawValue = entry.value ?? '';
+                                if (rawValue === '') {
+                                    feature.properties[entry.field] = '';
+                                } else if (!Number.isNaN(Number(rawValue)) && String(rawValue).trim() !== '') {
+                                    feature.properties[entry.field] = Number(rawValue);
+                                } else {
+                                    feature.properties[entry.field] = rawValue;
+                                }
+                            });
+                            updatedCount++;
+                        });
+
+                        mapService.refreshLayerData(layer);
+                        mapService.clearSelection(layer.id);
+                        mapService.exitSelectionMode();
+                        updateSelectionUI();
+                        refreshUI();
+
+                        const fieldCount = safeUpdates.length;
+                        showToast(
+                            `Updated ${fieldCount} field${fieldCount === 1 ? '' : 's'} on ${updatedCount} feature${updatedCount === 1 ? '' : 's'}`,
+                            'success'
+                        );
+                        return { fieldCount, updatedCount };
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     if (!_bulkUpdateWidget) {
         _bulkUpdateWidget = new BulkUpdateWidget();
     }
@@ -5222,6 +5998,134 @@ function openBulkUpdate() {
 let _proximityJoinWidget = null;
 
 function openProximityJoin() {
+    if (_isReactToolDialogs) {
+        const rootId = `proximity-join-react-${Date.now()}`;
+        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
+        const layerOptions = spatialLayers.map((layer) => {
+            const keys = new Set();
+            (layer.geojson?.features || []).slice(0, 200).forEach((feature) => {
+                Object.keys(feature?.properties || {}).forEach((key) => keys.add(key));
+            });
+            return {
+                id: layer.id,
+                name: layer.name,
+                featureCount: layer.geojson?.features?.length || 0,
+                fields: [...keys].sort(),
+                selectedCount: mapService.getSelectionCount?.(layer.id) || 0
+            };
+        });
+
+        showModal('Proximity Join', `<div id="${rootId}"></div>`, {
+            width: '560px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const { mountProximityJoinDialog } = await import('../react/tools/mountProximityJoinDialog.jsx');
+                const { UNIT_LABELS, validateProximityJoinConfig, buildProximityPreview, runProximityJoin, unitAbbr } = await import('./widgets/proximity-join-engine.js');
+                const mounted = mountProximityJoinDialog(root, {
+                    layers: layerOptions,
+                    unitOptions: UNIT_LABELS.map((entry) => ({
+                        value: entry.value,
+                        label: `${entry.label} (${entry.abbr})`
+                    })),
+                    onCancel: () => close(),
+                    onPreview: async (config) => {
+                        const sourceLayer = getLayers().find((layer) => layer.id === config.sourceLayerId);
+                        const targetLayer = getLayers().find((layer) => layer.id === config.targetLayerId);
+                        const validation = validateProximityJoinConfig({
+                            sourceLayer,
+                            targetLayer,
+                            fieldMappings: config.fieldMappings,
+                            maxRadius: config.maxRadius,
+                            writeMatchId: config.writeMatchId,
+                            matchIdField: config.matchIdField
+                        });
+                        if (validation.errors.length > 0) {
+                            throw new Error(validation.errors[0]);
+                        }
+
+                        const sourceFeatures = config.selectionOnly
+                            ? (mapService.getSelectedIndices?.(sourceLayer.id) || [])
+                                .map((index) => sourceLayer.geojson.features[index])
+                                .filter(Boolean)
+                            : sourceLayer.geojson.features;
+
+                        return buildProximityPreview({
+                            sourceFeatures,
+                            targetFeatures: targetLayer.geojson.features,
+                            fieldMappings: validation.validMappings,
+                            units: config.units,
+                            maxRadius: config.maxRadius,
+                            writeDistance: config.writeDistance
+                        });
+                    },
+                    onRun: async (config, handlers = {}) => {
+                        const sourceLayer = getLayers().find((layer) => layer.id === config.sourceLayerId);
+                        const targetLayer = getLayers().find((layer) => layer.id === config.targetLayerId);
+                        const validation = validateProximityJoinConfig({
+                            sourceLayer,
+                            targetLayer,
+                            fieldMappings: config.fieldMappings,
+                            maxRadius: config.maxRadius,
+                            writeMatchId: config.writeMatchId,
+                            matchIdField: config.matchIdField
+                        });
+                        if (validation.errors.length > 0) {
+                            throw new Error(validation.errors[0]);
+                        }
+
+                        const featureIndices = config.selectionOnly
+                            ? (mapService.getSelectedIndices?.(sourceLayer.id) || [])
+                            : sourceLayer.geojson.features.map((_, index) => index);
+
+                        if (featureIndices.length === 0) {
+                            throw new Error(config.selectionOnly
+                                ? 'No selected source features found.'
+                                : 'Source layer has no features.');
+                        }
+
+                        const result = await runProximityJoin({
+                            allSourceFeatures: sourceLayer.geojson.features,
+                            featureIndices,
+                            targetFeatures: targetLayer.geojson.features,
+                            fieldMappings: validation.validMappings,
+                            units: config.units,
+                            maxRadius: config.maxRadius,
+                            writeDistance: config.writeDistance,
+                            writeMatchId: config.writeMatchId,
+                            matchIdField: config.matchIdField,
+                            writeMatchLayer: config.writeMatchLayer,
+                            targetLayerName: targetLayer.name,
+                            onProgress: handlers.onProgress,
+                            isCancelled: handlers.isCancelled
+                        });
+
+                        if (result.cancelled) {
+                            showToast('Proximity join cancelled', 'warning');
+                            return result;
+                        }
+
+                        sourceLayer.schema = analyzeSchema(sourceLayer.geojson);
+                        mapService.refreshLayerData?.(sourceLayer);
+                        refreshUI();
+                        showToast(
+                            `Proximity join complete: ${result.matched} matched, ${result.unmatched} unmatched`,
+                            result.unmatched === 0 ? 'success' : 'info'
+                        );
+
+                        return {
+                            ...result,
+                            unitsLabel: unitAbbr(config.units)
+                        };
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     if (!_proximityJoinWidget) {
         _proximityJoinWidget = new ProximityJoinWidget();
     }
@@ -5246,6 +6150,36 @@ function hasActiveImportFence() {
 async function startImportFence() {
     if (dualScreenCoordinator.isActive) {
         if (hasActiveImportFence()) {
+            if (_isReactToolDialogs) {
+                const rootId = `import-fence-react-${Date.now()}`;
+                showModal('Import Fence', `<div id="${rootId}"></div>`, {
+                    width: '400px',
+                    onMount: async (overlay, close) => {
+                        const root = overlay.querySelector(`#${rootId}`);
+                        if (!root) return;
+                        const { mountImportFenceOptionsDialog } = await import('../react/tools/mountImportFenceOptionsDialog.jsx');
+                        const mounted = mountImportFenceOptionsDialog(root, {
+                            message: '⛶ An import fence is currently active. All imports are filtered to this area.',
+                            onPlaceNewFence: () => {
+                                close();
+                                dualScreenCoordinator.broadcastDrawCmd({ action: 'startFence' });
+                                dualScreenCoordinator.focusMapWindow();
+                                showToast('Draw the fence on the Dual Screen map window', 'info');
+                            },
+                            onRemoveFence: () => {
+                                _fenceBbox = null;
+                                updateFenceButton();
+                                dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
+                                close();
+                                showToast('Import fence removed', 'info');
+                            }
+                        });
+                        watchOverlayUnmount(overlay, () => mounted.unmount?.());
+                    }
+                });
+                return;
+            }
+
             const html = `
             <div class="info-box text-xs mb-8">
                 ⛶ An import fence is currently active. All imports are filtered to this area.
@@ -5282,6 +6216,36 @@ async function startImportFence() {
 
     // If fence already active, show options modal
     if (mapService.hasImportFence()) {
+        if (_isReactToolDialogs) {
+            const rootId = `import-fence-react-${Date.now()}`;
+            showModal('Import Fence', `<div id="${rootId}"></div>`, {
+                width: '400px',
+                onMount: async (overlay, close) => {
+                    const root = overlay.querySelector(`#${rootId}`);
+                    if (!root) return;
+                    const { mountImportFenceOptionsDialog } = await import('../react/tools/mountImportFenceOptionsDialog.jsx');
+                    const mounted = mountImportFenceOptionsDialog(root, {
+                        message: '⛶ An import fence is currently active on the map. All imports (files and ArcGIS) are filtered to this area.',
+                        placeNewDescription: 'Remove current fence and draw a new one',
+                        clearDescription: 'Clear fence from map — imports will no longer be filtered',
+                        onPlaceNewFence: async () => {
+                            close();
+                            await drawNewFence();
+                        },
+                        onRemoveFence: () => {
+                            mapService.clearImportFence();
+                            _fenceBbox = null;
+                            updateFenceButton();
+                            close();
+                            showToast('Import fence removed', 'info');
+                        }
+                    });
+                    watchOverlayUnmount(overlay, () => mounted.unmount?.());
+                }
+            });
+            return;
+        }
+
         const html = `
             <div class="info-box text-xs mb-8">
                 ⛶ An import fence is currently active on the map. All imports (files and ArcGIS) are filtered to this area.
@@ -5378,6 +6342,106 @@ async function openArcGISImporter() {
     const spatialFilter = mapService.getImportFenceEsriEnvelope();
     const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">⛶ <strong>Import Fence active</strong> — only features inside the fence will be downloaded from the server.</div>' : '';
 
+    if (_isReactToolDialogs) {
+        const rootId = `arcgis-import-react-${Date.now()}`;
+        showModal('ArcGIS REST Import', `<div id="${rootId}"></div>`, {
+            width: '600px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+
+                const startImportLayer = ({ url, name, onProgress, onComplete, onCancelled, onError }) => {
+                    if (!url) {
+                        showToast('Enter a URL', 'warning');
+                        onError?.();
+                        return null;
+                    }
+
+                    let arcgisTask = null;
+                    let onArcgisProgress = null;
+                    let finished = false;
+
+                    const finishOnce = (cb) => {
+                        if (finished) return;
+                        finished = true;
+                        cb?.();
+                    };
+
+                    const cleanup = () => {
+                        if (onArcgisProgress) {
+                            bus.off('task:progress', onArcgisProgress);
+                            onArcgisProgress = null;
+                        }
+                    };
+
+                    const run = async () => {
+                        try {
+                            onProgress?.({ percent: 0, step: `Connecting to ${name || 'layer'}...` });
+                            const { TaskRunner } = await import('./core/task-runner.js');
+                            arcgisTask = new TaskRunner(`Import ${name || 'layer'}`, 'ArcGIS');
+                            onArcgisProgress = (data) => {
+                                onProgress?.({
+                                    percent: data?.percent || 0,
+                                    step: data?.step || ''
+                                });
+                            };
+                            bus.on('task:progress', onArcgisProgress);
+
+                            await arcgisImporter.fetchMetadata(url);
+                            const queryOpts = {
+                                outFields: '*',
+                                where: '1=1',
+                                returnGeometry: true
+                            };
+                            if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
+                            const dataset = await arcgisImporter.downloadFeatures(queryOpts, arcgisTask);
+
+                            if (!dataset || arcgisTask.cancelled) {
+                                finishOnce(onCancelled);
+                                return;
+                            }
+
+                            addLayer(dataset);
+                            mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
+                            const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
+                            showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
+                            refreshUI();
+                            finishOnce(() => onComplete?.({ datasetName: dataset.name, count }));
+                        } catch (e) {
+                            if (e?.cancelled || arcgisTask?.cancelled) {
+                                finishOnce(onCancelled);
+                                return;
+                            }
+                            const classified = handleError(e, 'ArcGIS', 'Import');
+                            showErrorToast(classified);
+                            finishOnce(() => onError?.(classified));
+                        } finally {
+                            cleanup();
+                        }
+                    };
+
+                    void run();
+                    return () => {
+                        arcgisTask?.cancel();
+                        arcgisImporter.cancel();
+                        cleanup();
+                        finishOnce(onCancelled);
+                    };
+                };
+
+                const { mountArcGISImporterDialog } = await import('../react/tools/mountArcGISImporterDialog.jsx');
+                const mounted = mountArcGISImporterDialog(root, {
+                    endpoints: ARCGIS_ENDPOINTS,
+                    hasImportFence: !!spatialFilter,
+                    onCancel: () => close(),
+                    onImport: startImportLayer
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = `
         ${fenceBadge}
         <div class="info-box text-xs mb-8">
@@ -5445,13 +6509,13 @@ async function openArcGISImporter() {
                 };
                 bus.on('task:progress', onArcgisProgress);
 
-                overlay.querySelector('#arcgis-cancel').onclick = () => {
+                overlay.querySelector('#arcgis-cancel')?.addEventListener('click', () => {
                     arcgisTask.cancel();
                     arcgisImporter.cancel();
                     bus.off('task:progress', onArcgisProgress);
                     showToast('Download cancelled', 'warning');
                     progressEl.classList.add('hidden');
-                };
+                });
 
                 try {
                     await arcgisImporter.fetchMetadata(url);
@@ -5535,6 +6599,55 @@ async function _promptNetworkLinkAfterImport(dataset) {
     const hrefs = dataset._networkLinkHrefs || [];
     if (!hrefs.length) return;
 
+    if (_isReactToolDialogs) {
+        const rootId = `network-links-react-${Date.now()}`;
+        await showModal('Network links in KML', `<div id="${rootId}"></div>`, {
+            width: '520px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountNetworkLinksDialog } = await import('../react/tools/mountNetworkLinksDialog.jsx');
+                const mounted = mountNetworkLinksDialog(root, {
+                    hrefs,
+                    onDismiss: () => close(),
+                    onFetch: async () => {
+                        try {
+                            const { mergeNetworkLinksIntoDataset } = await import('./import/kml-networklink.js');
+                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const task = new TaskRunner('Network links', 'Import');
+                            const { failures, skippedRelative, addedFeatures, totalFeatures } =
+                                await mergeNetworkLinksIntoDataset(dataset, hrefs, task);
+
+                            const layerIdx = getLayers().indexOf(dataset);
+                            mapService.removeLayer(dataset.id);
+                            mapService.addLayer(dataset, Math.max(0, layerIdx), { fit: totalFeatures > 0 });
+                            refreshUI();
+
+                            let msg = `Merged network links: ${addedFeatures} new feature(s); ${totalFeatures} total in layer.`;
+                            if (skippedRelative.length) {
+                                msg += ` Skipped ${skippedRelative.length} relative URL(s).`;
+                            }
+                            if (failures.length) {
+                                showToast(`${msg} ${failures.length} link(s) failed (see log).`, 'warning');
+                                failures.forEach(f => logger.warn('Import', 'NetworkLink fetch failed', { href: f.href, reason: f.reason }));
+                            } else if (skippedRelative.length) {
+                                showToast(msg, 'warning');
+                            } else {
+                                showToast(msg, 'success');
+                            }
+                        } catch (e) {
+                            showErrorToast(handleError(e, 'Import', 'networklink'));
+                        } finally {
+                            close();
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const list = hrefs.map(h =>
         `<li style="word-break:break-all;font-size:11px;">${_escapeHtmlModal(h)}</li>`
     ).join('');
@@ -5548,8 +6661,8 @@ async function _promptNetworkLinkAfterImport(dataset) {
         footer: `<button type="button" class="btn btn-secondary nl-dismiss">Not now</button>
                  <button type="button" class="btn btn-primary nl-fetch">Fetch HTTP(S) links</button>`,
         onMount: (overlay, close) => {
-            overlay.querySelector('.nl-dismiss').onclick = () => close();
-            overlay.querySelector('.nl-fetch').onclick = async () => {
+            overlay.querySelector('.nl-dismiss')?.addEventListener('click', () => close());
+            overlay.querySelector('.nl-fetch')?.addEventListener('click', async () => {
                 const btn = overlay.querySelector('.nl-fetch');
                 btn.disabled = true;
                 btn.textContent = 'Fetching…';
@@ -5582,7 +6695,7 @@ async function _promptNetworkLinkAfterImport(dataset) {
                 } finally {
                     close();
                 }
-            };
+            });
         }
     });
 }
@@ -5644,6 +6757,38 @@ async function doExport(format) {
  */
 async function _showKmzExportPicker(allLayers, activeLayer, format) {
     const fmtLabel = format.toUpperCase();
+    const ext = format === 'kml' ? 'kml' : 'kmz';
+
+    if (_isReactToolDialogs) {
+        const rootId = `kml-export-picker-react-${Date.now()}`;
+        const layers = allLayers.map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            featureCount: layer.geojson?.features?.length || 0
+        }));
+        return showModal(`Export ${fmtLabel}`, `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountKmlExportPickerDialog } = await import('../react/tools/mountKmlExportPickerDialog.jsx');
+                const mounted = mountKmlExportPickerDialog(root, {
+                    layers,
+                    activeLayerId: activeLayer.id,
+                    activeLayerName: activeLayer.name,
+                    ext,
+                    onCancel: () => close(null),
+                    onActiveOnly: () => close('active'),
+                    onWarnNoSelection: () => showToast('Select at least 1 layer', 'warning'),
+                    onExportSelected: (selectedLayerIds) => {
+                        const selected = allLayers.filter((layer) => selectedLayerIds.includes(layer.id));
+                        close(selected);
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+    }
+
     const checkboxes = allLayers.map((l, i) => {
         const featCount = l.geojson?.features?.length || 0;
         const safeName = l.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -5655,7 +6800,6 @@ async function _showKmzExportPicker(allLayers, activeLayer, format) {
         </label>`;
     }).join('');
 
-    const ext = format === 'kml' ? 'kml' : 'kmz';
     const html = `
         <p style="margin-bottom:12px;">Export <strong>${activeLayer.name}</strong> only, or select layers to combine into a single <strong>.${ext}</strong> with one folder per layer.</p>
         <div class="merge-layer-list" id="kmz-layer-list">${checkboxes}</div>`;
@@ -5665,14 +6809,14 @@ async function _showKmzExportPicker(allLayers, activeLayer, format) {
                  <button class="btn btn-secondary active-only-btn">Active layer only</button>
                  <button class="btn btn-primary multi-btn">Export selected (multi-folder)</button>`,
         onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close(null);
-            overlay.querySelector('.active-only-btn').onclick = () => close('active');
-            overlay.querySelector('.multi-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close(null));
+            overlay.querySelector('.active-only-btn')?.addEventListener('click', () => close('active'));
+            overlay.querySelector('.multi-btn')?.addEventListener('click', () => {
                 const checked = [...overlay.querySelectorAll('#kmz-layer-list input:checked')]
                     .map(cb => allLayers[parseInt(cb.value)]);
                 if (checked.length === 0) { showToast('Select at least 1 layer', 'warning'); return; }
                 close(checked);
-            };
+            });
         }
     });
 }
@@ -5699,6 +6843,31 @@ function createDrawLayer() {
         return;
     }
 
+    if (_isReactToolDialogs) {
+        const rootId = `draw-layer-chooser-react-${Date.now()}`;
+        showModal('Draw Features', `<div id="${rootId}"></div>`, {
+            width: '380px',
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountDrawLayerChooserDialog } = await import('../react/tools/mountDrawLayerChooserDialog.jsx');
+                const mounted = mountDrawLayerChooserDialog(root, {
+                    options: items,
+                    onChoose: (action) => {
+                        close();
+                        if (action === 'new') {
+                            _doCreateDrawLayer();
+                        } else {
+                            openDrawTools(activeLayer.id);
+                        }
+                    }
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+        return;
+    }
+
     const html = items.map(item =>
         `<button class="draw-option-btn" data-action="${item.action}">
             <span style="font-size:18px;">${item.icon}</span>
@@ -5710,14 +6879,14 @@ function createDrawLayer() {
         width: '380px',
         onMount: (overlay, close) => {
             overlay.querySelectorAll('.draw-option-btn').forEach(btn => {
-                btn.onclick = () => {
+                btn.addEventListener('click', () => {
                     close();
                     if (btn.dataset.action === 'new') {
                         _doCreateDrawLayer();
                     } else {
                         openDrawTools(activeLayer.id);
                     }
-                };
+                });
             });
         }
     });
@@ -5757,30 +6926,53 @@ async function handleMergeLayers() {
     const layers = getLayers();
     if (layers.length < 2) return showToast('Need at least 2 layers to merge', 'warning');
 
-    const checkboxes = layers.map((l, i) => {
-        const featCount = l.type === 'spatial' ? (l.geojson?.features?.length || 0) : (l.rows?.length || 0);
-        const safeName = l.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        return `<label class="merge-layer-item">
+    let result;
+    if (_isReactToolDialogs) {
+        const rootId = `merge-layers-react-${Date.now()}`;
+        const mergeLayers = layers.map((layer, index) => ({
+            index,
+            name: layer.name,
+            featureCount: layer.type === 'spatial' ? (layer.geojson?.features?.length || 0) : (layer.rows?.length || 0)
+        }));
+        result = await showModal('Merge Layers', `<div id="${rootId}"></div>`, {
+            onMount: async (overlay, close) => {
+                const root = overlay.querySelector(`#${rootId}`);
+                if (!root) return;
+                const { mountMergeLayersDialog } = await import('../react/tools/mountMergeLayersDialog.jsx');
+                const mounted = mountMergeLayersDialog(root, {
+                    layers: mergeLayers,
+                    onCancel: () => close(null),
+                    onMerge: (selectedIndices) => close(selectedIndices)
+                });
+                watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            }
+        });
+    } else {
+        const checkboxes = layers.map((l, i) => {
+            const featCount = l.type === 'spatial' ? (l.geojson?.features?.length || 0) : (l.rows?.length || 0);
+            const safeName = l.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            return `<label class="merge-layer-item">
             <input type="checkbox" value="${i}" checked>
             <span>${safeName}</span>
             <span class="merge-feat-count">${featCount} features</span>
         </label>`;
-    }).join('');
+        }).join('');
 
-    const html = `<p style="margin-bottom:8px;">Select layers to merge. A <code>source_file</code> field will be added.</p>
+        const html = `<p style="margin-bottom:8px;">Select layers to merge. A <code>source_file</code> field will be added.</p>
         <div class="merge-layer-list">${checkboxes}</div>`;
 
-    const result = await showModal('Merge Layers', html, {
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button> <button class="btn btn-primary confirm-btn">Merge Selected</button>',
-        onMount: (overlay, close) => {
-            overlay.querySelector('.cancel-btn').onclick = () => close(null);
-            overlay.querySelector('.confirm-btn').onclick = () => {
-                const checked = [...overlay.querySelectorAll('.merge-layer-list input:checked')]
-                    .map(cb => parseInt(cb.value));
-                close(checked);
-            };
-        }
-    });
+        result = await showModal('Merge Layers', html, {
+            footer: '<button class="btn btn-secondary cancel-btn">Cancel</button> <button class="btn btn-primary confirm-btn">Merge Selected</button>',
+            onMount: (overlay, close) => {
+                overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close(null));
+                overlay.querySelector('.confirm-btn')?.addEventListener('click', () => {
+                    const checked = [...overlay.querySelectorAll('.merge-layer-list input:checked')]
+                        .map(cb => parseInt(cb.value));
+                    close(checked);
+                });
+            }
+        });
+    }
 
     if (!result || result.length < 2) {
         if (result && result.length === 1) showToast('Select at least 2 layers to merge', 'warning');
@@ -5801,19 +6993,15 @@ function handleUndo() {
         const layer = getLayers().find(l => l.id === entry.layerId);
         if (layer && layer.type === 'spatial') {
             layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
-            import('./core/data-model.js').then(dm => {
-                layer.schema = dm.analyzeSchema(layer.geojson);
-                mapService.addLayer(layer, getLayers().indexOf(layer));
-                refreshUI();
-                showToast('Undo', 'info', { duration: 1500 });
-            });
+            layer.schema = analyzeSchema(layer.geojson);
+            mapService.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
+            showToast('Undo', 'info', { duration: 1500 });
         } else if (layer && layer.type === 'table') {
             layer.rows = JSON.parse(JSON.stringify(entry.snapshot));
-            import('./core/data-model.js').then(dm => {
-                layer.schema = dm.analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
-                refreshUI();
-                showToast('Undo', 'info', { duration: 1500 });
-            });
+            layer.schema = analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
+            refreshUI();
+            showToast('Undo', 'info', { duration: 1500 });
         }
     }
 }
@@ -5824,19 +7012,15 @@ function handleRedo() {
         const layer = getLayers().find(l => l.id === entry.layerId);
         if (layer && layer.type === 'spatial') {
             layer.geojson = JSON.parse(JSON.stringify(entry.snapshot));
-            import('./core/data-model.js').then(dm => {
-                layer.schema = dm.analyzeSchema(layer.geojson);
-                mapService.addLayer(layer, getLayers().indexOf(layer));
-                refreshUI();
-                showToast('Redo', 'info', { duration: 1500 });
-            });
+            layer.schema = analyzeSchema(layer.geojson);
+            mapService.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
+            showToast('Redo', 'info', { duration: 1500 });
         } else if (layer && layer.type === 'table') {
             layer.rows = JSON.parse(JSON.stringify(entry.snapshot));
-            import('./core/data-model.js').then(dm => {
-                layer.schema = dm.analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
-                refreshUI();
-                showToast('Redo', 'info', { duration: 1500 });
-            });
+            layer.schema = analyzeTableSchema(layer.rows, Object.keys(layer.rows[0] || {}));
+            refreshUI();
+            showToast('Redo', 'info', { duration: 1500 });
         }
     }
 }
@@ -5973,8 +7157,8 @@ function openFeatureEditor(layerId, featureIndex) {
                 });
             });
 
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 // Save snapshot before editing
                 saveSnapshot(layer.id, 'Edit Feature', layer.geojson);
 
@@ -6002,16 +7186,14 @@ function openFeatureEditor(layerId, featureIndex) {
                 }
 
                 // Refresh map and UI
-                import('./core/data-model.js').then(dm => {
-                    layer.schema = dm.analyzeSchema(layer.geojson);
-                    bus.emit('layer:updated', layer);
-                    bus.emit('layers:changed', getLayers());
-                    mapService.addLayer(layer, getLayers().indexOf(layer));
-                    refreshUI();
-                });
+                layer.schema = analyzeSchema(layer.geojson);
+                bus.emit('layer:updated', layer);
+                bus.emit('layers:changed', getLayers());
+                mapService.addLayer(layer, getLayers().indexOf(layer));
+                refreshUI();
                 showToast('Feature updated', 'success');
                 close();
-            };
+            });
         }
     });
 }
@@ -6102,13 +7284,11 @@ function showDataTable() {
                 if (!document.body.contains(overlay)) {
                     obs.disconnect();
                     if (dirty && isSpatial) {
-                        import('./core/data-model.js').then(dm => {
-                            layer.schema = dm.analyzeSchema(layer.geojson);
-                            bus.emit('layer:updated', layer);
-                            bus.emit('layers:changed', getLayers());
-                            mapService.addLayer(layer, getLayers().indexOf(layer));
-                            refreshUI();
-                        });
+                        layer.schema = analyzeSchema(layer.geojson);
+                        bus.emit('layer:updated', layer);
+                        bus.emit('layers:changed', getLayers());
+                        mapService.addLayer(layer, getLayers().indexOf(layer));
+                        refreshUI();
                         showToast('Data edits saved', 'success');
                     }
                 }
@@ -6154,11 +7334,9 @@ function fixAGOL() {
     const { nameMapping } = checkAGOLCompatibility(layer);
     const fixed = applyAGOLFixes(layer, nameMapping);
     Object.assign(layer, fixed);
-    import('./core/data-model.js').then(dm => {
-        layer.schema = dm.analyzeSchema(layer.geojson);
-        refreshUI();
-        showToast('AGOL fixes applied', 'success');
-    });
+    layer.schema = analyzeSchema(layer.geojson);
+    refreshUI();
+    showToast('AGOL fixes applied', 'success');
 }
 
 // ============================
@@ -6264,8 +7442,8 @@ function addField() {
                 if (typeSelect.value === 'attachment') defaultInput.value = '';
             });
 
-            overlay.querySelector('.cancel-btn').onclick = () => close();
-            overlay.querySelector('.apply-btn').onclick = () => {
+            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
+            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
                 const name = nameInput.value.trim();
                 if (!name) { errorEl.textContent = 'Field name is required'; nameInput.focus(); return; }
                 if (existingNames.has(name)) { errorEl.textContent = `Field "${name}" already exists`; nameInput.focus(); return; }
@@ -6321,7 +7499,7 @@ function addField() {
                 mapService.refreshLayerData(layer);
                 showToast(`Field "${name}" added`, 'success', { duration: 2000 });
                 close();
-            };
+            });
 
             // Enter key to submit
             const handleEnter = (e) => { if (e.key === 'Enter') overlay.querySelector('.apply-btn').click(); };
@@ -6361,15 +7539,6 @@ function startInlineEdit(el, currentValue, onSave) {
     });
     input.addEventListener('blur', finish, { once: true });
 }
-
-// ============================
-// Section toggle
-// ============================
-window.toggleSection = function(header) {
-    header.classList.toggle('collapsed');
-    const body = header.nextElementSibling;
-    if (body) body.classList.toggle('hidden');
-};
 
 // ============================
 // Tool Info / Help Guide
@@ -6563,7 +7732,7 @@ function showToolInfo() {
     const titleFontSize = isMobile ? 'clamp(18px, 5.5vw, 32px)' : '32px';
     const titleIconSize = isMobile ? '28' : '36';
     const byFontSize = isMobile ? 'clamp(7px, 2vw, 9px)' : '9px';
-    showModal(`<div style="display:inline-flex;align-items:baseline;gap:6px;flex-wrap:nowrap;max-width:100%;"><img src="icons/TitleIcon.png" alt="" width="${titleIconSize}" height="${titleIconSize}" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:${titleFontSize};font-weight:700;line-height:1;white-space:nowrap;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:${byFontSize};font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>`, `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
+    showModal(`<div style="display:inline-flex;align-items:baseline;gap:6px;flex-wrap:nowrap;max-width:100%;"><img src="icons/favicon.png" alt="" width="${titleIconSize}" height="${titleIconSize}" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:${titleFontSize};font-weight:700;line-height:1;white-space:nowrap;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:${byFontSize};font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>`, `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
         width: splashWidth,
         onMount: (overlay) => {
             if (isMobile) {
@@ -6742,10 +7911,7 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
     });
 }
 
-// ============================
-// Global app API (for onclick handlers in HTML)
-// ============================
-window.app = {
+const APP_ACTIONS = {
     setActiveLayer: setActiveLayerAndRefresh,
     toggleVisibility: toggleLayerVisibilityAndRender,
     zoomToLayer,
@@ -6828,10 +7994,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('logs-search');
     const levelSelect = document.getElementById('logs-level');
     if (searchInput) {
-        searchInput.oninput = () => renderLogs({ search: searchInput.value, level: levelSelect?.value });
+        searchInput.addEventListener('input', () => {
+            renderLogs({ search: searchInput.value, level: levelSelect?.value });
+        });
     }
     if (levelSelect) {
-        levelSelect.onchange = () => renderLogs({ search: searchInput?.value, level: levelSelect.value });
+        levelSelect.addEventListener('change', () => {
+            renderLogs({ search: searchInput?.value, level: levelSelect.value });
+        });
     }
     document.getElementById('logs-copy')?.addEventListener('click', () => {
         navigator.clipboard?.writeText(logger.toText());
@@ -6849,6 +8019,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('logs-clear')?.addEventListener('click', () => {
         logger.clear();
         renderLogs();
+    });
+    document.getElementById('logs-close')?.addEventListener('click', () => {
+        document.getElementById('logs-panel')?.classList.add('hidden');
     });
 
     // Render initial data prep tools in left panel (legacy path only).

@@ -26,8 +26,8 @@ export function resolveReactToolDialogsFlag({
     const storageParsed = parseFlagValue(storageValue);
     if (storageParsed != null) return storageParsed;
 
-    // M7 staged rollout: keep legacy tool dialogs default until parity checks complete.
-    return false;
+    // M11 shell flip: React tool dialogs are the primary runtime path.
+    return true;
 }
 
 export function isReactToolDialogsEnabled(env = globalThis) {

@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { initLegacyBridge } from '../bridge.js';
 import { subscribeModalEvents } from '../../js/ui/modals.js';
 import { ModalHost } from './ModalHost.jsx';
 
@@ -8,7 +7,6 @@ export function mountModalHost(element) {
         throw new Error('mountModalHost: target element is required');
     }
 
-    void initLegacyBridge();
 
     const root = createRoot(element);
     let modals = [];

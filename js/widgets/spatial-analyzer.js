@@ -60,7 +60,6 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         this.getLayers = null;
         this.getLayerById = null;
         this.mapService = null;
-        this.mapManager = null;
         this.addLayer = null;
         this.createSpatialDataset = null;
         this.refreshUI = null;
@@ -1136,7 +1135,7 @@ export class SpatialAnalyzerWidget extends WidgetBase {
     }
 
     _getMapService() {
-        return this.mapService || this.mapManager || null;
+        return this.mapService || null;
     }
 }
 

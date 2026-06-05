@@ -24,7 +24,6 @@ export class BulkUpdateWidget extends WidgetBase {
         this.getLayers = null;
         this.getLayerById = null;
         this.mapService = null;
-        this.mapManager = null;
         this.refreshUI = null;
         this.showToast = null;
     }
@@ -671,7 +670,7 @@ export class BulkUpdateWidget extends WidgetBase {
     }
 
     _getMapService() {
-        return this.mapService || this.mapManager || null;
+        return this.mapService || null;
     }
 }
 

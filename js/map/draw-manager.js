@@ -6,6 +6,7 @@
 import bus from '../core/event-bus.js';
 import logger from '../core/logger.js';
 import mapService from './map-service.js';
+import { isReactToolDialogsEnabled } from '../ui/tool-dialog-feature-flags.js';
 
 const DRAW_STYLE = {
     lineColor: '#01bcdd',
@@ -38,6 +39,11 @@ class DrawManager {
         this._rubberBandSourceId = null;
         this._rubberBandLayerIds = [];
         this._toolbar = null;        // DOM element for draw toolbar
+        this._toolbarLayerName = '';
+        this._toolbarHint = '';
+        this._isReactToolbar = false;
+        this._reactToolbarMount = null;
+        this._mountDrawToolbarFn = null;
         this._escHandler = null;
         this._clickHandler = null;
         this._moveHandler = null;
@@ -81,6 +87,26 @@ class DrawManager {
     showToolbar(layerId, layerName) {
         this.hideToolbar();
         this._targetLayerId = layerId;
+        this._toolbarLayerName = layerName;
+        this._toolbarHint = '';
+        this._isReactToolbar = isReactToolDialogsEnabled();
+
+        if (this._isReactToolbar) {
+            const toolbar = document.createElement('div');
+            toolbar.className = 'draw-toolbar-react-host';
+            toolbar.addEventListener('click', (e) => e.stopPropagation());
+            toolbar.addEventListener('dblclick', (e) => e.stopPropagation());
+            toolbar.addEventListener('mousedown', (e) => e.stopPropagation());
+
+            this.map.getContainer().appendChild(toolbar);
+            this._toolbar = toolbar;
+            this._active = true;
+            void this._mountOrUpdateReactToolbar();
+
+            logger.info('Draw', `Draw toolbar opened for layer: ${layerName}`);
+            bus.emit('draw:toolbarOpened', { layerId });
+            return;
+        }
 
         const toolbar = document.createElement('div');
         toolbar.className = 'draw-toolbar';
@@ -167,26 +193,85 @@ class DrawManager {
 
     hideToolbar() {
         this.cancelDraw();
+        if (this._reactToolbarMount) {
+            this._reactToolbarMount.unmount?.();
+            this._reactToolbarMount = null;
+        }
         if (this._toolbar) {
             this._toolbar.remove();
             this._toolbar = null;
         }
         this._active = false;
         this._targetLayerId = null;
+        this._toolbarLayerName = '';
+        this._toolbarHint = '';
+        this._isReactToolbar = false;
         bus.emit('draw:toolbarClosed');
     }
 
     _setHint(text) {
+        this._toolbarHint = text || '';
+        if (this._isReactToolbar) {
+            void this._mountOrUpdateReactToolbar();
+            return;
+        }
         if (!this._toolbar) return;
         const hint = this._toolbar.querySelector('.draw-toolbar-hint');
         if (hint) hint.textContent = text;
     }
 
     _updateToolButtons() {
+        if (this._isReactToolbar) {
+            void this._mountOrUpdateReactToolbar();
+            return;
+        }
         if (!this._toolbar) return;
         this._toolbar.querySelectorAll('.draw-tool-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tool === this._tool);
         });
+    }
+
+    _getToolbarUiState() {
+        const minVerts = this._tool === 'polygon' ? 3 : 2;
+        const showFinish = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length >= minVerts;
+        const showUndo = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length > 0;
+        const showDelete = this._selectedFeatureIndex !== null;
+        return {
+            layerName: this._toolbarLayerName,
+            activeTool: this._tool,
+            hint: this._toolbarHint || '',
+            showFinish,
+            showUndo,
+            showDelete,
+            onClose: () => this.hideToolbar(),
+            onToggleTool: (tool) => {
+                if (this._tool === tool) {
+                    this.cancelDraw();
+                } else {
+                    this.startTool(tool);
+                }
+            },
+            onUndo: () => this._undoLastVertex(),
+            onDelete: () => this._deleteSelected(),
+            onFinish: () => this._finishDraw()
+        };
+    }
+
+    async _mountOrUpdateReactToolbar() {
+        if (!this._isReactToolbar || !this._toolbar) return;
+        const props = this._getToolbarUiState();
+
+        if (!this._reactToolbarMount) {
+            if (!this._mountDrawToolbarFn) {
+                const { mountDrawToolbar } = await import('../../react/map/mountDrawToolbar.jsx');
+                this._mountDrawToolbarFn = mountDrawToolbar;
+            }
+            if (!this._isReactToolbar || !this._toolbar) return;
+            this._reactToolbarMount = this._mountDrawToolbarFn(this._toolbar, props);
+            return;
+        }
+
+        this._reactToolbarMount.update?.(props);
     }
 
     // ============================
@@ -439,6 +524,10 @@ class DrawManager {
     }
 
     _updateFinishBtn() {
+        if (this._isReactToolbar) {
+            void this._mountOrUpdateReactToolbar();
+            return;
+        }
         if (!this._toolbar) return;
         const btn = this._toolbar.querySelector('.draw-finish-btn');
         if (!btn) return;
@@ -739,6 +828,10 @@ class DrawManager {
     }
 
     _updateActionButtons() {
+        if (this._isReactToolbar) {
+            void this._mountOrUpdateReactToolbar();
+            return;
+        }
         if (!this._toolbar) return;
         const delBtn = this._toolbar.querySelector('.draw-delete-btn');
         if (delBtn) delBtn.style.display = this._selectedFeatureIndex !== null ? '' : 'none';
@@ -770,6 +863,10 @@ class DrawManager {
     }
 
     _updateUndoBtn() {
+        if (this._isReactToolbar) {
+            void this._mountOrUpdateReactToolbar();
+            return;
+        }
         if (!this._toolbar) return;
         const undoBtn = this._toolbar.querySelector('.draw-undo-btn');
         if (undoBtn) {

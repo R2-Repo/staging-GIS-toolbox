@@ -2,6 +2,20 @@
  * Spatial analysis nodes — GIS operations
  */
 import { NodeBase } from './node-base.js';
+import {
+    bufferFeatures,
+    simplifyFeatures,
+    dissolveFeatures,
+    clipFeatures,
+    unionFeatures,
+    combineFeatures,
+    spatialJoinPointsInPolygons,
+    nearestJoin,
+    intersectLayers,
+    mergeLayers,
+    differenceLayers,
+    summarizeWithin
+} from '../../tools/gis-tools.js';
 
 // ==============================
 // Buffer
@@ -44,7 +58,6 @@ export class BufferNode extends NodeBase {
     async execute(inputs, context) {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
-        const { bufferFeatures } = await import('../../tools/gis-tools.js');
         return bufferFeatures(data, this.config.distance, this.config.units);
     }
 }
@@ -84,7 +97,6 @@ export class SimplifyNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
-        const { simplifyFeatures } = await import('../../tools/gis-tools.js');
         const result = await simplifyFeatures(data, this.config.tolerance);
         return result.dataset;
     }
@@ -133,7 +145,6 @@ export class DissolveNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
-        const { dissolveFeatures } = await import('../../tools/gis-tools.js');
         return dissolveFeatures(data, this.config.field || undefined);
     }
 }
@@ -175,7 +186,6 @@ export class ClipNode extends NodeBase {
         if (!data || data.type !== 'spatial') throw new Error('Spatial features input required');
         if (!clipData || clipData.type !== 'spatial') throw new Error('Clip area input required');
 
-        const { clipFeatures } = await import('../../tools/gis-tools.js');
         // Clip uses a single polygon geometry; take first feature from clip layer
         const clipGeom = clipData.geojson.features[0]?.geometry;
         if (!clipGeom) throw new Error('Clip layer has no geometry');
@@ -210,7 +220,6 @@ export class UnionNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
-        const { unionFeatures } = await import('../../tools/gis-tools.js');
         return unionFeatures(data);
     }
 }
@@ -242,7 +251,6 @@ export class CombineNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
-        const { combineFeatures } = await import('../../tools/gis-tools.js');
         return combineFeatures(data);
     }
 }
@@ -299,7 +307,6 @@ export class SpatialJoinNode extends NodeBase {
         if (!pointsData || pointsData.type !== 'spatial') throw new Error('Points input required');
         if (!polygonsData || polygonsData.type !== 'spatial') throw new Error('Polygons input required');
 
-        const { spatialJoinPointsInPolygons } = await import('../../tools/gis-tools.js');
         const joinFields = this.config.joinFields
             ? this.config.joinFields.split(',').map(f => f.trim()).filter(Boolean)
             : [];
@@ -363,7 +370,6 @@ export class NearestJoinNode extends NodeBase {
         if (!target || target.type !== 'spatial') throw new Error('Target input required');
         if (!joinFrom || joinFrom.type !== 'spatial') throw new Error('Join From input required');
 
-        const { nearestJoin } = await import('../../tools/gis-tools.js');
         const joinFields = this.config.joinFields
             ? this.config.joinFields.split(',').map(f => f.trim()).filter(Boolean)
             : [];
@@ -408,7 +414,6 @@ export class IntersectNode extends NodeBase {
         if (!a || a.type !== 'spatial') throw new Error('Layer A input required');
         if (!b || b.type !== 'spatial') throw new Error('Layer B input required');
 
-        const { intersectLayers } = await import('../../tools/gis-tools.js');
         return intersectLayers(a, b);
     }
 }
@@ -449,7 +454,6 @@ export class MergeLayersNode extends NodeBase {
         if (!a || a.type !== 'spatial') throw new Error('Layer A input required');
         if (!b || b.type !== 'spatial') throw new Error('Layer B input required');
 
-        const { mergeLayers } = await import('../../tools/gis-tools.js');
         return mergeLayers(a, b);
     }
 }
@@ -490,7 +494,6 @@ export class DifferenceNode extends NodeBase {
         if (!a || a.type !== 'spatial') throw new Error('Layer A input required');
         if (!b || b.type !== 'spatial') throw new Error('Subtract input required');
 
-        const { differenceLayers } = await import('../../tools/gis-tools.js');
         return differenceLayers(a, b);
     }
 }
@@ -554,7 +557,6 @@ export class SummarizeWithinNode extends NodeBase {
         if (!polygons || polygons.type !== 'spatial') throw new Error('Polygons input required');
         if (!points || points.type !== 'spatial') throw new Error('Points input required');
 
-        const { summarizeWithin } = await import('../../tools/gis-tools.js');
         return summarizeWithin(polygons, points, this.config.sumField || undefined, this.config.avgField || undefined);
     }
 }

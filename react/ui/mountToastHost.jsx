@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { initLegacyBridge } from '../bridge.js';
 import { dismissToast, subscribeToasts } from '../../js/ui/toast.js';
 import { ToastHost } from './ToastHost.jsx';
 
@@ -8,7 +7,6 @@ export function mountToastHost(element) {
         throw new Error('mountToastHost: target element is required');
     }
 
-    void initLegacyBridge();
 
     const root = createRoot(element);
     let toasts = [];

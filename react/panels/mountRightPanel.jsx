@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { initLegacyBridge } from '../bridge.js';
 import { RightPanel } from './RightPanel.jsx';
 
 export function mountRightPanel({
@@ -15,7 +14,6 @@ export function mountRightPanel({
         throw new Error('mountRightPanel: getSnapshot is required');
     }
 
-    void initLegacyBridge();
 
     const root = createRoot(element);
 

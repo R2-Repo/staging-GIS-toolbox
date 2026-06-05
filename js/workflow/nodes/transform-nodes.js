@@ -2,6 +2,9 @@
  * Transform nodes — data manipulation operations
  */
 import { NodeBase } from './node-base.js';
+import { applyTemplate } from '../../dataprep/template-builder.js';
+import { typeConvert } from '../../dataprep/transforms.js';
+import { convertFeatureCoords } from '../../tools/coordinates.js';
 
 // ==============================
 // Filter Rows
@@ -893,7 +896,6 @@ export class TemplateBuilderNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data) throw new Error('No input data');
-        const { applyTemplate } = await import('../../dataprep/template-builder.js');
         const opts = {
             trimWhitespace: true,
             collapseSpaces: true,
@@ -978,7 +980,6 @@ export class TypeConvertNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data) throw new Error('No input data');
-        const { typeConvert } = await import('../../dataprep/transforms.js');
 
         if (data.type === 'spatial') {
             const { features } = typeConvert(data.geojson.features, this.config.field, this.config.targetType);
@@ -1531,7 +1532,6 @@ export class CoordConvertNode extends NodeBase {
     async execute(inputs) {
         const data = inputs[0];
         if (!data) throw new Error('No input data');
-        const { convertFeatureCoords } = await import('../../tools/coordinates.js');
         const { source, fromFormat, toFormat, latField, lonField, outputPrefix } = this.config;
 
         const opts = {

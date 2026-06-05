@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>GIS-Toolbox.com</title>
-    <meta name="robots" content="noindex">
+    <meta name="description" content="GIS-Toolbox.com is a free browser-based GIS and data prep toolkit for importing, transforming, visualizing, and exporting geospatial data.">
+    <meta name="robots" content="index,follow">
 
  
     <meta property="og:title" content="GIS Toolbox — GIS & Data Tools">
+    <meta property="og:description" content="Import, transform, visualize, and export Shapefile, GeoJSON, KML/KMZ, CSV, Excel, and more in your browser.">
 
 
-    <!-- Web App Manifest -->
-    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1c1c1e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -45,7 +45,7 @@
     <!-- ================================ -->
     <header class="header">
         <div class="header-left">
-            <span class="header-logo"><img src="icons/TitleIcon.png" alt="GIS-Toolbox.com" width="36" height="36"></span>
+            <span class="header-logo"><img src="icons/favicon.png" alt="GIS-Toolbox.com" width="36" height="36"></span>
             <h1 class="header-title">GIS-Toolbox<span class="title-com">.com</span></h1>
         </div>
         <div class="header-center">
@@ -117,7 +117,7 @@
 
     <!-- Mobile title pill — upper left -->
     <div class="mobile-title-pill" id="mobile-title-pill">
-        <span class="pill-logo"><img src="icons/TitleIcon.png" alt="GIS-Toolbox.com" width="30" height="30"></span>
+        <span class="pill-logo"><img src="icons/favicon.png" alt="GIS-Toolbox.com" width="30" height="30"></span>
         <span class="pill-text">GIS-Toolbox<span class="title-com">.com</span></span>
     </div>
 
@@ -165,7 +165,7 @@
             <div class="panel-body">
                 <!-- Layer List -->
                 <div class="panel-section">
-                    <div class="panel-section-header" onclick="toggleSection(this)">
+                    <div class="panel-section-header" data-collapsible="true">
                         Layers <span class="arrow">▼</span>
                     </div>
                     <div class="panel-section-body" id="layer-list">
@@ -182,7 +182,7 @@
 
                 <!-- Field List -->
                 <div class="panel-section">
-                    <div class="panel-section-header" onclick="toggleSection(this)">
+                    <div class="panel-section-header" data-collapsible="true">
                         Fields <span class="arrow">▼</span>
                     </div>
                     <div class="panel-section-body" id="field-list">
@@ -246,7 +246,7 @@
                 <button class="btn btn-ghost btn-sm" id="logs-copy" title="Copy logs">📋</button>
                 <button class="btn btn-ghost btn-sm" id="logs-download" title="Download logs">💾</button>
                 <button class="btn btn-ghost btn-sm" id="logs-clear" title="Clear">🗑️</button>
-                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('logs-panel').classList.add('hidden')">✕</button>
+                <button class="btn btn-ghost btn-sm" id="logs-close" title="Close logs">✕</button>
             </div>
         </div>
         <div class="logs-body" id="logs-body"></div>
@@ -314,29 +314,14 @@
     <!-- App Entry Point -->
     <script type="module" src="js/app.js"></script>
 
-    <!-- Register Service Worker -->
+    <!-- Auto-reload when a newly installed service worker takes control -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
-                // Check for updates every 5 minutes
-                setInterval(() => reg.update(), 5 * 60 * 1000);
-            });
-
-            // Reload when a new SW takes control (most reliable trigger)
             let refreshing = false;
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (refreshing) return;
                 refreshing = true;
                 window.location.reload();
-            });
-
-            // Also handle explicit reload message from SW
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                if (event.data?.type === 'SW_UPDATED') {
-                    if (refreshing) return;
-                    refreshing = true;
-                    window.location.reload();
-                }
             });
         }
     </script>

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveReactToolDialogsFlag } from '../js/ui/tool-dialog-feature-flags.js';
 
 describe('react tool dialogs feature flag', () => {
-    it('defaults to disabled when unset', () => {
-        expect(resolveReactToolDialogsFlag()).toBe(false);
+    it('defaults to enabled when unset', () => {
+        expect(resolveReactToolDialogsFlag()).toBe(true);
     });
 
     it('allows explicit global override', () => {

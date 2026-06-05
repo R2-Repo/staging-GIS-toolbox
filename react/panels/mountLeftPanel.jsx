@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { initLegacyBridge } from '../bridge.js';
 import { LayerListPanel, FieldListPanel, DataPrepToolsPanel } from './LeftPanel.jsx';
 
 export function mountLeftPanel({
@@ -16,9 +15,6 @@ export function mountLeftPanel({
     if (typeof getSnapshot !== 'function') {
         throw new Error('mountLeftPanel: getSnapshot is required');
     }
-
-    // Keep island state in sync with the legacy overlap period.
-    void initLegacyBridge();
 
     const layerRoot = createRoot(layerElement);
     const fieldRoot = createRoot(fieldElement);

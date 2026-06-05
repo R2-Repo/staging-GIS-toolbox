@@ -1,17 +1,17 @@
 {
-  "name": "gis-toolbox-static",
+  "name": "gis-toolbox-dist-preview",
   "install": "npm install",
   "ports": [
     {
-      "name": "static-preview",
+      "name": "dist-preview",
       "port": 4173
     }
   ],
   "terminals": [
     {
-      "name": "static-server",
-      "command": "python3 -m http.server 4173 --bind 0.0.0.0",
-      "description": "Serves the repository root. Use forwarded port 4173 to open index.html in a browser for smoke tests."
+      "name": "vite-preview",
+      "command": "npm run build && npm run preview -- --host 0.0.0.0 --port 4173 --strictPort",
+      "description": "Builds the app and serves the dist output via Vite preview for smoke tests."
     }
   ]
 }

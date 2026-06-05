@@ -2152,6 +2152,17 @@ class MapManager {
         const popup = new maplibregl.Popup({ maxWidth: '280px' }).setHTML(this._buildSearchPopup(lat, lng, format));
         this._searchMarker.setPopup(popup);
         popup.addTo(this.map);
+        const popupEl = popup.getElement?.();
+        popupEl?.addEventListener('click', (event) => {
+            const actionButton = event.target.closest('[data-coord-search-action]');
+            if (!actionButton) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const action = actionButton.dataset.coordSearchAction;
+            if (action === 'add-new') bus.emit('coord-search:add-new');
+            else if (action === 'add-existing') bus.emit('coord-search:add-existing');
+            else if (action === 'clear') bus.emit('coord-search:clear');
+        });
         this.map.flyTo({ center: [lng, lat], zoom: Math.max(this.map.getZoom(), 14) });
     }
 
@@ -2161,9 +2172,9 @@ class MapManager {
                 <div style="font-weight:600;margin-bottom:4px;">📍 ${format} Coordinate</div>
                 <div style="font-size:12px;color:#666;margin-bottom:8px;font-family:monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
                 <div style="display:flex;flex-direction:column;gap:4px;">
-                    <button class="coord-popup-btn coord-add-new" onclick="window.app._coordSearchAddNew()">＋ Add as New Layer</button>
-                    <button class="coord-popup-btn coord-add-existing" onclick="window.app._coordSearchAddToExisting()">↳ Add to Existing Layer</button>
-                    <button class="coord-popup-btn coord-dismiss" onclick="window.app._coordSearchClear()">✕ Dismiss</button>
+                    <button class="coord-popup-btn coord-add-new" data-coord-search-action="add-new">＋ Add as New Layer</button>
+                    <button class="coord-popup-btn coord-add-existing" data-coord-search-action="add-existing">↳ Add to Existing Layer</button>
+                    <button class="coord-popup-btn coord-dismiss" data-coord-search-action="clear">✕ Dismiss</button>
                 </div>
             </div>`;
     }

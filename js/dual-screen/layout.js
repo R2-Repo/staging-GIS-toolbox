@@ -45,14 +45,13 @@ export function applyDualScreenDocumentLayout(active, doc = document) {
  */
 /**
  * Re-measure the map after flex layout changes (panel widths, dual-screen toggle).
- * Supports both mapService (`getMap`) and legacy map-manager (`map`) shapes.
- * @param {{ resize?: () => void, getMap?: () => any, map?: any }} mapApi
+ * @param {{ resize?: () => void, getMap?: () => any }} mapApi
  */
 export function scheduleMapResizeAfterLayout(mapApi) {
     if (!mapApi || typeof mapApi.resize !== 'function') return;
 
     const run = () => mapApi.resize();
-    const map = typeof mapApi.getMap === 'function' ? mapApi.getMap() : mapApi.map;
+    const map = typeof mapApi.getMap === 'function' ? mapApi.getMap() : null;
     if (map && typeof map.loaded === 'function' && typeof map.once === 'function' && !map.loaded()) {
         map.once('load', run);
     }

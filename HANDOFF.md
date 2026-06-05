@@ -5,6 +5,16 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-05
+- **Goal**: Pin `main` to the **Final refactor plan commit** baseline (`0aa40f0`).
+- **Branch**: `main`
+- **Commit**: `0aa40f0` ("Final refactor plan commit")
+- **Verification**: `npm test` ✅ (120), `npm run build` ✅
+- **Note**: Post-refactor fix attempts (#21–#24) and rollback PR #25 are no longer on `main`; history was reset to this checkpoint per owner request.
+
+---
+
+## Prior (M4–M7 continuation — 2026-06-05)
+
 - **Goal**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
 - **Branch**: `main`
 - **Fix**:

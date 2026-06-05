@@ -16,8 +16,10 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `js/arcgis/`, `js/agol/` | ArcGIS Online / REST integration |
 | `css/` | `main.css`, `mobile.css`, `workflow.css` |
 | `pipelines/` | Saved pipeline JSON + `index.json` |
+| `react/` | React islands (panels, map, tool dialogs, workflow editor) |
 | `manifest.json`, `vite.config.js` | PWA manifest and `vite-plugin-pwa` service worker config |
 | `tests/` | Vitest specs (`*.test.js`) |
+| `scripts/preview-smoke.mjs` | Playwright smoke checks against `npm run preview` |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
 
 ## Agent workflow
@@ -29,7 +31,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 
 - Prefer **small, focused changes**; match existing patterns in nearby files (imports, naming, error handling via `handleError` / toasts).
 - Use **ES modules** (`import`/`export`); keep paths explicit (e.g. `./core/logger.js`).
-- **Do not** add a bundler or any Node-only requirement **for loading/running the shipped site** unless agreed; dev-only tooling (e.g. Vitest) is fine.
+- The **shipped site** is built with **Vite** (`npm run build` → `dist/`). React islands mount alongside legacy `js/` modules; feature flags keep rollback paths. Dev-only: Vitest + Playwright smoke script.
 - Avoid committing **secrets** (API keys, tokens). Use environment-specific config or user-supplied values, not hardcoded credentials.
 - Remove stray **`.bak`** files rather than committing them.
 
@@ -38,11 +40,12 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 From the repo root:
 
 ```bash
-npm install   # once, for Vitest
-npm run dev   # Vite dev server
-npm run build
-npm run preview
+npm install
+npm run dev      # Vite dev server (HMR)
+npm run build    # production bundle → dist/
+npm run preview  # serve dist/ (default port 4173)
 npm test
+npm run smoke:preview   # Playwright checks (preview must be running)
 ```
 
 Supplement with browser checks after substantive map/UI changes (Vitest runs in Node; it does not replace manual map verification).
@@ -55,3 +58,11 @@ Supplement with browser checks after substantive map/UI changes (Vitest runs in 
 - **Branches / PRs**: use normal feature branches off `main`, commit in logical chunks, push, and open PRs for review (match your team’s naming conventions).
 
 When cloud-specific steps grow (deploy URLs, staging accounts), add them **here** under this section so agents and humans stay in sync.
+
+### Cursor Cloud specific instructions
+
+- **Build before preview** — the app is no longer served as raw repo files. Cloud preview uses Vite: `npm run build && npm run preview -- --host 0.0.0.0 --port 4173 --strictPort` (see [`.cursor/environment.json`](.cursor/environment.json)). For day-to-day edits, `npm run dev` is fine locally; cloud smoke tests target the **built** `dist/` output on port **4173**.
+- **Automated gate**: `npm test` (Vitest, **120+** tests). No ESLint/npm lint script. Optional E2E: `npm run smoke:preview` against a running preview (needs `npx playwright install chromium` once per VM).
+- **React refactor**: UI is migrating incrementally under `react/` with feature flags (`*-feature-flags.js`). Default paths remain legacy unless a flag is enabled — see [docs/REACT_REFACTOR_PLAN.md](docs/REACT_REFACTOR_PLAN.md) and [HANDOFF.md](HANDOFF.md).
+- **Outbound HTTPS** still required for map tiles, glyphs, and CDN assets at runtime.
+- **Long-lived preview**: use a tmux session (e.g. `vite-preview`) so the server survives across agent turns.

@@ -5,24 +5,23 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-05
-- **Goal**: Fix React Flow Data Pipeline editor — palette click/drag could not add nodes reliably.
-- **Branch**: `cursor/fix-reactflow-pipeline-add-node-969f`
-- **Root cause**: React Flow mount is async; palette interactions emitted `workflow:add-node-request` before the React island registered its listener. The old handler also referenced `WorkflowPalette` in a way that could throw at runtime in the built chunk.
+- **Goal**: Fix React Flow pipeline editor stuck on "Loading canvas…" and palette nodes not appearing.
+- **Branch**: `cursor/fix-reactflow-canvas-loading-2ca4`
+- **Root cause**: React Flow mount is async; if mount throws (e.g. `createRoot` called twice on the same host after a failed attempt), `_reactFlowReady` never flips true and `wf-canvas-loading` stays forever. Overlay also became visible before mount finished.
 - **Fix**:
-  - Added `js/workflow/workflow-node-placement.js` + `js/workflow/workflow-canvas-bridge.js` so the overlay adds nodes directly to the engine after awaiting React Flow mount.
-  - `workflow-overlay.js` now awaits mount, shows a brief canvas loading state, and no longer depends on the bus round-trip for add-node.
-  - `PipelineEditor.jsx` registers `screenToFlowPosition` via the bridge for accurate drop placement; removed the fragile `workflow:add-node-request` handler.
-  - `css/workflow.css`: explicit React Flow host sizing + loading overlay styles.
-  - Added `tests/workflow-node-placement.test.js`.
+  - `workflow-overlay.js`: await React Flow mount before showing overlay; add mount error recovery via `_tearDownReactFlowHost()`; return boolean from `_ensureReactFlowCanvasMounted()`; skip node placement when mount fails.
+  - `mountIsland.jsx`: reuse React root per element (WeakMap) so remount after teardown does not throw.
+  - `workflow-add-node-smoke.mjs`: assert loading overlay clears after open and after add-node.
 - **Verification**:
   - `npm test` ✅ (126)
   - `npm run build` ✅
-  - `node scripts/workflow-add-node-smoke.mjs http://127.0.0.1:4174` ✅ (palette click adds nodes on preview build)
+  - `node scripts/workflow-add-node-smoke.mjs http://127.0.0.1:4173` ✅
+  - Headed Playwright on virtual desktop (`DISPLAY=:1`): open editor, add node, close/reopen — canvas loads, nodes appear, no stuck loading overlay.
 
 ## Next
 
-1. Manual browser pass: drag palette nodes, connect wires, run pipeline, reopen editor.
-2. Optionally wire `workflow-add-node-smoke.mjs` into CI preview smoke.
+1. If users still see stuck loading, hard-refresh or clear site data (PWA service worker may cache old chunks).
+2. Manual pass: drag palette nodes onto canvas, connect wires, run pipeline.
 
 ---
 

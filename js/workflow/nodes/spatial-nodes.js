@@ -30,7 +30,7 @@ export class BufferNode extends NodeBase {
         });
         this.inputPorts = [{ id: 'in', label: 'Features', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'Buffered', dataType: 'dataset' }];
-        this.config = { distance: 1, units: 'kilometers' };
+        this.config = { distance: 100, units: 'feet' };
     }
 
     renderInspector(container) {
@@ -282,7 +282,9 @@ export class SpatialJoinNode extends NodeBase {
         container.innerHTML = `
             <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">
                 For each <strong>Point</strong>, finds the containing <strong>Polygon</strong>
-                and copies its attributes to the point.
+                and copies its attributes to the point. Creates a new layer on the output port
+                (does not modify source layers). Map <strong>Points in Poly (filter)</strong> only
+                keeps matching points without joining attributes.
             </p>
             <label class="wf-inspector-label">Fields to Join</label>
             <input class="wf-inspector-input" data-cfg="joinFields" value="${this.config.joinFields}"

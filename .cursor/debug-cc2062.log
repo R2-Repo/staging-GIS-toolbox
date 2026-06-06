@@ -1,0 +1,419 @@
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780768851409}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780768851410}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780768851482}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780768851484}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H3","location":"MapView.jsx:setContainerRef","message":"init skipped didInitRef true","data":{"hasMap":true},"timestamp":1780768852427}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780768854170}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780768854172}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780768854212}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780768854271}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780768854272}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780768854272}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"interactive"},"timestamp":1780769058434}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780769058435}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780769058451}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780769058483}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780769058483}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780769058484}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780769064063}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780769064064}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780769064078}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780769064111}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780769064111}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780769064112}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780769084955}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780769084956}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780769084970}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780769084997}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780769084997}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780769084998}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780770105353}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780770105354}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780770105368}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780770105393}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780770105394}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780770105394}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781504534}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781504535}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781504559}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781504589}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781504591}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781504592}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781506279}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781506280}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781506297}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781506362}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781506362}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781506363}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781527048}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781527049}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781527085}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781527117}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781527117}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781527118}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781583863}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781583864}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781583884}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781583941}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781583942}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781583943}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781590947}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781590948}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781590961}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781590984}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781590985}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781590985}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781603157}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781603169}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781603189}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781603232}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781603233}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781603239}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781606329}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781606330}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781606344}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781606380}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781606381}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781606381}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781608228}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781608229}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781608246}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781608284}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781608285}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781608286}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781609155}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781609156}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781609190}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781609239}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781609240}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781609240}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781613046}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781613048}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781613067}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781613102}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781613103}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781613103}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781615893}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781615897}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781615941}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781616087}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781616123}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781616126}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781618178}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781618179}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781618194}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781618238}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781618239}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781618239}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781618936}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781618937}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781618949}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781618979}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781618980}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781618980}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781779228}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781779229}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781779252}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781779287}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781779288}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781779289}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781780165}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781780169}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781780192}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781780232}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781780232}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781780233}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781783936}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781783937}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781783949}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781783976}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781783976}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781783976}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781786881}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781786883}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781786907}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781786939}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781786940}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781786940}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781788278}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781788279}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781788328}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781788405}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781788407}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781788407}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781822911}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781822911}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781822930}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781822952}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781822953}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781822953}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781827040}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781827041}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781827053}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781827081}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781827082}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781827082}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781827883}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781827884}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781827895}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781827924}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781827925}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781827925}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781831226}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781831227}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781831238}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781831263}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781831264}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781831264}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781833285}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781833286}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781833299}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781833326}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781833326}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781833327}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781836311}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781836313}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781836327}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781836376}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781836378}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781836379}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781851021}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781851022}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781851036}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781851059}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781851060}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781851060}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781890204}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781890206}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781890218}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781890246}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781890247}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781890247}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781891153}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781891155}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781891179}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781891222}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781891223}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781891223}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781891939}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781891940}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781891953}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781891983}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781891984}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781891985}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781899201}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781899202}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781899225}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781899259}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781899260}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781899260}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780781901174}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780781901175}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780781901196}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780781901235}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780781901237}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780781901239}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782057258}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782057260}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782057289}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782057347}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782057349}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782057350}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782069919}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782069920}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782069935}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782069997}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782069998}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782069998}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782071977}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782071978}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782071999}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782072022}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782072024}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782072024}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"interactive"},"timestamp":1780782076896}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782076897}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782076915}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782076942}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782076943}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782076943}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782176113}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782176114}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782176140}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782176193}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782176195}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782176195}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782695415}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782695416}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782695430}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782695458}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782695459}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782695459}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782697226}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782697227}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782697238}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782697264}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782697265}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782697265}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782699948}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782699949}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782699959}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782699981}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782699982}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782699982}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782707037}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782707039}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782707127}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782707157}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782707157}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782707158}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782708026}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782708027}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782708037}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782708058}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782708059}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782708059}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782710162}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782710163}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782710192}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782710221}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782710222}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782710222}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782712021}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782712023}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782712035}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782712065}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782712066}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782712066}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782724074}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782724074}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782724090}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782724118}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782724118}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782724118}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782725061}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782725062}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782725072}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782725099}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782725100}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782725101}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782726092}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782726094}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782726108}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782726139}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782726140}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782726153}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782727967}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782727968}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782728002}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782728042}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782728043}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782728043}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782731860}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782731862}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782731871}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782731896}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782731897}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782731897}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782736949}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782736952}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782736967}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782737014}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782737015}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782737016}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782744112}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782744113}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782744140}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782744172}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782744172}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782744173}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782746542}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782746544}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782746568}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782746619}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782746619}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782746621}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782752166}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782752167}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782752184}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782752213}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782752213}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782752214}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782755367}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782755368}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782755402}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782755436}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782755437}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782755437}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782756290}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782756291}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782756321}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782756361}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782756361}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782756362}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782758207}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782758208}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782758238}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782758269}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782758269}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782758270}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782763306}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782763310}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782763376}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782763458}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782763461}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782763473}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782764093}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782764095}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782764111}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782764149}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782764150}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782764151}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782766345}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782766347}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782766368}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782766423}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782766426}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782766429}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782768272}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782768274}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782768296}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782768339}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782768340}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782768341}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782782915}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782782916}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782782933}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782782963}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782782964}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782782964}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780782789275}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780782789277}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780782789296}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780782789333}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780782789335}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780782789335}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780783349288}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":660,"hostH":667,"maplibreType":"object"},"timestamp":1780783349289}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":660,"nodeH":667,"maplibreType":"object"},"timestamp":1780783349293}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780783349321}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780783349321}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780783349322}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"interactive"},"timestamp":1780783943705}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":1300,"hostH":893,"maplibreType":"object"},"timestamp":1780783943706}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":1300,"nodeH":893,"maplibreType":"object"},"timestamp":1780783943709}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780783943735}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780783943736}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780783943736}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"complete"},"timestamp":1780783944372}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":1300,"hostH":893,"maplibreType":"object"},"timestamp":1780783944373}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":1300,"nodeH":893,"maplibreType":"object"},"timestamp":1780783944378}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780783944406}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780783944407}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780783944407}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1","location":"app.js:initMap","message":"initMap entry","data":{"reactEnabled":true,"maplibreType":"object","readyState":"interactive"},"timestamp":1780784048478}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init attempt","data":{"nodeW":1300,"nodeH":893,"maplibreType":"object"},"timestamp":1780784048480}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"react map mount start","data":{"hostW":1300,"hostH":893,"maplibreType":"object"},"timestamp":1780784048479}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"MapView.jsx:setContainerRef","message":"init done","data":{"hasMap":true},"timestamp":1780784048499}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H2","location":"app.js:_mountReactMapView","message":"ready resolved","data":{"hasMap":true},"timestamp":1780784048499}
+{"sessionId":"cc2062","runId":"pre-fix","hypothesisId":"H1-H3","location":"app.js:initMap","message":"initMap success","data":{"hasMap":true,"hasCanvas":true},"timestamp":1780784048500}

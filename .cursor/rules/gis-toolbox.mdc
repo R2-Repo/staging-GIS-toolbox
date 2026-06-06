@@ -18,6 +18,8 @@ alwaysApply: true
 - Shared state and layers: `js/core/state.js`, `js/core/data-model.js`.
 - New import/export formats: `js/import/` or `js/export/` plus registration in the importer/exporter entry modules.
 - Pipeline nodes: `js/workflow/nodes/` and related palette/engine files.
+- **GIS Widgets** (multi-step wizards): read `docs/WIDGET_AUTHORING.md` first; register in `js/widgets/registry.js`; put logic in `js/widgets/<id>/` (engine + controller) and UI in `react/widgets/`. Do not add widget handlers inline in `app.js`.
+- GIS Tools (single-shot modals): `js/tools/gis-tools.js` + `react/tools/`.
 - Styling: `css/`; mobile behavior also uses `css/mobile.css` and responsive patterns in JS.
 
 ## Quality bar

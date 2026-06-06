@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke:preview": "node scripts/preview-smoke.mjs"
+    "smoke:preview": "node scripts/preview-smoke.mjs",
+    "new:widget": "node scripts/new-widget.mjs"
   },
   "devDependencies": {
     "@turf/turf": "7.1.0",

@@ -7,6 +7,7 @@ import { TRANSFORM_NODES } from './nodes/transform-nodes.js';
 import { SPATIAL_NODES } from './nodes/spatial-nodes.js';
 import { ENRICHMENT_NODES } from './nodes/enrichment-nodes.js';
 import { OUTPUT_NODES } from './nodes/output-nodes.js';
+import { isPipelineNodeEnabled } from '../tools/tool-catalog.js';
 
 const CATEGORIES = [
     { key: 'input', label: 'Inputs', color: '#d97706', nodes: INPUT_NODES },
@@ -31,6 +32,9 @@ export class WorkflowPalette {
         this.container.appendChild(title);
 
         for (const cat of CATEGORIES) {
+            const visibleNodes = cat.nodes.filter((def) => isPipelineNodeEnabled(def.type));
+            if (visibleNodes.length === 0) continue;
+
             const section = document.createElement('div');
             section.className = 'wf-palette-section';
 
@@ -47,7 +51,7 @@ export class WorkflowPalette {
             if (!this._collapsed[cat.key]) {
                 const list = document.createElement('div');
                 list.className = 'wf-palette-list';
-                for (const def of cat.nodes) {
+                for (const def of visibleNodes) {
                     const item = document.createElement('div');
                     item.className = 'wf-palette-item';
                     item.setAttribute('draggable', 'true');

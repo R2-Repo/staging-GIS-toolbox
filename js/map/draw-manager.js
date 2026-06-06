@@ -116,9 +116,9 @@ class DrawManager {
                 <button class="draw-toolbar-close" title="Close draw tools">✕</button>
             </div>
             <div class="draw-toolbar-tools">
-                <button class="draw-tool-btn" data-tool="select" title="Select & edit feature">
+                <button class="draw-tool-btn" data-tool="select" title="Edit feature vertices">
                     <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 1l5 14 1.5-5.5L14 8 2 1z" fill="currentColor"/></svg>
-                    <span>Select</span>
+                    <span>Edit Vertices</span>
                 </button>
                 <button class="draw-tool-btn" data-tool="point" title="Draw point">
                     <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg>
@@ -285,12 +285,12 @@ class DrawManager {
         this._finishing = false;
         this._updateToolButtons();
 
-        if (mapService.isSelectionMode()) mapService.exitSelectionMode();
+        mapService.blockSelection?.();
 
-        // Select mode — click to select & edit existing features
+        // Edit Vertices — click to select one feature and drag vertices
         if (tool === 'select') {
             this.map.getCanvas().style.cursor = '';
-            this._setHint('Click a feature to select it. Drag vertices to edit.');
+            this._setHint('Click a feature to edit. Drag vertices to reshape.');
             this._clickHandler = (e) => this._onSelectClick(e);
             this.map.on('click', this._clickHandler);
             this._escHandler = (e) => {
@@ -407,6 +407,7 @@ class DrawManager {
 
     cancelDraw() {
         mapService.cancelInteraction();
+        mapService.unblockSelection?.();
         this._clearPreview();
         this._clearEditSelection();
         this._removeRectPreview();

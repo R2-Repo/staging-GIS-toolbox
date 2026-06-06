@@ -1,11 +1,18 @@
 /**
  * KML exporter — with optional styling and folder grouping
  */
+import { isSmartStyleActive } from '../map/style-engine.js';
+import { bakeFeatureKmlStyle, styleHash } from './style-baker.js';
+
 export async function exportKML(dataset, options = {}, task) {
     const features = dataset.geojson?.features || [];
     task?.updateProgress(30, 'Generating KML...');
 
     const style = options.style || null; // { strokeColor, fillColor, strokeWidth, strokeOpacity, fillOpacity, point?, line?, polygon? }
+
+    if (style && isSmartStyleActive(style)) {
+        return _exportKmlWithBakedStyles(dataset, features, style, task);
+    }
     const sourceGroups = _groupBySource(features);
     const hasSourceFolders = sourceGroups && Object.keys(sourceGroups).length > 1;
     const useGeomFolders = !hasSourceFolders && options.folders !== false && _hasMultipleGeomTypes(features);
@@ -54,6 +61,40 @@ export async function exportKML(dataset, options = {}, task) {
   <Document>
     <name>${escapeXml(dataset.name || 'Export')}</name>
 ${styleBlock}${placemarkXml}
+  </Document>
+</kml>`;
+
+    task?.updateProgress(90, 'Done');
+    return { text: kml, mimeType: 'application/vnd.google-earth.kml+xml' };
+}
+
+function _exportKmlWithBakedStyles(dataset, features, style, task) {
+    const hashToId = new Map();
+    const styleEls = [];
+
+    const styleUrlFor = (f) => {
+        const baked = bakeFeatureKmlStyle(f, style);
+        if (!baked) return '';
+        const h = styleHash(baked);
+        if (!hashToId.has(h)) {
+            const id = `style_baked_${hashToId.size}`;
+            hashToId.set(h, id);
+            const includeIcon = _primaryGeomGroup(f.geometry) === 'point';
+            styleEls.push(_kmlStyleEl(id, baked, includeIcon));
+        }
+        return `#${hashToId.get(h)}`;
+    };
+
+    const placemarkXml = features
+        .map((f, i) => _buildPlacemark(f, i, styleUrlFor(f)))
+        .filter(Boolean)
+        .join('\n');
+
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(dataset.name || 'Export')}</name>
+${styleEls.join('\n')}${placemarkXml}
   </Document>
 </kml>`;
 
@@ -274,16 +315,33 @@ export async function exportMultiLayerKML(layers, options = {}, task) {
 
     layers.forEach(({ dataset, style }, idx) => {
         const features = dataset.geojson?.features || [];
-        const styleId = `style_layer_${idx}`;
+        const folderName = dataset.name || `Layer ${idx + 1}`;
 
-        // Build style for this layer
-        if (style) {
-            styleBlock += _kmlStyleEl(styleId, style, true);
+        if (style && isSmartStyleActive(style)) {
+            const hashToId = new Map();
+            const layerStyleEls = [];
+            const styleUrlFor = (f) => {
+                const baked = bakeFeatureKmlStyle(f, style);
+                if (!baked) return '';
+                const h = styleHash(baked);
+                if (!hashToId.has(h)) {
+                    const id = `style_layer_${idx}_baked_${hashToId.size}`;
+                    hashToId.set(h, id);
+                    layerStyleEls.push(_kmlStyleEl(id, baked, _primaryGeomGroup(f.geometry) === 'point'));
+                }
+                return `#${hashToId.get(h)}`;
+            };
+            styleBlock += layerStyleEls.join('\n');
+            const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrlFor(f))).filter(Boolean).join('\n');
+            folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
+            return;
         }
 
+        const styleId = `style_layer_${idx}`;
+        if (style) styleBlock += _kmlStyleEl(styleId, style, true);
         const styleUrl = style ? `#${styleId}` : '';
         const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrl)).filter(Boolean).join('\n');
-        folderParts.push(`    <Folder>\n      <name>${escapeXml(dataset.name || 'Layer ' + (idx + 1))}</name>\n${marks}\n    </Folder>`);
+        folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
     });
 
     const kml = `<?xml version="1.0" encoding="UTF-8"?>

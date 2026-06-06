@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import * as turf from '@turf/turf';
 import {
+    bufferFeatures,
+    clipFeatures,
     simplifyFeatures,
     dissolveFeatures,
     nearestJoin,
@@ -9,6 +11,45 @@ import {
 } from '../js/tools/gis-tools.js';
 import { createSpatialDataset } from '../js/core/data-model.js';
 import { computeFeatureDistance } from '../js/tools/feature-distance.js';
+
+describe('bufferFeatures', () => {
+    it('buffers only features in a selection-sized subset', async () => {
+        const fc = {
+            type: 'FeatureCollection',
+            features: [
+                turf.point([0, 0], { id: 'a' }),
+                turf.point([5, 5], { id: 'b' })
+            ]
+        };
+        const subset = {
+            type: 'FeatureCollection',
+            features: [fc.features[0]]
+        };
+        const ds = createSpatialDataset('sites', subset, { format: 'test' });
+        const out = await bufferFeatures(ds, 1, 'kilometers');
+        expect(out.geojson.features).toHaveLength(1);
+        expect(out.name).toContain('sites_buffer_');
+        expect(out.geojson.features[0].geometry.type).toBe('Polygon');
+    });
+});
+
+describe('clipFeatures', () => {
+    it('clips a subset of features to a polygon mask', async () => {
+        const fc = {
+            type: 'FeatureCollection',
+            features: [
+                turf.point([1, 1], { id: 'in' }),
+                turf.point([9, 9], { id: 'out' })
+            ]
+        };
+        const ds = createSpatialDataset('pts', fc, { format: 'test' });
+        const mask = turf.polygon([[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]]);
+        const out = await clipFeatures(ds, mask.geometry);
+        expect(out.geojson.features).toHaveLength(1);
+        expect(out.geojson.features[0].properties.id).toBe('in');
+        expect(out.name).toContain('pts_clipped');
+    });
+});
 
 describe('simplifyFeatures', () => {
     it('simplifies each feature in a multi-feature collection', async () => {

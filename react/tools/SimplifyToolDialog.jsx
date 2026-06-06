@@ -1,10 +1,24 @@
 import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
 
-export function SimplifyToolDialog({ selectionCount = 0, onCancel, onApply }) {
+export function SimplifyToolDialog({
+    selectionCount = 0,
+    totalCount = 0,
+    layerName = '',
+    onCancel,
+    onApply
+}) {
     const [tolerance, setTolerance] = useState('0.001');
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
 
     return (
         <div>
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
             <div className="form-group">
                 <label>Tolerance (degrees, e.g., 0.001)</label>
                 <input
@@ -15,16 +29,12 @@ export function SimplifyToolDialog({ selectionCount = 0, onCancel, onApply }) {
                     onChange={(e) => setTolerance(e.target.value)}
                 />
             </div>
-            {selectionCount > 0 ? (
-                <div className="info-box text-xs">
-                    Operating on <strong>{selectionCount}</strong> selected features.
-                </div>
-            ) : null}
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
                 <button
                     className="btn btn-primary apply-btn"
-                    onClick={() => onApply?.({ tol: parseFloat(tolerance) })}
+                    disabled={!isApplyToValid(applyTo, selectionCount)}
+                    onClick={() => onApply?.({ tol: parseFloat(tolerance), applyTo })}
                 >
                     Simplify
                 </button>

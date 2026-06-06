@@ -261,8 +261,15 @@
     overflow: hidden;
     position: relative;
     background:
-        radial-gradient(circle, var(--border) 1px, transparent 1px);
+        radial-gradient(circle, rgba(255, 255, 255, 0.2) 1.25px, transparent 1.25px);
     background-size: 20px 20px;
+}
+
+/* React Flow canvas — no built-in controls, minimap, or attribution */
+.wf-canvas-area .react-flow__attribution,
+.wf-canvas-area .react-flow__controls,
+.wf-canvas-area .react-flow__minimap {
+    display: none !important;
 }
 
 .wf-canvas-svg {

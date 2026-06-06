@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Background,
-    Controls,
     Handle,
-    MiniMap,
     Position,
     ReactFlow,
     ReactFlowProvider,
@@ -338,6 +335,7 @@ function PipelineEditorCanvas({ engine }) {
             fitView
             minZoom={0.2}
             maxZoom={3}
+            proOptions={{ hideAttribution: true }}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -353,11 +351,7 @@ function PipelineEditorCanvas({ engine }) {
             deleteKeyCode={null}
             snapToGrid
             snapGrid={[20, 20]}
-        >
-            <MiniMap />
-            <Controls />
-            <Background gap={20} />
-        </ReactFlow>
+        />
     );
 }
 

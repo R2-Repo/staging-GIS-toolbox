@@ -14,6 +14,8 @@ import { importFile, importFiles } from './import/importer.js';
 import { getActiveTask } from './core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
 import mapService from './map/map-service.js';
+import { isSmartStyleActive } from './map/style-engine.js';
+import { detectEmbeddedSimpleStyle, convertLayerSimpleStyleToSmart } from './map/style-import.js';
 import { isReactMapViewEnabled } from './map/map-feature-flags.js';
 import { isReactLeftPanelEnabled } from './ui/left-panel-feature-flags.js';
 import { isReactRightPanelEnabled } from './ui/right-panel-feature-flags.js';
@@ -45,14 +47,19 @@ import { arcgisImporter } from './arcgis/rest-importer.js';
 import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
+import {
+    renderMapGisToolsPanelHtml,
+    getMobileGisToolFlyoutItems,
+    renderMobileGisToolButtonsHtml
+} from './tools/tool-catalog.js';
 import { convertFeatureCoords } from './tools/coordinates.js';
 import { findFirstLineStringFeature, listLineStringFeatures } from './tools/line-geojson.js';
 
 import drawManager from './map/draw-manager.js';
+import { initSelectionShortcuts } from './map/selection-shortcuts.js';
 import sessionStore from './core/session-store.js';
-import { SpatialAnalyzerWidget } from './widgets/spatial-analyzer.js';
-import { BulkUpdateWidget } from './widgets/bulk-update.js';
-import { ProximityJoinWidget } from './widgets/proximity-join.js';
+import { GIS_WIDGETS, renderWidgetPanelHtml, buildWidgetActions } from './widgets/registry.js';
+import { createWidgetContext } from './widgets/widget-context.js';
 import { WorkflowOverlay } from './workflow/workflow-overlay.js';
 
 // ============================
@@ -195,6 +202,10 @@ async function restoreSessionIfAvailable() {
         if (ok) {
             const session = await sessionStore.loadSession();
             if (!session) { showToast('Could not read saved session.', 'warning'); return; }
+
+            if (session.layerStyles) {
+                mapService.setLayerStylesRecord(session.layerStyles);
+            }
 
             let restored = 0;
             for (const saved of session.layers) {
@@ -416,19 +427,41 @@ function _getRightPanelSnapshot() {
             formats: [],
             agolMode: !!getState().agolCompatMode,
             agolCheck: null,
-            stylePanelHtml: ''
+            layerStyle: null,
+            styleDefaultColor: '#2563eb'
         };
     }
 
     const agolMode = !!getState().agolCompatMode;
+    const layerIndex = getLayers().indexOf(layer);
+    const palette = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
     return {
         layer,
         selectedFields: getSelectedFields(layer.schema),
         formats: getAvailableFormats(layer),
         agolMode,
         agolCheck: agolMode ? checkAGOLCompatibility(layer) : null,
-        stylePanelHtml: layer.type === 'spatial' ? buildStylePanel(layer) : ''
+        layerStyle: layer.type === 'spatial' ? mapService.getLayerStyle(layer.id) : null,
+        styleDefaultColor: palette[Math.max(0, layerIndex) % palette.length]
     };
+}
+
+function _handleLayerStyleChange(style) {
+    const layer = getActiveLayer();
+    if (!layer || layer.type !== 'spatial') return;
+    mapService.restyleLayer(layer.id, layer, style);
+}
+
+function _maybeOfferSimpleStyleConvert(ds) {
+    if (ds.type !== 'spatial') return;
+    const detection = detectEmbeddedSimpleStyle(ds.geojson?.features || []);
+    if (!detection?.hasSimpleStyle) return;
+    const existing = mapService.getLayerStyle(ds.id);
+    if (existing?.mode === 'smart') return;
+    showToast(
+        `Layer has ${detection.distinctCount} embedded colors (${detection.varyingProperty}). Use Smart Style ? Convert.`,
+        'info'
+    );
 }
 
 async function _mountReactRightPanel() {
@@ -448,11 +481,7 @@ async function _mountReactRightPanel() {
             fixAgol: fixAGOL,
             showDataTable
         },
-        onStyleMounted: (layer) => {
-            if (layer?.type === 'spatial') {
-                bindStylePanel(layer, element);
-            }
-        }
+        onStyleChange: _handleLayerStyleChange
     });
     _reactRightPanelMount.render();
 }
@@ -463,31 +492,26 @@ function _renderReactRightPanel() {
 }
 
 async function _mountReactMapView() {
-    if (_reactMapViewUnmount) return;
+    if (_reactMapViewUnmount) {        return;
+    }
 
-    const host = _getOrCreateReactMapViewHost();
-    const { mountMapView } = await import('../react/map/mountMapView.jsx');
+    const host = _getOrCreateReactMapViewHost();    const { mountMapView } = await import('../react/map/mountMapView.jsx');
     const mounted = mountMapView(host, { mapService });
     _reactMapViewUnmount = mounted.unmount;
     try {
-        await mounted.ready;
-    } catch (error) {
-        _reactMapViewUnmount?.();
+        await mounted.ready;    } catch (error) {        _reactMapViewUnmount?.();
         _reactMapViewUnmount = null;
         throw error;
     }
 }
 
-async function initMap() {
-    try {
+async function initMap() {    try {
         if (isReactMapViewEnabled()) {
             await _mountReactMapView();
         } else {
             mapService.init('map-container');
         }
-        setExportMapManager(mapService); // Wire map styles into KML/KMZ export
-    } catch (e) {
-        logger.error('App', 'Map init failed', { error: e.message });
+        setExportMapManager(mapService); // Wire map styles into KML/KMZ export    } catch (e) {        logger.error('App', 'Map init failed', { error: e.message });
         showToast('Map failed to initialize. Some features may be limited.', 'warning');
     }
 }
@@ -657,6 +681,7 @@ async function handleFileImport(files, fenceBbox = null) {
             }
             addLayer(ds);
             mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
+            _maybeOfferSimpleStyleConvert(ds);
             importedLayerIds.push(ds.id);
         }
 
@@ -1098,8 +1123,17 @@ function setupEventListeners() {
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);
-    bus.on('layers:changed', () => sessionStore.scheduleSave(getLayers()));
-    bus.on('layer:active', () => { refreshUI(); updateSelectionUI(); });
+    bus.on('layers:changed', () => sessionStore.scheduleSave(getLayers(), mapService.getLayerStylesRecord()));
+    bus.on('map:styleChanged', () => sessionStore.scheduleSave(getLayers(), mapService.getLayerStylesRecord()));
+    bus.on('layer:active', (layer) => {
+        mapService.setActiveLayerId?.(layer?.id ?? getActiveLayer()?.id ?? null);
+        refreshUI();
+        updateSelectionUI();
+    });
+    bus.on('map:ready', () => {
+        const layer = getActiveLayer();
+        mapService.setActiveLayerId?.(layer?.id ?? null);
+    });
     bus.on('task:error', (data) => {
         showErrorToast(data.error);
     });
@@ -1107,6 +1141,18 @@ function setupEventListeners() {
     // Listen for selection changes
     bus.on('selection:changed', () => updateSelectionUI());
     bus.on('selection:modeChanged', () => updateSelectionUI());
+
+    initSelectionShortcuts({
+        clearSelection,
+        selectAllFeatures,
+        invertSelection,
+        deleteSelectedFeatures,
+        getSelectionCount: () => {
+            const layer = getActiveLayer();
+            return layer ? mapService.getSelectionCount(layer.id) : 0;
+        },
+        isDrawToolActive: () => !!drawManager.activeTool
+    });
 
     // Right-click context menu
     bus.on('map:contextmenu', showMapContextMenu);
@@ -1753,9 +1799,7 @@ function renderDataPrepTools() {
             <div class="panel-section-body">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Pre-built workflows for common GIS tasks.</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSpatialAnalyzer">🔎 Find Features in Area</button><span class="geo-tip">Search for features from one layer that fall inside a drawn area or polygon layer.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBulkUpdate">✏️ Bulk Update</button><span class="geo-tip">Select multiple features and update their attribute fields in bulk.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openProximityJoin">↔️ Proximity Join</button><span class="geo-tip">Copy attributes from the nearest feature in a target layer to each source feature.</span></span>
+                    ${renderWidgetPanelHtml()}
                 </div>
             </div>
         </div>
@@ -1765,58 +1809,7 @@ function renderDataPrepTools() {
                 GIS Tools <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
-
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                    <button id="btn-selection-toggle" class="btn-selection-toggle" data-app-action="toggleSelectionMode" title="Toggle feature selection mode — click features to select them">✦ Select</button>
-                    <span style="font-size:10px;color:var(--text-muted);">Click features to select, or Shift+click to multi-select</span>
-                </div>
-                <div id="selection-bar" class="selection-bar hidden"></div>
-
-                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Coordinates</div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openCoordConverter">🌐 Coord Convert</button><span class="geo-tip">Convert coordinates between formats: Decimal Degrees, DMS, Degrees Decimal Minutes, and UTM.</span></span>
-                </div>
-
-                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Measurement</div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDistanceTool">📏 Distance</button><span class="geo-tip">Straight-line distance between two clicks (great-circle). For path length along several clicks, use the map ruler control (Measure).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBearingTool">🧭 Bearing</button><span class="geo-tip">Find the compass direction (in degrees) from one point to another on the map.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDestinationTool">📌 Destination</button><span class="geo-tip">Given a start point, distance, and compass direction, find where you'd end up.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openAlongTool">📍 Along</button><span class="geo-tip">Find a point at a specific distance along a line — like finding the 5-mile mark on a road.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPointToLineDistanceTool">↔ Pt→Line</button><span class="geo-tip">Measure how far a point is from the nearest spot on a line (shortest perpendicular distance).</span></span>
-                </div>
-
-                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Transformation</div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBuffer">⭕ Buffer</button><span class="geo-tip">Draw a zone around features at a set distance — like showing "everything within 1 mile of a road."</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBboxClip">✂️ BBox Clip</button><span class="geo-tip">Draw a rectangle on the map and cut away everything outside it.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openClip">🔲 Clip Extent</button><span class="geo-tip">Cut features to the current visible map area.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSimplify">〰️ Simplify</button><span class="geo-tip">Reduce detail in shapes by removing extra points — makes files smaller and rendering faster.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openBezierSpline">🌊 Spline</button><span class="geo-tip">Smooth jagged lines into gentle, flowing curves (bezier splines).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPolygonSmooth">🔵 Smooth</button><span class="geo-tip">Round off rough polygon edges by averaging corner positions — makes shapes look more natural.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineOffset">↔ Offset</button><span class="geo-tip">Create a parallel copy of a line shifted left or right by a set distance.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openSector">🥧 Sector</button><span class="geo-tip">Create a pie-slice shaped area from a center point — useful for coverage areas or viewsheds.</span></span>
-                </div>
-
-                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Line Operations</div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineSliceAlong">✂ Slice Along</button><span class="geo-tip">Cut out a section of a line using start and end distances — like "give me the road from mile 2 to mile 5."</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineSlice">✂ Slice Pts</button><span class="geo-tip">Click two points on the map to cut out the section of line between them.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openLineIntersect">✖ Intersect</button><span class="geo-tip">Find all points where two sets of lines cross each other.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openKinks">⚠ Kinks</button><span class="geo-tip">Find self-intersections — spots where a line or polygon edge crosses over itself (geometry errors).</span></span>
-                </div>
-
-                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Combine & Analyze</div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openCombine">🔗 Combine</button><span class="geo-tip">Merge all features of the same type into one multi-feature (multiple Points → one MultiPoint).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openUnion">🔶 Union</button><span class="geo-tip">Merge all polygons into a single shape. Overlapping areas are dissolved together.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openDissolve">🫧 Dissolve</button><span class="geo-tip">Merge polygons by a shared attribute, or merge all polygons into one when no field is chosen.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openPointsWithinPolygon">📍🔷 Pts in Poly</button><span class="geo-tip">Find which points fall inside which polygons — like counting how many stores are in each district.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPoint">🎯 Nearest Pt</button><span class="geo-tip">Click the map to find the closest feature in a point layer to that location.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPointOnLine">📍→ Snap</button><span class="geo-tip">Click near a line to find the closest point directly on that line (snaps to it).</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestPointToLine">📍↔ Pt to Ln</button><span class="geo-tip">Find which point feature in a layer is closest to a given line.</span></span>
-                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="openNearestNeighborAnalysis">📊 NN Analysis</button><span class="geo-tip">Statistically test whether points are clustered together, spread apart, or randomly distributed.</span></span>
-                </div>
+                ${renderMapGisToolsPanelHtml()}
             </div>
         </div>`;
 }
@@ -1939,11 +1932,10 @@ function mobileShowExportModal() {
 }
 
 function mobileShowWidgetsModal() {
-    const items = [
-        { label: '📊 Spatial Analyzer', action: 'openSpatialAnalyzer' },
-        { label: '✏️ Bulk Update', action: 'openBulkUpdate' },
-        { label: '📍 Proximity Join', action: 'openProximityJoin' },
-    ];
+    const items = GIS_WIDGETS.map((widget) => ({
+        label: widget.mobileLabel || `${widget.icon} ${widget.label}`,
+        action: widget.action
+    }));
     const html = `<div style="display:flex;flex-direction:column;gap:8px;">
         ${items.map(i => `<button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" data-action="${i.action}">${i.label}</button>`).join('')}
     </div>`;
@@ -1962,32 +1954,17 @@ function mobileShowWidgetsModal() {
 
 function mobileShowToolsModal() {
     const layers = getLayers();
-    const isSelMode = mapService.isSelectionMode();
     const selCount = mapService.getSelectedIndices?.(getActiveLayer()?.id)?.length || 0;
     const items = [
-        ...(layers.length >= 2 ? [{ label: '🔗 Merge Layers', action: 'mergeLayers', full: true }] : []),
-        { label: '📏 Distance', action: 'openDistanceTool' },
-        { label: '🧭 Bearing', action: 'openBearingTool' },
-        { label: '⭕ Buffer', action: 'openBuffer' },
-        { label: '✂️ BBox Clip', action: 'openBboxClip' },
-        { label: '🔲 Clip', action: 'openClip' },
-        { label: '〰️ Simplify', action: 'openSimplify' },
-        { label: '🌊 Spline', action: 'openBezierSpline' },
-        { label: '🔵 Smooth', action: 'openPolygonSmooth' },
-        { label: '🔶 Union', action: 'openUnion' },
-        { label: '🫧 Dissolve', action: 'openDissolve' },
-        { label: '🔗 Combine', action: 'openCombine' },
-        { label: '⚠ Kinks', action: 'openKinks' },
-        { label: '📊 NN Analysis', action: 'openNearestNeighborAnalysis' },
-        { label: '🌐 Coord Convert', action: 'openCoordConverter' },
+        ...(layers.length >= 2 ? [{ label: '?? Merge Layers', action: 'mergeLayers', full: true }] : []),
+        ...getMobileGisToolFlyoutItems()
     ];
     const html = `
     <div style="margin-bottom:10px;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-            <button class="btn btn-sm ${isSelMode ? 'btn-primary' : 'btn-secondary'}" data-action="toggleSelectionMode" style="min-height:38px;">✦ ${isSelMode ? 'Selection ON' : 'Select Features'}</button>
-            ${selCount > 0 ? `<button class="btn btn-sm btn-secondary" data-action="clearSelection" style="min-height:38px;">Clear (${selCount})</button>` : ''}
+            ${selCount > 0 ? `<button class="btn btn-sm btn-secondary" data-action="clearSelection" style="min-height:38px;">Clear selection (${selCount})</button>` : ''}
         </div>
-        <span style="font-size:10px;color:var(--text-muted);">Tap features on the map to select them for tools below</span>
+        <span style="font-size:10px;color:var(--text-muted);">Tap features to select � Shift+tap multi-select � Drag to box-select</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;">
         ${items.map(i => `<button class="btn ${i.full ? 'btn-primary' : 'btn-secondary'} btn-sm" style="flex:1 1 ${i.full ? '100%' : 'calc(50% - 3px)'};min-height:44px;" data-action="${i.action}">${i.label}</button>`).join('')}
@@ -2192,10 +2169,28 @@ function mobileShowStylingModal() {
         showToast('Layer styling is only for spatial layers', 'info');
         return;
     }
-    const styleHtml = buildStylePanel(layer);
-    showModal('Layer Styling — ' + layer.name, styleHtml, {
-        onMount: (overlay) => {
-            bindStylePanel(layer, overlay);
+    const rootId = `smart-style-modal-${Date.now()}`;
+    showModal('Layer Styling - ' + layer.name, `<div id="${rootId}"></div>`, {
+        width: '420px',
+        onMount: async (overlay) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountSmartStylePanel } = await import('../react/panels/mountSmartStylePanel.jsx');
+            const layerIndex = getLayers().indexOf(layer);
+            const palette = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
+            const mounted = mountSmartStylePanel(root, {
+                layer,
+                style: mapService.getLayerStyle(layer.id),
+                defaultColor: palette[Math.max(0, layerIndex) % palette.length],
+                onStyleChange: (style) => mapService.restyleLayer(layer.id, layer, style)
+            });
+            const observer = new MutationObserver(() => {
+                if (!document.body.contains(overlay)) {
+                    mounted.unmount();
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
         }
     });
 }
@@ -2601,28 +2596,15 @@ function renderMobileToolsPanel() {
     const layers = getLayers();
     el.innerHTML = `
         <h3>GIS Tools</h3>
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-            <button class="btn-selection-toggle" data-app-action="toggleSelectionMode">✦ Select</button>
-            <button class="btn btn-sm btn-secondary" data-app-action="clearSelection">Clear</button>
+        <div id="selection-hint" style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">
+            Tap to select � Shift+tap multi-select � Drag empty area to box-select
         </div>
+        <div id="selection-bar" class="selection-bar hidden"></div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" data-app-action="mergeLayers">🔗 Merge Layers</button>' : ''}
-            <button class="btn btn-secondary btn-sm" data-app-action="openDistanceTool">📏 Distance</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openBearingTool">🧭 Bearing</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openBuffer">⭕ Buffer</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openBboxClip">✂️ BBox Clip</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openClip">🔲 Clip Extent</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openSimplify">〰️ Simplify</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openBezierSpline">🌊 Spline</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openPolygonSmooth">🔵 Smooth</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openUnion">🔶 Union</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openDissolve">🫧 Dissolve</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openCombine">🔗 Combine</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openKinks">⚠ Kinks</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openNearestNeighborAnalysis">📊 NN Analysis</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openCoordConverter">🌐 Coord Convert</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openPhotoMapper">📷 Photo Map</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openArcGISImporter">🌐 ArcGIS REST</button>
+            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" data-app-action="mergeLayers">?? Merge Layers</button>' : ''}
+            ${renderMobileGisToolButtonsHtml()}
+            <button class="btn btn-secondary btn-sm" data-app-action="openPhotoMapper">?? Photo Map</button>
+            <button class="btn btn-secondary btn-sm" data-app-action="openArcGISImporter">?? ArcGIS REST</button>
         </div>
         <h3 style="margin-top:10px;">Basemap</h3>
         <select id="basemap-select-mobile" style="width:100%;">
@@ -3394,15 +3376,16 @@ async function openBuffer() {
 
                 const { mountBufferToolDialog } = await import('../react/tools/mountBufferToolDialog.jsx');
                 const mounted = mountBufferToolDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
-                    showLargeDatasetWarning: work.count > 5000,
+                    layerName: layer.name,
+                    showLargeDatasetWarning: work.totalCount > 5000,
                     onCancel: () => close(),
-                    onApply: async ({ dist, units }) => {
+                    onApply: async ({ dist, units, applyTo }) => {
                         close();
                         try {
                             const result = await runWithTaskProgress('Buffer', () =>
-                                gisTools.bufferFeatures(getWorkingDataset(layer), dist, units)
+                                gisTools.bufferFeatures(getWorkingDataset(layer, applyTo), dist, units)
                             );
                             if (!result) return;
                             addLayer(result);
@@ -3468,13 +3451,15 @@ async function openSimplify() {
 
                 const { mountSimplifyToolDialog } = await import('../react/tools/mountSimplifyToolDialog.jsx');
                 const mounted = mountSimplifyToolDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onApply: async ({ tol }) => {
+                    onApply: async ({ tol, applyTo }) => {
                         close();
                         try {
                             const simplified = await runWithTaskProgress('Simplify', () =>
-                                gisTools.simplifyFeatures(getWorkingDataset(layer), tol)
+                                gisTools.simplifyFeatures(getWorkingDataset(layer, applyTo), tol)
                             );
                             if (!simplified) return;
                             const { dataset, stats } = simplified;
@@ -3538,9 +3523,11 @@ async function openClip() {
 
                 const { mountClipExtentDialog } = await import('../react/tools/mountClipExtentDialog.jsx');
                 const mounted = mountClipExtentDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onApply: async () => {
+                    onApply: async ({ applyTo }) => {
                         close();
                         const bounds = mapService.getBounds();
                         if (!bounds) return showToast('Map bounds not available', 'warning');
@@ -3549,7 +3536,10 @@ async function openClip() {
                             bounds.getEast(), bounds.getNorth()
                         ]);
                         try {
-                            const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
+                            const result = await runWithTaskProgress('Clip', () =>
+                                gisTools.clipFeatures(getWorkingDataset(layer, applyTo), bbox.geometry)
+                            );
+                            if (!result) return;
                             addLayer(result);
                             mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
                             showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
@@ -3579,7 +3569,10 @@ async function openClip() {
                     bounds.getEast(), bounds.getNorth()
                 ]);
                 try {
-                    const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
+                    const result = await runWithTaskProgress('Clip', () =>
+                        gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry)
+                    );
+                    if (!result) return;
                     addLayer(result);
                     mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
@@ -3603,8 +3596,14 @@ function requireSpatialLayer(geomTypes = null) {
     if (typeof turf === 'undefined') { showToast('Turf.js not loaded yet', 'warning'); return null; }
     if (geomTypes) {
         const types = Array.isArray(geomTypes) ? geomTypes : [geomTypes];
-        const has = layer.geojson.features.some(f => f.geometry && types.includes(f.geometry.type));
-        if (!has) { showToast(`Need ${types.join(' or ')} features`, 'warning'); return null; }
+        const work = getWorkingFeatures(layer);
+        const features = work?.geojson?.features || [];
+        const has = features.some(f => f.geometry && types.includes(f.geometry.type));
+        if (!has) {
+            const scope = work?.isSelection ? 'selection' : 'layer';
+            showToast(`Need ${types.join(' or ')} features in ${scope}`, 'warning');
+            return null;
+        }
     }
     return layer;
 }
@@ -3615,31 +3614,39 @@ function requireSpatialLayer(geomTypes = null) {
  * If nothing selected → returns all features (the full geojson).
  * Also returns metadata about whether this is a selection or full dataset.
  */
-function getWorkingFeatures(layer) {
+/**
+ * @param {'auto'|'layer'|'selection'} applyTo
+ */
+function getWorkingFeatures(layer, applyTo = 'auto') {
     if (!layer || layer.type !== 'spatial') return null;
+    const totalCount = layer.geojson.features.length;
     const selected = mapService.getSelectedFeatures(layer.id, layer.geojson);
-    if (selected && selected.features.length > 0) {
+    const selectionCount = selected?.features?.length ?? 0;
+
+    const useSelection = applyTo === 'selection'
+        || (applyTo === 'auto' && selectionCount > 0);
+
+    if (useSelection && selectionCount > 0) {
         return {
             geojson: selected,
             isSelection: true,
-            count: selected.features.length,
-            totalCount: layer.geojson.features.length
+            count: selectionCount,
+            totalCount
         };
     }
     return {
         geojson: layer.geojson,
         isSelection: false,
-        count: layer.geojson.features.length,
-        totalCount: layer.geojson.features.length
+        count: totalCount,
+        totalCount
     };
 }
 
 /**
  * Build a temporary dataset-like object from the working features for tools.
- * Tools that take a `dataset` (with .geojson, .name, etc.) can use this.
  */
-function getWorkingDataset(layer) {
-    const work = getWorkingFeatures(layer);
+function getWorkingDataset(layer, applyTo = 'auto') {
+    const work = getWorkingFeatures(layer, applyTo);
     if (!work) return null;
     return {
         ...layer,
@@ -3649,14 +3656,9 @@ function getWorkingDataset(layer) {
     };
 }
 
-// Selection mode toggle
+/** @deprecated Selection is always on; clears current selection */
 function toggleSelectionMode() {
-    if (mapService.isSelectionMode()) {
-        mapService.exitSelectionMode();
-    } else {
-        mapService.enterSelectionMode();
-    }
-    updateSelectionUI();
+    clearSelection();
 }
 
 function clearSelection() {
@@ -3703,28 +3705,26 @@ async function deleteSelectedFeatures() {
 /** Update the selection bar UI */
 function updateSelectionUI() {
     const bar = document.getElementById('selection-bar');
-    const toggleBtn = document.getElementById('btn-selection-toggle');
+    const hint = document.getElementById('selection-hint');
     if (!bar) return;
 
     const layer = getActiveLayer();
     const count = layer ? mapService.getSelectionCount(layer.id) : 0;
     const total = layer?.geojson?.features?.length || 0;
-    const isMode = mapService.isSelectionMode();
+    const layerLabel = layer?.name ? ` on <strong>${layer.name}</strong>` : '';
 
-    // Update toggle button state
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('active', isMode);
-        toggleBtn.textContent = isMode ? '✦ Select ON' : '✦ Select';
+    if (hint) {
+        hint.textContent = 'Click to select � Shift+click add/remove � Drag empty area to box-select � Esc clear';
     }
 
     if (count > 0) {
         bar.classList.remove('hidden');
         bar.innerHTML = `
-            <span class="sel-count">${count}</span> of ${total} features selected
+            <span class="sel-count">${count}</span> of ${total} selected${layerLabel}
             <button class="sel-btn" data-app-action="selectAllFeatures">All</button>
             <button class="sel-btn" data-app-action="invertSelection">Invert</button>
-            <button class="sel-btn" data-app-action="deleteSelectedFeatures" title="Delete selected features" style="color:var(--error);">🗑 Delete</button>
-            <button class="sel-btn sel-clear" data-app-action="clearSelection">✕ Clear</button>
+            <button class="sel-btn" data-app-action="deleteSelectedFeatures" title="Delete selected features" style="color:var(--error);">Delete</button>
+            <button class="sel-btn sel-clear" data-app-action="clearSelection">Clear</button>
         `;
     } else {
         bar.classList.add('hidden');
@@ -3951,11 +3951,13 @@ async function openAlongTool() {
 
                 const { mountAlongToolDialog } = await import('../react/tools/mountAlongToolDialog.jsx');
                 const mounted = mountAlongToolDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onPick: ({ dist, units }) => {
+                    onPick: ({ dist, units, applyTo }) => {
                         close();
-                        const line = findFirstLineStringFeature(work.geojson);
+                        const line = findFirstLineStringFeature(getWorkingFeatures(layer, applyTo).geojson);
                         if (!line) return showToast('No LineString or MultiLineString found', 'warning');
                         try {
                             const pt = gisTools.pointAlong(line, dist, units);
@@ -4108,14 +4110,19 @@ async function openBboxClip() {
 
                 const { mountBboxClipDialog } = await import('../react/tools/mountBboxClipDialog.jsx');
                 const mounted = mountBboxClipDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onDraw: async () => {
+                    onDraw: async ({ applyTo }) => {
                         close();
                         const bbox = await mapService.startRectangleDraw('Click and drag to draw a clip rectangle');
                         if (!bbox) return;
                         try {
-                            const result = await gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox);
+                            const result = await runWithTaskProgress('BBox Clip', () =>
+                                gisTools.bboxClipFeatures(getWorkingDataset(layer, applyTo), bbox)
+                            );
+                            if (!result) return;
                             addResultLayer(result);
                             showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                         } catch (e) {
@@ -4139,7 +4146,10 @@ async function openBboxClip() {
                 const bbox = await mapService.startRectangleDraw('Click and drag to draw a clip rectangle');
                 if (!bbox) return;
                 try {
-                    const result = await gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox);
+                    const result = await runWithTaskProgress('BBox Clip', () =>
+                        gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox)
+                    );
+                    if (!result) return;
                     addResultLayer(result);
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                 } catch (e) {
@@ -4165,12 +4175,14 @@ async function openBezierSpline() {
 
                 const { mountBezierSplineDialog } = await import('../react/tools/mountBezierSplineDialog.jsx');
                 const mounted = mountBezierSplineDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onApply: async ({ res, sharp }) => {
+                    onApply: async ({ res, sharp, applyTo }) => {
                         close();
                         try {
-                            const result = await gisTools.bezierSplineFeatures(getWorkingDataset(layer), res, sharp);
+                            const result = await gisTools.bezierSplineFeatures(getWorkingDataset(layer, applyTo), res, sharp);
                             addResultLayer(result);
                             showToast('Bezier spline applied', 'success');
                         } catch (e) {
@@ -4227,13 +4239,15 @@ async function openPolygonSmooth() {
 
                 const { mountPolygonSmoothDialog } = await import('../react/tools/mountPolygonSmoothDialog.jsx');
                 const mounted = mountPolygonSmoothDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onApply: async ({ iter }) => {
+                    onApply: async ({ iter, applyTo }) => {
                         close();
                         try {
                             const result = await runWithTaskProgress('Polygon Smooth', () =>
-                                gisTools.polygonSmoothFeatures(getWorkingDataset(layer), iter)
+                                gisTools.polygonSmoothFeatures(getWorkingDataset(layer, applyTo), iter)
                             );
                             if (!result) return;
                             addResultLayer(result);
@@ -4292,12 +4306,14 @@ async function openLineOffset() {
 
                 const { mountLineOffsetDialog } = await import('../react/tools/mountLineOffsetDialog.jsx');
                 const mounted = mountLineOffsetDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onApply: async ({ dist, units }) => {
+                    onApply: async ({ dist, units, applyTo }) => {
                         close();
                         try {
-                            const result = await gisTools.lineOffsetFeatures(getWorkingDataset(layer), dist, units);
+                            const result = await gisTools.lineOffsetFeatures(getWorkingDataset(layer, applyTo), dist, units);
                             addResultLayer(result);
                             showToast(`Line offset by ${dist} ${units}`, 'success');
                         } catch (e) {
@@ -4590,12 +4606,14 @@ async function openKinks() {
 
                 const { mountKinksDialog } = await import('../react/tools/mountKinksDialog.jsx');
                 const mounted = mountKinksDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onFind: async () => {
+                    onFind: async ({ applyTo }) => {
                         close();
                         try {
-                            const result = await gisTools.findKinks(getWorkingDataset(layer));
+                            const result = await gisTools.findKinks(getWorkingDataset(layer, applyTo));
                             addResultLayer(result);
                             showToast(`Found ${result.geojson.features.length} kink(s)`, result.geojson.features.length > 0 ? 'warning' : 'success');
                         } catch (e) {
@@ -4643,12 +4661,14 @@ async function openCombine() {
 
                 const { mountCombineFeaturesDialog } = await import('../react/tools/mountCombineFeaturesDialog.jsx');
                 const mounted = mountCombineFeaturesDialog(root, {
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onCombine: () => {
+                    onCombine: ({ applyTo }) => {
                         close();
                         try {
-                            const result = gisTools.combineFeatures(getWorkingDataset(layer));
+                            const result = gisTools.combineFeatures(getWorkingDataset(layer, applyTo));
                             addResultLayer(result);
                             showToast(`Combined into ${result.geojson.features.length} multi-feature(s)`, 'success');
                         } catch (e) {
@@ -4755,13 +4775,15 @@ async function openDissolve() {
                 const { mountDissolveDialog } = await import('../react/tools/mountDissolveDialog.jsx');
                 const mounted = mountDissolveDialog(root, {
                     fields: layer.schema?.fields || [],
-                    selectionCount: work.isSelection ? work.count : 0,
+                    selectionCount: mapService.getSelectionCount(layer.id),
+                    totalCount: work.totalCount,
+                    layerName: layer.name,
                     onCancel: () => close(),
-                    onDissolve: async ({ field }) => {
+                    onDissolve: async ({ field, applyTo }) => {
                         close();
                         try {
                             const result = await runWithTaskProgress('Dissolve', () =>
-                                gisTools.dissolveFeatures(getWorkingDataset(layer), field)
+                                gisTools.dissolveFeatures(getWorkingDataset(layer, applyTo), field)
                             );
                             if (!result) return;
                             addResultLayer(result);
@@ -5681,466 +5703,21 @@ async function processPhotoFiles(files, modalOverlay) {
 // ============================
 // GIS Widgets
 // ============================
-let _spatialAnalyzerWidget = null;
-
-function openSpatialAnalyzer() {
-    if (_isReactToolDialogs) {
-        const rootId = `spatial-analyzer-react-${Date.now()}`;
-        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
-        const layerOptions = spatialLayers.map((layer) => {
-            const hasPolygons = (layer.geojson?.features || []).some((feature) =>
-                feature?.geometry?.type === 'Polygon' || feature?.geometry?.type === 'MultiPolygon'
-            );
-            return {
-                id: layer.id,
-                name: layer.name,
-                featureCount: layer.geojson?.features?.length || 0,
-                hasPolygons
-            };
-        });
-
-        showModal('Find Features in Area', `<div id="${rootId}"></div>`, {
-            width: '560px',
-            onMount: async (overlay, close) => {
-                const root = overlay.querySelector(`#${rootId}`);
-                if (!root) return;
-
-                const { mountSpatialAnalyzerDialog } = await import('../react/tools/mountSpatialAnalyzerDialog.jsx');
-                const { SPATIAL_RELATIONS, runSpatialAnalysis } = await import('./widgets/spatial-analyzer-engine.js');
-                const mounted = mountSpatialAnalyzerDialog(root, {
-                    layers: layerOptions,
-                    relationOptions: SPATIAL_RELATIONS,
-                    onCancel: () => close(),
-                    onDrawArea: async (mode) => {
-                        if (mode === 'rectangle') {
-                            showToast('Draw a rectangle on the map', 'info');
-                            const bbox = await mapService.startRectangleDraw('Click and drag to draw your search area');
-                            if (!bbox) return null;
-                            const [west, south, east, north] = bbox;
-                            const analysisArea = turf.bboxPolygon([west, south, east, north]);
-                            mapService.showTempFeature(analysisArea, 15000);
-                            return { analysisArea, areaSource: 'draw' };
-                        }
-
-                        if (mode === 'polygon') {
-                            showToast('Click to place points, double-click or Enter to finish', 'info');
-                            const geometry = await mapService.startSketchPolygon({
-                                bannerText: 'Click to add points. Double-click or Enter to finish the area.',
-                                onInsufficientVertices: () => showToast('Need at least 3 points to make an area', 'warning')
-                            });
-                            if (!geometry) return null;
-                            const analysisArea = turf.feature(geometry);
-                            mapService.showTempFeature(analysisArea, 15000);
-                            return { analysisArea, areaSource: 'draw' };
-                        }
-
-                        if (mode === 'circle') {
-                            showToast('Click center, then click to set radius', 'info');
-                            const geometry = await mapService.startSketchCirclePolygon({
-                                bannerText: 'Click center, then click for radius. Esc cancels.',
-                                onRadiusTooSmall: () => showToast('Radius too small', 'warning')
-                            });
-                            if (!geometry) return null;
-                            const analysisArea = turf.feature(geometry);
-                            mapService.showTempFeature(analysisArea, 15000);
-                            return { analysisArea, areaSource: 'draw' };
-                        }
-
-                        return null;
-                    },
-                    onUseLayerArea: async (areaLayerId) => {
-                        const layer = getLayers().find((entry) => entry.id === areaLayerId);
-                        if (!layer?.geojson?.features?.length) {
-                            throw new Error('Selected polygon layer has no features.');
-                        }
-
-                        const polygons = layer.geojson.features.filter((feature) =>
-                            feature?.geometry &&
-                            (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')
-                        );
-
-                        if (polygons.length === 0) {
-                            throw new Error('No polygon features found in selected layer.');
-                        }
-
-                        let analysisArea = polygons[0];
-                        if (polygons.length > 1) {
-                            try {
-                                let merged = polygons[0];
-                                for (let i = 1; i < polygons.length; i++) {
-                                    const unionResult = turf.union(turf.featureCollection([merged, polygons[i]]));
-                                    if (unionResult) merged = unionResult;
-                                }
-                                analysisArea = merged;
-                            } catch {
-                                const hull = turf.convex(turf.featureCollection(polygons));
-                                analysisArea = hull || polygons[0];
-                            }
-                        }
-
-                        mapService.showTempFeature(analysisArea, 15000);
-                        return { analysisArea, areaSource: 'layer' };
-                    },
-                    onRun: async ({ targetLayerId, analysisArea, spatialRelation }) => {
-                        const targetLayer = getLayers().find((layer) => layer.id === targetLayerId);
-                        if (!targetLayer?.geojson?.features?.length) {
-                            throw new Error('Target layer has no features.');
-                        }
-
-                        const { matchedFeatures, stats } = await runSpatialAnalysis({
-                            features: targetLayer.geojson.features,
-                            analysisArea,
-                            spatialRelation
-                        });
-
-                        mapService.showTempFeature(
-                            { type: 'FeatureCollection', features: matchedFeatures },
-                            15000
-                        );
-
-                        return {
-                            matched: matchedFeatures.length,
-                            total: targetLayer.geojson.features.length,
-                            features: matchedFeatures,
-                            stats,
-                            targetLayerName: targetLayer.name
-                        };
-                    },
-                    onAddResults: (result) => {
-                        if (!result?.features?.length) {
-                            showToast('No matching features to add', 'warning');
-                            return;
-                        }
-
-                        const featureCollection = {
-                            type: 'FeatureCollection',
-                            features: result.features
-                        };
-                        const dataset = createSpatialDataset(
-                            `${result.targetLayerName}_analysis_results`,
-                            featureCollection,
-                            { format: 'derived' }
-                        );
-                        addLayer(dataset);
-                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                        refreshUI();
-                        showToast(`Added ${result.matched} matched features as a new layer`, 'success');
-                    },
-                    onAddArea: ({ analysisArea, areaSource }) => {
-                        if (!analysisArea) {
-                            showToast('No analysis area available', 'warning');
-                            return;
-                        }
-                        const featureCollection = {
-                            type: 'FeatureCollection',
-                            features: [
-                                {
-                                    ...analysisArea,
-                                    properties: {
-                                        ...(analysisArea.properties || {}),
-                                        name: 'Analysis Area',
-                                        source: areaSource || 'draw'
-                                    }
-                                }
-                            ]
-                        };
-                        const dataset = createSpatialDataset('Analysis_Area', featureCollection, { format: 'derived' });
-                        addLayer(dataset);
-                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                        refreshUI();
-                        showToast('Analysis area added as new layer', 'success');
-                    }
-                });
-                watchOverlayUnmount(overlay, () => mounted.unmount?.());
-            }
-        });
-        return;
-    }
-
-    if (!_spatialAnalyzerWidget) {
-        _spatialAnalyzerWidget = new SpatialAnalyzerWidget();
-    }
-    // Inject dependencies
-    _spatialAnalyzerWidget.getLayers = getLayers;
-    _spatialAnalyzerWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _spatialAnalyzerWidget.mapService = mapService;
-    _spatialAnalyzerWidget.addLayer = addLayer;
-    _spatialAnalyzerWidget.createSpatialDataset = createSpatialDataset;
-    _spatialAnalyzerWidget.refreshUI = refreshUI;
-    _spatialAnalyzerWidget.showToast = showToast;
-    _spatialAnalyzerWidget.toggle();
-}
-
-let _bulkUpdateWidget = null;
-
-function openBulkUpdate() {
-    if (_isReactToolDialogs) {
-        const rootId = `bulk-update-react-${Date.now()}`;
-        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
-        const layerOptions = spatialLayers.map((layer) => {
-            const fields = new Set();
-            (layer.geojson?.features || []).slice(0, 200).forEach((feature) => {
-                Object.keys(feature?.properties || {}).forEach((key) => fields.add(key));
-            });
-            return {
-                id: layer.id,
-                name: layer.name,
-                featureCount: layer.geojson?.features?.length || 0,
-                fields: [...fields].sort()
-            };
-        });
-
-        showModal('Bulk Update', `<div id="${rootId}"></div>`, {
-            width: '560px',
-            onMount: async (overlay, close) => {
-                const root = overlay.querySelector(`#${rootId}`);
-                if (!root) return;
-                const { mountBulkUpdateDialog } = await import('../react/tools/mountBulkUpdateDialog.jsx');
-
-                const mounted = mountBulkUpdateDialog(root, {
-                    layers: layerOptions,
-                    onCancel: () => {
-                        mapService.exitSelectionMode();
-                        updateSelectionUI();
-                        close();
-                    },
-                    onStartSelection: (layerId) => {
-                        if (!layerId) return;
-                        setActiveLayer(layerId);
-                        refreshUI();
-                        mapService.enterSelectionMode();
-                        updateSelectionUI();
-                        showToast('Click features on the map to select them', 'info');
-                    },
-                    onStopSelection: () => {
-                        mapService.exitSelectionMode();
-                        updateSelectionUI();
-                    },
-                    onSelectAll: (layerId) => {
-                        const layer = getLayers().find((entry) => entry.id === layerId);
-                        if (!layer) return;
-                        mapService.selectAll(layer.id, layer.geojson);
-                        updateSelectionUI();
-                    },
-                    onInvertSelection: (layerId) => {
-                        const layer = getLayers().find((entry) => entry.id === layerId);
-                        if (!layer) return;
-                        mapService.invertSelection(layer.id, layer.geojson);
-                        updateSelectionUI();
-                    },
-                    onClearSelection: (layerId) => {
-                        mapService.clearSelection(layerId || null);
-                        updateSelectionUI();
-                    },
-                    onGetSelectionCount: (layerId) => {
-                        if (!layerId) return 0;
-                        return mapService.getSelectionCount(layerId) || 0;
-                    },
-                    onApply: ({ layerId, updates }) => {
-                        const layer = getLayers().find((entry) => entry.id === layerId);
-                        if (!layer?.geojson?.features) throw new Error('Target layer not found.');
-
-                        const selectedIndices = mapService.getSelectedIndices(layer.id) || [];
-                        if (selectedIndices.length === 0) {
-                            throw new Error('No selected features found for this layer.');
-                        }
-
-                        const safeUpdates = (updates || []).filter((entry) => entry?.field);
-                        if (safeUpdates.length === 0) {
-                            throw new Error('Add at least one field update.');
-                        }
-
-                        let updatedCount = 0;
-                        selectedIndices.forEach((index) => {
-                            const feature = layer.geojson.features[index];
-                            if (!feature) return;
-                            if (!feature.properties) feature.properties = {};
-
-                            safeUpdates.forEach((entry) => {
-                                const rawValue = entry.value ?? '';
-                                if (rawValue === '') {
-                                    feature.properties[entry.field] = '';
-                                } else if (!Number.isNaN(Number(rawValue)) && String(rawValue).trim() !== '') {
-                                    feature.properties[entry.field] = Number(rawValue);
-                                } else {
-                                    feature.properties[entry.field] = rawValue;
-                                }
-                            });
-                            updatedCount++;
-                        });
-
-                        mapService.refreshLayerData(layer);
-                        mapService.clearSelection(layer.id);
-                        mapService.exitSelectionMode();
-                        updateSelectionUI();
-                        refreshUI();
-
-                        const fieldCount = safeUpdates.length;
-                        showToast(
-                            `Updated ${fieldCount} field${fieldCount === 1 ? '' : 's'} on ${updatedCount} feature${updatedCount === 1 ? '' : 's'}`,
-                            'success'
-                        );
-                        return { fieldCount, updatedCount };
-                    }
-                });
-                watchOverlayUnmount(overlay, () => mounted.unmount?.());
-            }
-        });
-        return;
-    }
-
-    if (!_bulkUpdateWidget) {
-        _bulkUpdateWidget = new BulkUpdateWidget();
-    }
-    _bulkUpdateWidget.getLayers = getLayers;
-    _bulkUpdateWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _bulkUpdateWidget.mapService = mapService;
-    _bulkUpdateWidget.refreshUI = refreshUI;
-    _bulkUpdateWidget.showToast = showToast;
-    _bulkUpdateWidget.toggle();
-}
-
-let _proximityJoinWidget = null;
-
-function openProximityJoin() {
-    if (_isReactToolDialogs) {
-        const rootId = `proximity-join-react-${Date.now()}`;
-        const spatialLayers = (getLayers() || []).filter((layer) => layer.type === 'spatial');
-        const layerOptions = spatialLayers.map((layer) => {
-            const keys = new Set();
-            (layer.geojson?.features || []).slice(0, 200).forEach((feature) => {
-                Object.keys(feature?.properties || {}).forEach((key) => keys.add(key));
-            });
-            return {
-                id: layer.id,
-                name: layer.name,
-                featureCount: layer.geojson?.features?.length || 0,
-                fields: [...keys].sort(),
-                selectedCount: mapService.getSelectionCount?.(layer.id) || 0
-            };
-        });
-
-        showModal('Proximity Join', `<div id="${rootId}"></div>`, {
-            width: '560px',
-            onMount: async (overlay, close) => {
-                const root = overlay.querySelector(`#${rootId}`);
-                if (!root) return;
-
-                const { mountProximityJoinDialog } = await import('../react/tools/mountProximityJoinDialog.jsx');
-                const { UNIT_LABELS, validateProximityJoinConfig, buildProximityPreview, runProximityJoin, unitAbbr } = await import('./widgets/proximity-join-engine.js');
-                const mounted = mountProximityJoinDialog(root, {
-                    layers: layerOptions,
-                    unitOptions: UNIT_LABELS.map((entry) => ({
-                        value: entry.value,
-                        label: `${entry.label} (${entry.abbr})`
-                    })),
-                    onCancel: () => close(),
-                    onPreview: async (config) => {
-                        const sourceLayer = getLayers().find((layer) => layer.id === config.sourceLayerId);
-                        const targetLayer = getLayers().find((layer) => layer.id === config.targetLayerId);
-                        const validation = validateProximityJoinConfig({
-                            sourceLayer,
-                            targetLayer,
-                            fieldMappings: config.fieldMappings,
-                            maxRadius: config.maxRadius,
-                            writeMatchId: config.writeMatchId,
-                            matchIdField: config.matchIdField
-                        });
-                        if (validation.errors.length > 0) {
-                            throw new Error(validation.errors[0]);
-                        }
-
-                        const sourceFeatures = config.selectionOnly
-                            ? (mapService.getSelectedIndices?.(sourceLayer.id) || [])
-                                .map((index) => sourceLayer.geojson.features[index])
-                                .filter(Boolean)
-                            : sourceLayer.geojson.features;
-
-                        return buildProximityPreview({
-                            sourceFeatures,
-                            targetFeatures: targetLayer.geojson.features,
-                            fieldMappings: validation.validMappings,
-                            units: config.units,
-                            maxRadius: config.maxRadius,
-                            writeDistance: config.writeDistance
-                        });
-                    },
-                    onRun: async (config, handlers = {}) => {
-                        const sourceLayer = getLayers().find((layer) => layer.id === config.sourceLayerId);
-                        const targetLayer = getLayers().find((layer) => layer.id === config.targetLayerId);
-                        const validation = validateProximityJoinConfig({
-                            sourceLayer,
-                            targetLayer,
-                            fieldMappings: config.fieldMappings,
-                            maxRadius: config.maxRadius,
-                            writeMatchId: config.writeMatchId,
-                            matchIdField: config.matchIdField
-                        });
-                        if (validation.errors.length > 0) {
-                            throw new Error(validation.errors[0]);
-                        }
-
-                        const featureIndices = config.selectionOnly
-                            ? (mapService.getSelectedIndices?.(sourceLayer.id) || [])
-                            : sourceLayer.geojson.features.map((_, index) => index);
-
-                        if (featureIndices.length === 0) {
-                            throw new Error(config.selectionOnly
-                                ? 'No selected source features found.'
-                                : 'Source layer has no features.');
-                        }
-
-                        const result = await runProximityJoin({
-                            allSourceFeatures: sourceLayer.geojson.features,
-                            featureIndices,
-                            targetFeatures: targetLayer.geojson.features,
-                            fieldMappings: validation.validMappings,
-                            units: config.units,
-                            maxRadius: config.maxRadius,
-                            writeDistance: config.writeDistance,
-                            writeMatchId: config.writeMatchId,
-                            matchIdField: config.matchIdField,
-                            writeMatchLayer: config.writeMatchLayer,
-                            targetLayerName: targetLayer.name,
-                            onProgress: handlers.onProgress,
-                            isCancelled: handlers.isCancelled
-                        });
-
-                        if (result.cancelled) {
-                            showToast('Proximity join cancelled', 'warning');
-                            return result;
-                        }
-
-                        sourceLayer.schema = analyzeSchema(sourceLayer.geojson);
-                        mapService.refreshLayerData?.(sourceLayer);
-                        refreshUI();
-                        showToast(
-                            `Proximity join complete: ${result.matched} matched, ${result.unmatched} unmatched`,
-                            result.unmatched === 0 ? 'success' : 'info'
-                        );
-
-                        return {
-                            ...result,
-                            unitsLabel: unitAbbr(config.units)
-                        };
-                    }
-                });
-                watchOverlayUnmount(overlay, () => mounted.unmount?.());
-            }
-        });
-        return;
-    }
-
-    if (!_proximityJoinWidget) {
-        _proximityJoinWidget = new ProximityJoinWidget();
-    }
-    _proximityJoinWidget.getLayers = getLayers;
-    _proximityJoinWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
-    _proximityJoinWidget.mapService = mapService;
-    _proximityJoinWidget.analyzeSchema = analyzeSchema;
-    _proximityJoinWidget.refreshUI = refreshUI;
-    _proximityJoinWidget.showToast = showToast;
-    _proximityJoinWidget.toggle();
+function getWidgetContext() {
+    return createWidgetContext({
+        getLayers,
+        getLayerById: (id) => getLayers().find((layer) => layer.id === id),
+        mapService,
+        addLayer,
+        createSpatialDataset,
+        refreshUI,
+        showToast,
+        setActiveLayer: setActiveLayerAndRefresh,
+        updateSelectionUI,
+        analyzeSchema,
+        isReactToolDialogs: _isReactToolDialogs,
+        turf: globalThis.turf
+    });
 }
 
 // ============================
@@ -6750,6 +6327,10 @@ async function doExport(format) {
     }
 
     try {
+        const layerStyle = mapService.getLayerStyle(layer.id);
+        if (layerStyle && isSmartStyleActive(layerStyle) && ['shapefile', 'csv', 'xlsx'].includes(format)) {
+            showToast('Smart styling is not included in this format. Use KML, KMZ, or GeoJSON for styled output.', 'info');
+        }
         await exportDataset(ds, format);
     } catch (e) {
         showErrorToast(handleError(e, 'Export', format));
@@ -7583,7 +7164,7 @@ function showToolInfo() {
                 ['Layers Panel', 'View, select, toggle visibility, zoom to, rename, or remove imported layers.'],
                 ['Fields Panel', 'View, search, select/deselect, rename, or add new fields on the active layer.'],
                 ['Field Types', 'Text, Number, Boolean, Date, and Attach Photo. Photo fields let you attach images to individual features with inline previews. Photos are embedded when exported as KML/KMZ only.'],
-                ['Feature Selection', 'Click the ✦ Select button to enter selection mode. Click features to select them (cyan highlight). Shift+click to add/remove. Ctrl+drag to box-select. Tools operate on selected features when a selection exists, or all features when nothing is selected.'],
+                ['Feature Selection', 'Pick a layer, then click features to select (cyan highlight). Shift+click to add/remove. Drag on empty map to box-select. Open a tool and choose Entire layer or Selected features. Esc clears selection.'],
                 ['Merge Layers', 'Select which layers to combine into a single layer. A source_file field is added so you can tell which features came from which original layer. Useful for exporting multiple layers into one KML or KMZ with folders.'],
                 ['Data Table', 'View the raw attribute table for the active layer.']
             ]
@@ -7967,9 +7548,7 @@ const APP_ACTIONS = {
     openPhotoMapper: openPhotoMapper,
     openArcGISImporter: openArcGISImporter,
     startImportFence,
-    openSpatialAnalyzer,
-    openBulkUpdate,
-    openProximityJoin,
+    ...buildWidgetActions(getWidgetContext),
     openCoordConverter,
     mergeLayers: handleMergeLayers,
     showToolInfo,

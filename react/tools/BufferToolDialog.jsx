@@ -1,19 +1,30 @@
 import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
 
 const UNIT_OPTIONS = ['feet', 'meters', 'miles', 'kilometers'];
 
 export function BufferToolDialog({
     selectionCount = 0,
     totalCount = 0,
+    layerName = '',
     showLargeDatasetWarning = false,
     onCancel,
     onApply
 }) {
     const [distance, setDistance] = useState('100');
     const [units, setUnits] = useState('feet');
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
+
+    const canApply = isApplyToValid(applyTo, selectionCount);
 
     return (
         <div>
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
             <div className="form-group">
                 <label>Buffer distance</label>
                 <input
@@ -37,16 +48,12 @@ export function BufferToolDialog({
             {showLargeDatasetWarning ? (
                 <div className="warning-box">Large dataset — this may be slow.</div>
             ) : null}
-            {selectionCount > 0 ? (
-                <div className="info-box text-xs">
-                    Operating on <strong>{selectionCount}</strong> selected features (of {totalCount}).
-                </div>
-            ) : null}
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
                 <button
                     className="btn btn-primary apply-btn"
-                    onClick={() => onApply?.({ dist: parseFloat(distance), units })}
+                    disabled={!canApply}
+                    onClick={() => onApply?.({ dist: parseFloat(distance), units, applyTo })}
                 >
                     Buffer
                 </button>

@@ -1,6 +1,8 @@
 # React Refactor Plan — GIS Toolbox
 
-> Living doc. Future agents: read this top-to-bottom before touching code.
+> **Remaining work:** see **[REACT_FINISH_PLAN.md](REACT_FINISH_PLAN.md)** (approved 2026-06-06). This file documents the original incremental migration; the finish plan supersedes it for all work left to reach a 100% React UI app.
+>
+> Living doc. Future agents: read **REACT_FINISH_PLAN.md** first for current work; use this file for historical context and Rule #0 parity constraints.
 > Goal: move the app to React **incrementally**, never breaking `main`.
 > Main driver: replace the custom SVG pipeline canvas with **React Flow**.
 

@@ -4,8 +4,9 @@ Keep this file current so the next session can continue without re-discovery.
 
 ## Latest
 
-- **Date**: 2026-06-05
-- **Goal**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
+- **Date**: 2026-06-06
+- **Goal**: **React finish migration** — follow [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) (6 phases, approved not started). Supersedes incremental M-milestones for remaining work.
+- **Previous (2026-06-05)**: Complete **M4**, **M5**, **M6**, and continue **M7** with React host infrastructure + first tool-dialog migration while preserving rollback safety.
 - **Branch**: `main`
 - **Fix**:
   - Re-validated baseline on current working tree:
@@ -593,9 +594,9 @@ Keep this file current so the next session can continue without re-discovery.
 
 **New agent prompt**:
 Continue from this checkpoint in `staging-GIS-toolbox`.
-- Read first: `HANDOFF.md`, `AGENTS.md`, `docs/REACT_REFACTOR_PLAN.md`.
-- Current state: M10 + M11 code-complete; core M12 migration is applied (`vite-plugin-pwa` in Vite config, legacy `sw.js` removed, dist preview flow configured, map-window included in dist build).
-- Immediate next task: perform manual browser PWA/offline/update verification and continue M12 perf/SEO polish using `dist/lighthouse-preview-latest.report.*` as the current benchmark.
+- Read first: `HANDOFF.md`, `AGENTS.md`, **`docs/REACT_FINISH_PLAN.md`** (active plan).
+- Current state: M10 + M11 code-complete; core M12 migration is applied (`vite-plugin-pwa` in Vite config, legacy `sw.js` removed, dist preview flow configured, map-window included in dist build). Hybrid rollback scaffolding still in repo — finish plan Phase 1 deletes it.
+- Immediate next task: **Phase 1 of REACT_FINISH_PLAN** — delete rollback scaffolding (legacy widgets, feature flags, dual-path modals). Do not start until owner requests execution.
 - Constraints: keep `main` shippable after each slice.
 - After each substantive edit: run `npm test`; if green run `npm run build` (PowerShell-safe sequencing).
 - Update `HANDOFF.md` with exact files changed, verification status, and next action.

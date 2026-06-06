@@ -1,10 +1,24 @@
 import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
 
-export function PolygonSmoothDialog({ selectionCount = 0, onCancel, onApply }) {
+export function PolygonSmoothDialog({
+    selectionCount = 0,
+    totalCount = 0,
+    layerName = '',
+    onCancel,
+    onApply
+}) {
     const [iterations, setIterations] = useState('1');
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
 
     return (
         <div>
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
             <p>Smooth jagged polygon edges by averaging corner positions.</p>
             <div className="form-group">
                 <label>Iterations (higher = smoother, default 1)</label>
@@ -17,16 +31,12 @@ export function PolygonSmoothDialog({ selectionCount = 0, onCancel, onApply }) {
                     onChange={(e) => setIterations(e.target.value)}
                 />
             </div>
-            {selectionCount > 0 ? (
-                <div className="info-box text-xs">
-                    Operating on <strong>{selectionCount}</strong> selected features.
-                </div>
-            ) : null}
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
                 <button
                     className="btn btn-primary apply-btn"
-                    onClick={() => onApply?.({ iter: parseInt(iterations, 10) })}
+                    disabled={!isApplyToValid(applyTo, selectionCount)}
+                    onClick={() => onApply?.({ iter: parseInt(iterations, 10), applyTo })}
                 >
                     Smooth
                 </button>

@@ -13,6 +13,8 @@ let db = null;
 let _saveTimer = null;
 let _saving = false;
 let _onSaveStatus = null; // optional callback for UI indicator
+let _pendingLayers = null;
+let _pendingLayerStyles = null;
 
 // ——————— IndexedDB Setup ———————
 
@@ -39,8 +41,9 @@ function openDB() {
 /**
  * Save all layers to IndexedDB
  * @param {Array} layers - array of layer objects from state
+ * @param {Object|null} [layerStyles] - map of layerId -> style object
  */
-async function saveSession(layers) {
+async function saveSession(layers, layerStyles = null) {
     if (_saving) return;
     _saving = true;
     _onSaveStatus?.('saving');
@@ -64,6 +67,14 @@ async function saveSession(layers) {
             layerCount: layers.length,
             activeLayerId: layers.find(l => l.active)?.id || layers[0]?.id || null
         });
+
+        if (layerStyles && typeof layerStyles === 'object') {
+            metaStore.put({
+                key: 'layerStyles',
+                data: layerStyles,
+                timestamp: Date.now()
+            });
+        }
 
         await _txComplete(tx);
         _onSaveStatus?.('saved');
@@ -110,14 +121,19 @@ async function loadSession() {
         const layerStore = tx.objectStore(STORE_LAYERS);
         const metaStore = tx.objectStore(STORE_META);
 
-        const [layers, meta] = await Promise.all([
+        const [layers, meta, stylesMeta] = await Promise.all([
             _getAllFromStore(layerStore),
-            _getFromStore(metaStore, 'session')
+            _getFromStore(metaStore, 'session'),
+            _getFromStore(metaStore, 'layerStyles')
         ]);
 
         if (!layers || layers.length === 0) return null;
 
-        return { layers, meta: meta || { timestamp: 0 } };
+        return {
+            layers,
+            meta: meta || { timestamp: 0 },
+            layerStyles: stylesMeta?.data || null
+        };
     } catch (err) {
         console.error('[SessionStore] Load failed:', err);
         return null;
@@ -159,9 +175,15 @@ async function clearSession() {
 
 // ——————— Debounced Auto-Save ———————
 
-function scheduleSave(layers) {
+function scheduleSave(layers, layerStyles = null) {
+    _pendingLayers = layers;
+    if (layerStyles !== null && layerStyles !== undefined) {
+        _pendingLayerStyles = layerStyles;
+    }
     if (_saveTimer) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => saveSession(layers), DEBOUNCE_MS);
+    _saveTimer = setTimeout(() => {
+        saveSession(_pendingLayers, _pendingLayerStyles);
+    }, DEBOUNCE_MS);
 }
 
 // ——————— Status callback ———————

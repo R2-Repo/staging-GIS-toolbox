@@ -1,15 +1,33 @@
-export function CombineFeaturesDialog({ selectionCount = 0, onCancel, onCombine }) {
+import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
+
+export function CombineFeaturesDialog({
+    selectionCount = 0,
+    totalCount = 0,
+    layerName = '',
+    onCancel,
+    onCombine
+}) {
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
+
     return (
         <div>
-            <p>Merge all features of the same geometry type into a single Multi-geometry feature (e.g., multiple Points -&gt; one MultiPoint).</p>
-            {selectionCount > 0 ? (
-                <p className="info-box text-xs">
-                    Combining <strong>{selectionCount}</strong> selected features.
-                </p>
-            ) : null}
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
+            <p>Merge features of the same geometry type into Multi-geometry features.</p>
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
-                <button className="btn btn-primary apply-btn" onClick={() => onCombine?.()}>Combine</button>
+                <button
+                    className="btn btn-primary apply-btn"
+                    disabled={!isApplyToValid(applyTo, selectionCount)}
+                    onClick={() => onCombine?.({ applyTo })}
+                >
+                    Combine
+                </button>
             </div>
         </div>
     );

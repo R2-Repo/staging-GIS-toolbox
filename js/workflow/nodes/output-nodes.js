@@ -74,7 +74,7 @@ export class AddToMapNode extends NodeBase {
     async execute(inputs, context) {
         const data = inputs[0];
         if (!data) throw new Error('No input data');
-        const name = this.config.layerName || 'Workflow Result';
+        const name = this.config.layerName || data.name || 'Workflow Result';
         // addToMap handles update-in-place (matches by name + workflow source)
         const layerId = context.addToMap?.(data, name);
         if (layerId) this._lastLayerId = layerId;

@@ -1,19 +1,33 @@
 import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
 
 const UNIT_OPTIONS = ['feet', 'meters', 'miles', 'kilometers'];
 
-export function LineOffsetDialog({ selectionCount = 0, onCancel, onApply }) {
-    const [distance, setDistance] = useState('10');
+export function LineOffsetDialog({
+    selectionCount = 0,
+    totalCount = 0,
+    layerName = '',
+    onCancel,
+    onApply
+}) {
+    const [distance, setDistance] = useState('100');
     const [units, setUnits] = useState('feet');
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
 
     return (
         <div>
-            <p>Create a parallel copy of line features, offset by the specified distance. Positive = right side, negative = left side.</p>
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
             <div className="form-group">
                 <label>Offset distance</label>
                 <input
                     type="number"
                     value={distance}
+                    min="0.001"
                     step="1"
                     onChange={(e) => setDistance(e.target.value)}
                 />
@@ -28,16 +42,12 @@ export function LineOffsetDialog({ selectionCount = 0, onCancel, onApply }) {
                     ))}
                 </select>
             </div>
-            {selectionCount > 0 ? (
-                <div className="info-box text-xs">
-                    Operating on <strong>{selectionCount}</strong> selected features.
-                </div>
-            ) : null}
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
                 <button
                     className="btn btn-primary apply-btn"
-                    onClick={() => onApply?.({ dist: parseFloat(distance), units })}
+                    disabled={!isApplyToValid(applyTo, selectionCount)}
+                    onClick={() => onApply?.({ dist: parseFloat(distance), units, applyTo })}
                 >
                     Offset
                 </button>

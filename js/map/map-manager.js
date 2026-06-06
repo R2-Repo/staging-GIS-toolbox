@@ -6,6 +6,8 @@ import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
 import { flattenFeatureGeometryCollections } from '../core/data-model.js';
 import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled } from './map-interaction-utils.js';
+import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
+import { buildSymbolLayerLayout } from './style-symbols.js';
 
 const BASEMAPS = {
     voyager: {
@@ -80,9 +82,11 @@ class MapManager {
         // Import fence
         this._importFence = null;
 
-        // Selection
+        // Selection (always-on when map idle; blocked during draw / map picks)
         this._selections = new Map();
-        this._selectionMode = false;
+        this._selectionBlocked = 0;
+        this._activeLayerId = null;
+        this._rectSelectCleanup = null;
 
         // 3D
         this._3dEnabled = false;
@@ -144,15 +148,22 @@ class MapManager {
             }
         });
 
-        // Click on empty map — clear highlight & popup
+        // Click on empty map — clear highlight, popup, and active-layer selection
         this.map.on('click', (e) => {
             if (e._drawHandled) return;
             const hitLayers = this._getInteractiveLayerIds();
-            const features = hitLayers.length > 0 ? this.map.queryRenderedFeatures(e.point, { layers: hitLayers }) : [];
-            if (features.length === 0 && !this._selectionMode) {
+            const features = this._queryFeaturesAtPoint(e.point, hitLayers);
+            if (features.length === 0) {
                 this.clearHighlight();
                 this._closePopup();
+                if (this._canSelect() && this._activeLayerId) {
+                    this.clearSelection(this._activeLayerId);
+                }
             }
+        });
+
+        bus.on('layer:active', (layer) => {
+            this._activeLayerId = layer?.id ?? null;
         });
 
         // Right-click
@@ -176,6 +187,9 @@ class MapManager {
             bus.emit('map:ready', this.map);
             this._initCoordSearch();
             this._initMeasureTool();
+            if (!this._rectSelectCleanup) {
+                this._rectSelectCleanup = this._setupRectangleSelect();
+            }
         });
 
         return this.map;
@@ -189,7 +203,7 @@ class MapManager {
         this._closePopup?.();
         this._cancelInteraction?.();
         this.clearSelection?.();
-        if (this._selectionMode) this.exitSelectionMode?.();
+        if (this._rectSelectCleanup) { this._rectSelectCleanup(); this._rectSelectCleanup = null; }
         if (this.map) {
             this.map.remove();
             this.map = null;
@@ -341,17 +355,13 @@ class MapManager {
 
         const defaultColor = LAYER_COLORS[colorIndex % LAYER_COLORS.length];
         const stored = this._layerStyles.get(dataset.id);
-        const sty = {
-            strokeColor: stored?.strokeColor || defaultColor,
-            fillColor:   stored?.fillColor   || defaultColor,
-            strokeWidth: stored?.strokeWidth  ?? 2,
-            strokeOpacity: stored?.strokeOpacity ?? 0.8,
-            fillOpacity: stored?.fillOpacity ?? 0.3,
-            pointSize:   stored?.pointSize   ?? 6,
-            pointSymbol: stored?.pointSymbol  || 'circle'
-        };
+        const layerStyle = normalizeStyle(stored, defaultColor);
+        if (!stored) this._layerStyles.set(dataset.id, { ...layerStyle });
 
-        if (!stored) this._layerStyles.set(dataset.id, { ...sty });
+        const styPoly = compilePaint(layerStyle, 'polygon');
+        const styLine = compilePaint(layerStyle, 'line');
+        const styPoint = compilePaint(layerStyle, 'point');
+        const styFlat = getBaseFlatStyle(layerStyle, 'polygon');
 
         const taggedFeatures = [];
         for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
@@ -396,7 +406,7 @@ class MapManager {
             this.map.addLayer({
                 id: fillId, type: 'fill', source: sourceId,
                 filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
-                paint: { 'fill-color': sty.fillColor, 'fill-opacity': sty.fillOpacity }
+                paint: { 'fill-color': styPoly.fillColor, 'fill-opacity': styPoly.fillOpacity }
             });
             layerIds.push(fillId);
 
@@ -404,7 +414,11 @@ class MapManager {
             this.map.addLayer({
                 id: outlineId, type: 'line', source: sourceId,
                 filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
-                paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
+                paint: {
+                    'line-color': styPoly.strokeColor,
+                    'line-width': styPoly.strokeWidth,
+                    'line-opacity': styPoly.strokeOpacity
+                }
             });
             layerIds.push(outlineId);
         }
@@ -415,39 +429,42 @@ class MapManager {
             this.map.addLayer({
                 id: lineId, type: 'line', source: sourceId,
                 filter: _geomTypesFilter(['LineString', 'MultiLineString']),
-                paint: { 'line-color': sty.strokeColor, 'line-width': sty.strokeWidth, 'line-opacity': sty.strokeOpacity }
+                paint: {
+                    'line-color': styLine.strokeColor,
+                    'line-width': styLine.strokeWidth,
+                    'line-opacity': styLine.strokeOpacity
+                }
             });
             layerIds.push(lineId);
         }
 
         // Points
         if (hasPoints) {
-            const fo = Math.min(1, sty.fillOpacity + 0.3);
-            if (sty.pointSymbol === 'circle') {
+            const fo = Math.min(1, (typeof styPoint.fillOpacity === 'number' ? styPoint.fillOpacity : 0.3) + 0.3);
+            const symbolLayout = styPoint.pointSymbol !== 'circle'
+                ? buildSymbolLayerLayout(layerStyle, 'point', (shape, color, fillColor, size, opacity) =>
+                    this._ensureSymbolImage(shape, color, fillColor, size, opacity))
+                : null;
+
+            if (symbolLayout) {
+                const ptId = `${dataset.id}-point`;
+                this.map.addLayer({
+                    id: ptId, type: 'symbol', source: sourceId,
+                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
+                    layout: symbolLayout.layout
+                });
+                layerIds.push(ptId);
+            } else {
                 const ptId = `${dataset.id}-point`;
                 this.map.addLayer({
                     id: ptId, type: 'circle', source: sourceId,
                     filter: _geomTypesFilter(['Point', 'MultiPoint']),
                     paint: {
-                        'circle-radius': sty.pointSize,
-                        'circle-color': sty.fillColor,
-                        'circle-stroke-color': sty.strokeColor,
-                        'circle-stroke-width': sty.strokeWidth,
+                        'circle-radius': styPoint.circleRadius,
+                        'circle-color': styPoint.fillColor,
+                        'circle-stroke-color': styPoint.strokeColor,
+                        'circle-stroke-width': styPoint.strokeWidth,
                         'circle-opacity': fo
-                    }
-                });
-                layerIds.push(ptId);
-            } else {
-                const imgName = this._ensureSymbolImage(sty.pointSymbol, sty.strokeColor, sty.fillColor, sty.pointSize, fo);
-                const ptId = `${dataset.id}-point`;
-                this.map.addLayer({
-                    id: ptId, type: 'symbol', source: sourceId,
-                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
-                    layout: {
-                        'icon-image': imgName,
-                        'icon-size': 1,
-                        'icon-allow-overlap': true,
-                        'icon-anchor': sty.pointSymbol === 'pin' ? 'bottom' : 'center'
                     }
                 });
                 layerIds.push(ptId);
@@ -465,20 +482,22 @@ class MapManager {
                 const feature = dataset.geojson.features[featureIndex];
                 if (!feature) return;
 
-                if (this._selectionMode) {
-                    this._handleSelectionClick(dataset.id, featureIndex, e.originalEvent?.shiftKey, sty.strokeColor);
-                } else {
-                    const latlng = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-                    const nearby = this._findFeaturesNearClick(latlng, dataset.id, featureIndex);
-                    this.highlightFeature(dataset.id, featureIndex, sty.strokeColor);
-                    this._popupHits = nearby.length > 0 ? nearby : [{
-                        feature, featureIndex,
-                        layerId: dataset.id, layerName: dataset.name,
-                        layerColor: sty.strokeColor
-                    }];
-                    this._popupIndex = 0;
-                    this._popupLatLng = latlng;
-                    this._renderCyclePopup();
+                const latlng = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+                const nearby = this._findFeaturesNearClick(latlng, dataset.id, featureIndex, e.point);
+                this.highlightFeature(dataset.id, featureIndex, styFlat.strokeColor);
+                this._popupHits = nearby.length > 0 ? nearby : [{
+                    feature, featureIndex,
+                    layerId: dataset.id, layerName: dataset.name,
+                    layerColor: styFlat.strokeColor
+                }];
+                this._popupIndex = 0;
+                this._popupLatLng = latlng;
+                this._renderCyclePopup();
+
+                if (this._canSelect() && this._isActiveLayer(dataset.id)) {
+                    const ev = e.originalEvent;
+                    const toggle = !!(ev?.shiftKey || ev?.ctrlKey || ev?.metaKey);
+                    this._handleSelectionClick(dataset.id, featureIndex, toggle);
                 }
             });
 
@@ -501,7 +520,7 @@ class MapManager {
                 }
             });
             this.map.on('mouseleave', lid, () => {
-                if (!this._selectionMode && this.map.getCanvas().style.cursor !== 'crosshair') {
+                if (this.map.getCanvas().style.cursor !== 'crosshair') {
                     this.map.getCanvas().style.cursor = '';
                 }
             });
@@ -586,6 +605,7 @@ class MapManager {
     restyleLayer(layerId, dataset, style) {
         this._layerStyles.set(layerId, { ...style });
         this.addLayer(dataset, this._getLayerZIndex(layerId), { fit: false });
+        bus.emit('map:styleChanged', { layerId });
     }
 
     /**
@@ -701,11 +721,19 @@ class MapManager {
     // Feature hit detection
     // ==========================================
 
-    _findFeaturesNearClick(latlng, clickedLayerId, clickedFeatureIndex) {
-        const pixel = this.map.project([latlng.lng, latlng.lat]);
+    _queryFeaturesAtPoint(point, layerIds = null, bufferPx = 8) {
+        const layers = layerIds ?? this._getInteractiveLayerIds();
+        if (!layers.length || !this.map) return [];
+        const min = { x: point.x - bufferPx, y: point.y - bufferPx };
+        const max = { x: point.x + bufferPx, y: point.y + bufferPx };
+        return this.map.queryRenderedFeatures([min, max], { layers });
+    }
+
+    _findFeaturesNearClick(latlng, clickedLayerId, clickedFeatureIndex, point = null) {
+        const pixel = point ?? this.map.project([latlng.lng, latlng.lat]);
         const results = [];
         const allLayerIds = this._getInteractiveLayerIds();
-        const rendered = allLayerIds.length > 0 ? this.map.queryRenderedFeatures([pixel.x, pixel.y], { layers: allLayerIds }) : [];
+        const rendered = allLayerIds.length > 0 ? this._queryFeaturesAtPoint(pixel, allLayerIds) : [];
 
         const seen = new Set();
         for (const rf of rendered) {
@@ -1845,38 +1873,47 @@ class MapManager {
         return { radius: 8, fillColor: '#00e5ff', color: '#ffffff', weight: 3, fillOpacity: 1 };
     }
 
+    setActiveLayerId(layerId) {
+        this._activeLayerId = layerId ?? null;
+    }
+
+    blockSelection() {
+        this._selectionBlocked++;
+    }
+
+    unblockSelection() {
+        this._selectionBlocked = Math.max(0, this._selectionBlocked - 1);
+    }
+
+    _canSelect() {
+        return this._selectionBlocked === 0 && !this._interactionCleanup;
+    }
+
+    _isActiveLayer(layerId) {
+        return !this._activeLayerId || layerId === this._activeLayerId;
+    }
+
+    /** @deprecated Always-on selection; kept for widget compat */
     enterSelectionMode() {
-        this._selectionMode = true;
-        this.map.getCanvas().style.cursor = 'pointer';
-        const banner = this._showInteractionBanner(
-            'Selection mode — click features or Shift/Ctrl+drag to box select.',
-            () => this.exitSelectionMode()
-        );
-        this._selectionBanner = banner;
-        this._rectSelectHandler = this._setupRectangleSelect();
+        this.unblockSelection();
         bus.emit('selection:modeChanged', true);
-        logger.info('Map', 'Selection mode enabled');
     }
 
+    /** @deprecated No-op; selection is always available when map is idle */
     exitSelectionMode() {
-        this._selectionMode = false;
-        this.map.getCanvas().style.cursor = '';
-        if (this._selectionBanner) { this._selectionBanner.remove(); this._selectionBanner = null; }
-        if (this._rectSelectCleanup) { this._rectSelectCleanup(); this._rectSelectCleanup = null; }
         bus.emit('selection:modeChanged', false);
-        logger.info('Map', 'Selection mode disabled');
     }
 
-    isSelectionMode() { return this._selectionMode; }
+    isSelectionMode() { return this._canSelect(); }
 
-    _handleSelectionClick(layerId, featureIndex, shiftKey) {
+    _handleSelectionClick(layerId, featureIndex, toggleKey) {
+        if (!this._isActiveLayer(layerId)) return;
         if (!this._selections.has(layerId)) this._selections.set(layerId, new Set());
         const sel = this._selections.get(layerId);
 
-        if (shiftKey) {
+        if (toggleKey) {
             sel.has(featureIndex) ? sel.delete(featureIndex) : sel.add(featureIndex);
         } else {
-            for (const lid of this._selections.keys()) { this._selections.set(lid, new Set()); this._renderSelectionHighlights(lid); }
             this._selections.set(layerId, new Set([featureIndex]));
         }
 
@@ -1888,6 +1925,7 @@ class MapManager {
         let startLngLat = null;
         let dragging = false;
         const rectId = 'selection-rect';
+        const container = this.map.getContainer();
 
         if (!this.map.getSource(rectId)) {
             this.map.addSource(rectId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1895,9 +1933,29 @@ class MapManager {
             this.map.addLayer({ id: rectId + '-line', type: 'line', source: rectId, paint: { 'line-color': '#00e5ff', 'line-width': 2, 'line-dasharray': [6, 4] } });
         }
 
+        const clearRectPreview = () => {
+            this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] });
+        };
+
+        const finishBox = (start, end, shiftKey) => {
+            const w = Math.min(start.lng, end.lng);
+            const s = Math.min(start.lat, end.lat);
+            const east = Math.max(start.lng, end.lng);
+            const n = Math.max(start.lat, end.lat);
+            if (!bboxDiagonalMeetsMinDragPx(w, s, east, n, (ll) => this.map.project(ll))) {
+                clearRectPreview();
+                return;
+            }
+            this._selectFeaturesInBounds([w, s, east, n], shiftKey);
+            setTimeout(clearRectPreview, 400);
+        };
+
         const onMouseDown = (e) => {
-            if (!e.originalEvent.shiftKey && !e.originalEvent.ctrlKey) return;
-            startLngLat = e.lngLat; dragging = true; this.map.dragPan.disable();
+            if (!this._canSelect() || !this._activeLayerId) return;
+            if (this._queryFeaturesAtPoint(e.point).length > 0) return;
+            startLngLat = e.lngLat;
+            dragging = true;
+            this.map.dragPan.disable();
         };
         const onMouseMove = (e) => {
             if (!dragging || !startLngLat) return;
@@ -1905,28 +1963,53 @@ class MapManager {
         };
         const onMouseUp = (e) => {
             if (!dragging || !startLngLat) return;
-            this.map.dragPan.enable(); dragging = false;
-            const w = Math.min(startLngLat.lng, e.lngLat.lng), s = Math.min(startLngLat.lat, e.lngLat.lat);
-            const east = Math.max(startLngLat.lng, e.lngLat.lng), n = Math.max(startLngLat.lat, e.lngLat.lat);
+            this.map.dragPan.enable();
+            dragging = false;
+            const start = startLngLat;
             startLngLat = null;
+            finishBox(start, e.lngLat, e.originalEvent?.shiftKey);
+        };
 
-            if (!bboxDiagonalMeetsMinDragPx(w, s, east, n, (ll) => this.map.project(ll))) {
-                this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] });
-                return;
-            }
-
-            this._selectFeaturesInBounds([w, s, east, n], e.originalEvent?.shiftKey);
-            setTimeout(() => { this.map.getSource(rectId)?.setData({ type: 'FeatureCollection', features: [] }); }, 400);
+        const onTouchStart = (e) => {
+            if (!this._canSelect() || !this._activeLayerId || e.touches.length !== 1) return;
+            const point = this._touchClientToPoint(e.touches[0].clientX, e.touches[0].clientY);
+            if (this._queryFeaturesAtPoint(point).length > 0) return;
+            e.preventDefault();
+            startLngLat = this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY);
+            dragging = true;
+            this.map.dragPan.disable();
+        };
+        const onTouchMove = (e) => {
+            if (!dragging || !startLngLat || e.touches.length !== 1) return;
+            e.preventDefault();
+            const ll = this._touchClientToLngLat(e.touches[0].clientX, e.touches[0].clientY);
+            this._updateRectGeoJSON(rectId, startLngLat, ll);
+        };
+        const onTouchEnd = (e) => {
+            if (!dragging || !startLngLat) return;
+            e.preventDefault();
+            const ll = this._touchClientToLngLat(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+            const start = startLngLat;
+            startLngLat = null;
+            dragging = false;
+            this.map.dragPan.enable();
+            finishBox(start, ll, false);
         };
 
         this.map.on('mousedown', onMouseDown);
         this.map.on('mousemove', onMouseMove);
         this.map.on('mouseup', onMouseUp);
+        container.addEventListener('touchstart', onTouchStart, { passive: false });
+        container.addEventListener('touchmove', onTouchMove, { passive: false });
+        container.addEventListener('touchend', onTouchEnd, { passive: false });
 
-        this._rectSelectCleanup = () => {
+        return () => {
             this.map.off('mousedown', onMouseDown);
             this.map.off('mousemove', onMouseMove);
             this.map.off('mouseup', onMouseUp);
+            container.removeEventListener('touchstart', onTouchStart);
+            container.removeEventListener('touchmove', onTouchMove);
+            container.removeEventListener('touchend', onTouchEnd);
             if (this.map.getLayer(rectId + '-fill')) this.map.removeLayer(rectId + '-fill');
             if (this.map.getLayer(rectId + '-line')) this.map.removeLayer(rectId + '-line');
             if (this.map.getSource(rectId)) this.map.removeSource(rectId);
@@ -1934,35 +2017,48 @@ class MapManager {
         };
     }
 
+    _touchClientToPoint(clientX, clientY) {
+        const rect = this.map.getContainer().getBoundingClientRect();
+        return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
     _selectFeaturesInBounds(bbox, addToExisting) {
+        const layerId = this._activeLayerId;
+        if (!layerId) return;
+        const info = this.dataLayers.get(layerId);
+        if (!info) return;
+
+        const firstLayer = info.layerIds[0];
+        if (firstLayer && this.map.getLayoutProperty(firstLayer, 'visibility') === 'none') return;
+
         if (!addToExisting) {
-            for (const lid of this._selections.keys()) this._selections.set(lid, new Set());
+            this._selections.set(layerId, new Set());
+        } else if (!this._selections.has(layerId)) {
+            this._selections.set(layerId, new Set());
         }
+        const sel = this._selections.get(layerId);
+
         const [west, south, east, north] = bbox;
         const bboxPoly = turf.bboxPolygon([west, south, east, north]);
 
-        for (const [layerId, info] of this.dataLayers) {
-            const firstLayer = info.layerIds[0];
-            if (firstLayer && this.map.getLayoutProperty(firstLayer, 'visibility') === 'none') continue;
-            if (!this._selections.has(layerId)) this._selections.set(layerId, new Set());
-            const sel = this._selections.get(layerId);
-
-            for (const f of info.geojson.features) {
-                if (!f.geometry) continue;
-                const idx = f.properties?._featureIndex;
-                if (idx === undefined) continue;
+        for (const f of info.geojson.features) {
+            if (!f.geometry) continue;
+            const idx = f.properties?._featureIndex;
+            if (idx === undefined) continue;
+            try {
+                if (turf.booleanIntersects(f, bboxPoly)) sel.add(idx);
+            } catch {
                 try {
-                    if (turf.booleanIntersects(f, bboxPoly)) sel.add(idx);
-                } catch {
-                    try { const c = turf.centroid(f); if (turf.booleanPointInPolygon(c, bboxPoly)) sel.add(idx); } catch {}
-                }
+                    const c = turf.centroid(f);
+                    if (turf.booleanPointInPolygon(c, bboxPoly)) sel.add(idx);
+                } catch { /* skip */ }
             }
-            this._renderSelectionHighlights(layerId);
         }
+        this._renderSelectionHighlights(layerId);
 
-        const total = this.getTotalSelectionCount();
-        bus.emit('selection:changed', { totalCount: total });
-        if (total > 0) logger.info('Map', `Box selected ${total} feature(s)`);
+        const count = sel.size;
+        bus.emit('selection:changed', { layerId, count, totalCount: count });
+        if (count > 0) logger.info('Map', `Box selected ${count} feature(s) on ${layerId}`);
     }
 
     _renderSelectionHighlights(layerId) {
@@ -1991,7 +2087,10 @@ class MapManager {
     getSelectedFeatures(layerId, geojson) {
         const indices = this.getSelectedIndices(layerId);
         if (indices.length === 0) return null;
-        return { type: 'FeatureCollection', features: geojson.features.filter((_, i) => indices.includes(i)) };
+        return {
+            type: 'FeatureCollection',
+            features: geojson.features.filter((f) => indices.includes(f.properties?._featureIndex))
+        };
     }
     getSelectionCount(layerId) { return this._selections.get(layerId)?.size || 0; }
     getTotalSelectionCount() { let t = 0; for (const s of this._selections.values()) t += s.size; return t; }

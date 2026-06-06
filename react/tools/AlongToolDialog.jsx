@@ -1,19 +1,28 @@
 import { useState } from 'react';
+import { ApplyToSelector, isApplyToValid } from './ApplyToSelector.jsx';
 
 const UNIT_OPTIONS = ['feet', 'meters', 'miles', 'kilometers'];
 
-export function AlongToolDialog({ selectionCount = 0, onCancel, onPick }) {
+export function AlongToolDialog({
+    selectionCount = 0,
+    totalCount = 0,
+    layerName = '',
+    onCancel,
+    onPick
+}) {
     const [distance, setDistance] = useState('100');
     const [units, setUnits] = useState('feet');
+    const [applyTo, setApplyTo] = useState(selectionCount > 0 ? 'selection' : 'layer');
 
     return (
         <div>
+            <ApplyToSelector
+                selectionCount={selectionCount}
+                totalCount={totalCount}
+                layerName={layerName}
+                onChange={setApplyTo}
+            />
             <p>Get a point at a specified distance along a line feature.</p>
-            {selectionCount > 0 ? (
-                <div className="info-box text-xs">
-                    Using first line from <strong>{selectionCount}</strong> selected features.
-                </div>
-            ) : null}
             <div className="form-group">
                 <label>Distance along line</label>
                 <input
@@ -34,12 +43,13 @@ export function AlongToolDialog({ selectionCount = 0, onCancel, onPick }) {
                     ))}
                 </select>
             </div>
-            <div className="info-box text-xs">Uses the first LineString in the layer or selection (first part if MultiLineString).</div>
+            <div className="info-box text-xs">Uses the first LineString in the layer or selection.</div>
             <div className="modal-footer">
                 <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
                 <button
                     className="btn btn-primary apply-btn"
-                    onClick={() => onPick?.({ dist: parseFloat(distance), units })}
+                    disabled={!isApplyToValid(applyTo, selectionCount)}
+                    onClick={() => onPick?.({ dist: parseFloat(distance), units, applyTo })}
                 >
                     Find Point
                 </button>

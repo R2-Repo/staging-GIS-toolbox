@@ -5,7 +5,7 @@ export function mountRightPanel({
     element,
     getSnapshot,
     actions,
-    onStyleMounted
+    onStyleChange
 }) {
     if (!element) {
         throw new Error('mountRightPanel: target element is required');
@@ -26,7 +26,7 @@ export function mountRightPanel({
                 onExport={actions?.doExport}
                 onFixAgol={actions?.fixAgol}
                 onShowDataTable={actions?.showDataTable}
-                onStyleMounted={onStyleMounted}
+                onStyleChange={onStyleChange}
             />
         );
     };

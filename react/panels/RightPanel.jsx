@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { SmartStylePanel } from './SmartStylePanel.jsx';
 
 function renderAgolIssue(issue) {
     const suffix = issue.message || issue.fixed ? ` -> ${issue.message || issue.fixed}` : '';
@@ -11,20 +12,15 @@ export function RightPanel({
     onExport,
     onFixAgol,
     onShowDataTable,
-    onStyleMounted
+    onStyleChange
 }) {
     const layer = snapshot?.layer || null;
     const selectedFields = snapshot?.selectedFields || [];
     const formats = snapshot?.formats || [];
     const agolMode = !!snapshot?.agolMode;
     const agolCheck = snapshot?.agolCheck || null;
-    const stylePanelHtml = snapshot?.stylePanelHtml || '';
-
-    useEffect(() => {
-        if (!layer?.id) return;
-        if (!stylePanelHtml) return;
-        onStyleMounted?.(layer);
-    }, [layer?.id, stylePanelHtml, onStyleMounted]);
+    const layerStyle = snapshot?.layerStyle ?? null;
+    const styleDefaultColor = snapshot?.styleDefaultColor || '#2563eb';
 
     if (!layer) {
         return <div className="empty-state"><p>No layer selected</p></div>;
@@ -96,8 +92,14 @@ export function RightPanel({
                 </div>
             </div>
 
-            {stylePanelHtml ? (
-                <div dangerouslySetInnerHTML={{ __html: stylePanelHtml }} />
+            {layer.type === 'spatial' ? (
+                <SmartStylePanel
+                    key={layer.id}
+                    layer={layer}
+                    style={layerStyle}
+                    defaultColor={styleDefaultColor}
+                    onStyleChange={onStyleChange}
+                />
             ) : null}
         </>
     );

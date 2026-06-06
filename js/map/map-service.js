@@ -67,6 +67,18 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         getLayerStyles() {
             return mapAdapter._layerStyles;
         },
+        getLayerStylesRecord() {
+            const map = mapAdapter._layerStyles;
+            if (!map) return {};
+            return Object.fromEntries(map.entries());
+        },
+        setLayerStylesRecord(record = {}) {
+            if (!mapAdapter._layerStyles) return;
+            mapAdapter._layerStyles.clear();
+            for (const [id, style] of Object.entries(record)) {
+                mapAdapter._layerStyles.set(id, style);
+            }
+        },
         enable3D() {
             return mapAdapter.enable3D();
         },
@@ -111,6 +123,18 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         },
         isSelectionMode() {
             return mapAdapter.isSelectionMode();
+        },
+        setActiveLayerId(layerId) {
+            return mapAdapter.setActiveLayerId?.(layerId);
+        },
+        blockSelection() {
+            return mapAdapter.blockSelection?.();
+        },
+        unblockSelection() {
+            return mapAdapter.unblockSelection?.();
+        },
+        isSelectionBlocked() {
+            return !mapAdapter.isSelectionMode?.();
         },
         getSelectedIndices(layerId) {
             return mapAdapter.getSelectedIndices(layerId);

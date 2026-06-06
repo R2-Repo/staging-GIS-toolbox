@@ -9,14 +9,13 @@ export function MapView({
     const didInitRef = useRef(false);
 
     const setContainerRef = useCallback((node) => {
-        if (!node || didInitRef.current) return;
-        try {
+        if (!node) return;
+        if (didInitRef.current) {            return;
+        }        try {
             didInitRef.current = true;
-            const map = mapService.init(node);
-            onReady?.(map);
+            const map = mapService.init(node);            onReady?.(map);
         } catch (error) {
-            didInitRef.current = false;
-            onError?.(error);
+            didInitRef.current = false;            onError?.(error);
         }
     }, [mapService, onError, onReady]);
 

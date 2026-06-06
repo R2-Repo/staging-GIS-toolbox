@@ -60,8 +60,8 @@ export async function exportDataset(dataset, format, options = {}) {
             options.skipFieldSelection = true;
         }
 
-        // Auto-attach style for KML/KMZ exports
-        if ((format === 'kml' || format === 'kmz') && !options.style && _mapApi) {
+        // Auto-attach layer style for spatial exports
+        if (!options.style && _mapApi) {
             const layerStyle = _mapApi.getLayerStyle(dataset.id);
             if (layerStyle) options.style = layerStyle;
         }

@@ -19,6 +19,7 @@ import {
     consumeDualScreenReloadReminder
 } from '../js/dual-screen/storage-hint.js';
 import {
+    buildMapWindowFeatures,
     isSecondaryMapWindowOpen,
     MAP_WINDOW_NAME,
     MAP_WINDOW_PATH,
@@ -153,10 +154,26 @@ describe('dual-screen protocol', () => {
         expect(POPUP_BLOCKED_MESSAGE.toLowerCase()).toContain('pop-up');
     });
 
-    it('openSecondaryMapWindow uses two-arg window.open (no features string)', () => {
+    it('buildMapWindowFeatures requests a sized popup window without noopener/noreferrer', () => {
+        const features = buildMapWindowFeatures({
+            availWidth: 1920,
+            availHeight: 1080,
+            availLeft: 0,
+            availTop: 0
+        });
+        expect(features).toMatch(/width=\d+/);
+        expect(features).toMatch(/height=\d+/);
+        expect(features).toMatch(/left=\d+/);
+        expect(features).toMatch(/top=\d+/);
+        expect(features).toMatch(/resizable=yes/);
+        expect(features.toLowerCase()).not.toContain('noopener');
+        expect(features.toLowerCase()).not.toContain('noreferrer');
+    });
+
+    it('openSecondaryMapWindow uses sized window.open features', () => {
         const fnBody = windowOpenSource.match(/export function openSecondaryMapWindow[\s\S]*?^}/m)?.[0] ?? '';
-        expect(fnBody).toMatch(/window\.open\(MAP_WINDOW_PATH,\s*MAP_WINDOW_NAME\)/);
-        expect(fnBody).not.toMatch(/window\.open\([^)]*,\s*[^)]*,/);
+        expect(fnBody).toMatch(/buildMapWindowFeatures\(\)/);
+        expect(fnBody).toMatch(/window\.open\(MAP_WINDOW_PATH,\s*MAP_WINDOW_NAME,\s*features\)/);
     });
 
     it('exports map window name and path constants', () => {

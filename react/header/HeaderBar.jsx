@@ -42,11 +42,12 @@ export function HeaderBar({
                 <button className="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo" onClick={() => onRedo?.()}>↪</button>
                 <button className="btn btn-secondary btn-sm hidden" id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
                 <div className="header-sep"></div>
-                <button className="btn btn-secondary btn-sm dual-screen-desktop-only" id="btn-dual-screen" title="Open map in a second window (Dual Screen)">
-                    <span className="btn-icon-text">🖥️</span><span className="btn-label">Dual Screen</span>
-                </button>
                 <button className="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor" onClick={() => onWorkflow?.()}>
                     <span className="btn-icon-text">🧩</span><span>Data Pipeline Editor</span>
+                </button>
+                <div className="header-sep dual-screen-header-sep dual-screen-desktop-only" aria-hidden="true"></div>
+                <button className="btn btn-secondary btn-sm dual-screen-desktop-only" id="btn-dual-screen" title="Open map in a second window (Dual Screen)">
+                    <span className="btn-icon-text">🖥️</span><span className="btn-label">Dual Screen</span>
                 </button>
             </div>
             <div className="header-right">

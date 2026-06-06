@@ -372,6 +372,12 @@ html, body {
 @media (max-width: 767px) {
     .dual-screen-desktop-only { display: none !important; }
 }
+.dual-screen-header-sep {
+    margin-left: 28px;
+    margin-right: 4px;
+    height: 24px;
+    align-self: center;
+}
 .app-layout.dual-screen-active .panel-left {
     flex: 1;
     max-width: none;

@@ -202,7 +202,18 @@ export function FieldListPanel({
     );
 }
 
-export function DataPrepToolsPanel({ html = '' }) {
-    if (!html) return null;
-    return <div dangerouslySetInnerHTML={{ __html: html }} />;
+export function DataPrepToolsPanel({ html = '', gisTools = null }) {
+    return (
+        <>
+            {html ? <div dangerouslySetInnerHTML={{ __html: html }} /> : null}
+            <div className="panel-section">
+                <div className="panel-section-header" data-collapsible="true">
+                    GIS Tools <span className="arrow">▼</span>
+                </div>
+                <div className="panel-section-body">
+                    {gisTools}
+                </div>
+            </div>
+        </>
+    );
 }

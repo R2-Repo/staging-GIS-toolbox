@@ -1,4 +1,3 @@
-import { renderMapGisToolsPanelHtml } from '../tools/tool-catalog.js';
 import { renderWidgetPanelHtml } from '../widgets/registry.js';
 
 /**
@@ -38,15 +37,6 @@ export function renderDataPrepToolsHtml(getActiveLayer) {
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
                     ${renderWidgetPanelHtml()}
                 </div>
-            </div>
-        </div>
-
-        <div class="panel-section">
-            <div class="panel-section-header" data-collapsible="true">
-                GIS Tools <span class="arrow">▼</span>
-            </div>
-            <div class="panel-section-body">
-                ${renderMapGisToolsPanelHtml()}
             </div>
         </div>`;
 }

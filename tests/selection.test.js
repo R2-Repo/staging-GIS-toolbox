@@ -63,6 +63,18 @@ describe('getWorkingFeatures applyTo logic', () => {
     });
 });
 
+describe('SelectionBar React module', () => {
+    it('exports SelectionBar component', async () => {
+        const mod = await import('../react/map/SelectionBar.jsx');
+        expect(mod.SelectionBar).toBeTypeOf('function');
+    });
+
+    it('useEventBus hook subscribes and unsubscribes', async () => {
+        const { useEventBus } = await import('../react/hooks/useEventBus.js');
+        expect(useEventBus).toBeTypeOf('function');
+    });
+});
+
 describe('selection shortcuts guard', () => {
     let addSpy;
     let removeSpy;

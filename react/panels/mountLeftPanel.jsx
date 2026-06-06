@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { LayerListPanel, FieldListPanel, DataPrepToolsPanel } from './LeftPanel.jsx';
+import { GisToolsPanel } from './GisToolsPanel.jsx';
 
 export function mountLeftPanel({
     layerElement,
@@ -7,7 +8,10 @@ export function mountLeftPanel({
     toolsElement,
     getSnapshot,
     actions,
-    renderDataPrepTools
+    renderDataPrepTools,
+    selectionActions,
+    getActiveLayer,
+    getSelectionCount
 }) {
     if (!layerElement || !fieldElement || !toolsElement) {
         throw new Error('mountLeftPanel: panel target elements are required');
@@ -43,7 +47,16 @@ export function mountLeftPanel({
         );
 
         toolsRoot.render(
-            <DataPrepToolsPanel html={renderDataPrepTools?.() || ''} />
+            <DataPrepToolsPanel
+                html={renderDataPrepTools?.() || ''}
+                gisTools={(
+                    <GisToolsPanel
+                        getActiveLayer={getActiveLayer}
+                        getSelectionCount={getSelectionCount}
+                        selectionActions={selectionActions}
+                    />
+                )}
+            />
         );
     };
 

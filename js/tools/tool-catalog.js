@@ -133,12 +133,7 @@ export function renderMapGisToolsPanelHtml() {
         })
         .join('');
 
-    return `
-                <div id="selection-hint" style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">
-                    Pick a layer · Click to select · Shift+click add/remove · Drag empty area to box-select
-                </div>
-                <div id="selection-bar" class="selection-bar hidden"></div>
-                ${categoryBlocks}`;
+    return categoryBlocks;
 }
 
 /**

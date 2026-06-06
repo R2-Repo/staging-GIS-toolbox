@@ -5,62 +5,51 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-06
-- **Phase completed**: **Phase 1** — Cut the dead weight ([docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md))
-- **Goal**: React finish migration — Phase 2 next (last vanilla-only modals + SelectionBar)
+- **Phase completed**: **Phase 2** — Finish last vanilla-only UIs ([docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md))
+- **Goal**: React finish migration — Phase 3 next (Mobile gate)
 - **Branch**: `main`
 
-### What was done (Phase 1)
+### What was done (Phase 2)
 
-Removed all rollback scaffolding so React is the **only** runtime UI path for migrated surfaces:
+Ported all remaining vanilla-only UI surfaces to React:
 
-- **Deleted legacy widget UI**: `widget-base.js`, `bulk-update.js`, `spatial-analyzer.js`, `proximity-join.js`
-- **Deleted workflow SVG canvas**: `workflow-canvas.js`; `workflow-overlay.js` always uses React Flow
-- **Deleted all 8 feature-flag modules + tests**: map, left/right panel, toast, modal, tool-dialog, header, workflow flags
-- **Simplified modal/toast**: subscriber API only in `modals.js` / `toast.js` (no DOM fallbacks)
-- **Removed legacy panel renders from `app.js`**: `renderLayerList`, `renderFieldList`, `renderOutputPanel`, `buildStylePanel`, `bindStylePanel`, `renderDataPrepTools` — panels always mount via React islands at boot
-- **Removed legacy HTML modal branches** from ~40 migrated `open*` handlers (React-only)
-- **Simplified widget controllers**: always `openReactIsland` (no `WidgetBase` / legacy fallbacks)
-- **Removed duplicate `react/tools/` widget shims**; canonical paths are `react/widgets/`
-- **Moved data-prep panel HTML** to `js/ui/data-prep-panel-html.js` (used by React left panel)
+- **New React dialogs** (logic in `app.js` handlers, UI in `react/tools/`):
+  - `FilterBuilderDialog`, `JoinToolDialog`, `ValidationDialog`, `TemplateBuilderDialog`
+  - `FeatureEditorDialog`, `DataTableDialog`, `ToolGuideDialog`
+- **Map context menu**: `react/map/MapContextMenu.jsx` portal; mounted at boot; subscribes to `map:contextmenu`
+- **Selection bar**: `react/map/SelectionBar.jsx` + `GisToolsPanel.jsx` in left panel GIS Tools section; `useEventBus` hook for `selection:changed`
+- **Map popup globals removed**: `data-map-popup-action` delegation in `map-manager.js`; `bus.emit('map:popup:edit')` wired in `app.js` and `secondary-client.js`
+- **Tool guide content** extracted to `js/tools/tool-guide-sections.js`
 
 ### Preserved (unchanged behavior)
 
-- 3 widgets: engines + React dialogs + registry (`bulk-update/`, `spatial-analyzer/`, `proximity-join/`)
-- V1 GIS tools + `tool-catalog.js`
-- SmartStyle (`react/panels/SmartStylePanel.jsx`, `style-engine.js`)
-- Selection map logic (`map-manager.js`, `selection-shortcuts.js`, `ApplyToSelector.jsx`)
-- Dual-screen protocol
-- Workflow React Flow canvas (`PipelineEditor.jsx`)
+- 3 widgets, V1 GIS tools, SmartStyle, selection shortcuts (`selection-shortcuts.js`), dual-screen protocol, workflow React Flow canvas
 
 ### Files changed (high level)
 
-**Modified**: `js/app.js`, `js/ui/modals.js`, `js/ui/toast.js`, `js/map/draw-manager.js`, `js/workflow/workflow-overlay.js`, `js/widgets/*/controller.js`, `js/widgets/widget-types.js`, `docs/REACT_FINISH_PLAN.md`, `docs/WIDGET_AUTHORING.md`, `scripts/new-widget.mjs`, `HANDOFF.md`
+**Added**: `react/hooks/useEventBus.js`, `react/map/SelectionBar.jsx`, `react/map/mountSelectionBar.jsx`, `react/map/MapContextMenu.jsx`, `react/map/mountMapContextMenu.jsx`, `react/panels/GisToolsPanel.jsx`, `react/tools/*Dialog.jsx` + `mount*Dialog.jsx` (8 dialogs), `js/tools/tool-guide-sections.js`
 
-**Added**: `js/ui/data-prep-panel-html.js`, `scripts/phase1-strip-app.mjs`, `scripts/phase1-strip-legacy-modals.mjs`
-
-**Deleted**: `js/widgets/widget-base.js`, `js/widgets/bulk-update.js`, `js/widgets/spatial-analyzer.js`, `js/widgets/proximity-join.js`, `js/workflow/workflow-canvas.js`, all `*-feature-flags.js` (8 modules), all `*-feature-flags.test.js` (8 tests), `react/tools/*BulkUpdate*`, `react/tools/*SpatialAnalyzer*`, `react/tools/*ProximityJoin*` shims
+**Modified**: `js/app.js`, `js/map/map-manager.js`, `js/dual-screen/secondary-client.js`, `js/ui/data-prep-panel-html.js`, `js/tools/tool-catalog.js`, `react/panels/LeftPanel.jsx`, `react/panels/mountLeftPanel.jsx`, `tests/selection.test.js`, `tests/tool-catalog.test.js`, `docs/REACT_FINISH_PLAN.md`, `HANDOFF.md`
 
 ### Verification
 
-- `npm test` — green (28 files, 125 tests)
+- `npm test` — green (28 files, 127 tests)
 - `npm run build` — green; emits `dist/`
 
-### Issues / notes for Phase 2
+### Issues / notes for Phase 3
 
-- **Still vanilla-only in `app.js`** (Phase 2 scope): `openFilterBuilder`, `openJoinTool`, `openValidation`, `openTemplateBuilder`, `openFeatureEditor`, `showDataTable`, `showToolInfo`, `showMapContextMenu`
-- **Selection bar** still mutates `#selection-bar` in `updateSelectionUI()` — move to `react/map/SelectionBar.jsx`
-- **Map popup globals** (`window._mapPopupNav`, `window._mapPopupEdit`) still in `app.js` boot — Phase 2 portal/delegation
-- **Mobile UI** still present — Phase 3 gate
-- **Header**: React header mounts at boot; legacy `if (!_isReactHeader)` listener blocks were removed — verify header actions in manual smoke
-- **Boot order**: modal + toast hosts mount before map/panels — required now that DOM fallbacks are gone
+- **Mobile UI** still present (`renderMobileToolsPanel`, bottom nav, flyouts) — Phase 3 `MobileGate.jsx`
+- **Mobile selection bar** still uses vanilla `#selection-bar` in mobile tools panel (desktop is React `SelectionBar`)
+- **`updateSelectionUI()`** kept as no-op on desktop; mobile fallback until Phase 3 removes mobile panel
+- **Phase 3 does NOT start automatically** — next agent should read Phase 3 section only
 
 ### Next
 
-**Phase 2** — Finish last vanilla-only UIs per [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) § Phase 2.
+**Phase 3** — Mobile gate per [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) § Phase 3.
 
 ---
 
 _Archive older bullets when stale (optional):_
 
-- 2026-06-05: M4–M12 incremental React migration (rollback scaffolding; superseded by finish plan).
-- 2026-06-04: Dual Screen activation fix on `main` (#16).
+- 2026-06-06: Phase 1 — Cut rollback scaffolding.
+- 2026-06-05: M4–M12 incremental React migration (superseded by finish plan).

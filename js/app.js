@@ -33,7 +33,7 @@ installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator);
 import { showToast, showErrorToast } from './ui/toast.js';
 import { showModal, confirm, showProgressModal } from './ui/modals.js';
 import * as transforms from './dataprep/transforms.js';
-import { applyTemplate, previewTemplate, getTemplateFields } from './dataprep/template-builder.js';
+import { applyTemplate } from './dataprep/template-builder.js';
 import { saveSnapshot, undo as undoHistory, redo as redoHistory, getHistoryState } from './dataprep/transform-history.js';
 import { photoMapper } from './photo/photo-mapper.js';
 import { arcgisImporter } from './arcgis/rest-importer.js';
@@ -41,7 +41,6 @@ import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
 import {
-    renderMapGisToolsPanelHtml,
     getMobileGisToolFlyoutItems,
     renderMobileGisToolButtonsHtml
 } from './tools/tool-catalog.js';
@@ -66,6 +65,7 @@ let _reactRightPanelMount = null;
 let _reactToastUnmount = null;
 let _reactModalUnmount = null;
 let _reactHeaderUnmount = null;
+let _reactMapContextMenuUnmount = null;
 let _importInputEl = null;
 let _workflowOverlay = null;
 
@@ -77,25 +77,13 @@ async function boot() {
     await _mountReactLeftPanel();
     await _mountReactRightPanel();
     await _mountReactHeader();
+    await _mountReactMapContextMenu();
     setupEventListeners();
     setupDragDrop();
     checkMobile();
     window.addEventListener('resize', checkMobile);
     // Ensure map recalculates size after layout settles
     setTimeout(() => { mapService.resize(); }, 100);
-
-    // Popup navigation for multi-feature cycling
-    window._mapPopupNav = (dir) => {
-        mapService.cyclePopup(dir);
-    };
-
-    // Edit feature from popup
-    window._mapPopupEdit = () => {
-        const hit = mapService.getActivePopupHit();
-        if (!hit) return;
-        mapService.closePopup();
-        openFeatureEditor(hit.layerId, hit.featureIndex);
-    };
 
     logger.info('App', 'App ready');
 
@@ -242,6 +230,163 @@ function _getReactHeaderTarget() {
     return element;
 }
 
+function _buildMapContextMenuItems(payload) {
+    const { latlng, layerId, featureIndex, feature } = payload;
+    const layers = getLayers();
+    const layer = layerId ? layers.find((l) => l.id === layerId) : null;
+    const layerIdx = layer ? layers.indexOf(layer) : -1;
+    const items = [];
+
+    if (feature && layer) {
+        items.push({
+            icon: '???',
+            label: 'View attributes',
+            action: () => {
+                const nearby = mapService.findFeaturesNearClick(latlng, layerId, featureIndex);
+                if (nearby.length > 0) mapService.showMultiPopup(nearby, latlng);
+                else mapService.showPopup(feature, null, latlng);
+            }
+        });
+        items.push({
+            icon: '??',
+            label: 'Edit feature',
+            action: () => openFeatureEditor(layerId, featureIndex)
+        });
+    }
+
+    items.push({
+        icon: '??',
+        label: 'Copy coordinates',
+        action: () => {
+            const text = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+            navigator.clipboard.writeText(text).then(() => showToast(`Copied: ${text}`, 'success'))
+                .catch(() => showToast(text, 'info'));
+        }
+    });
+
+    if (mapService.isOrbiting()) {
+        items.push({
+            icon: '?',
+            label: 'Stop camera orbit',
+            action: () => {
+                mapService.stopCameraOrbit();
+                showToast('Camera orbit stopped', 'info');
+            }
+        });
+    } else {
+        items.push({
+            icon: '??',
+            label: 'Orbit camera around point',
+            action: () => {
+                mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
+                showToast('Camera orbiting ? right-click to stop', 'info');
+            }
+        });
+    }
+
+    items.push({
+        icon: '??',
+        label: 'Open location in Google Street View',
+        action: () => {
+            const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${latlng.lat},${latlng.lng}`;
+            window.open(url, '_blank', 'noopener');
+        }
+    });
+
+    items.push({
+        icon: '??',
+        label: 'Open location in Google Earth',
+        action: () => {
+            const url = `https://earth.google.com/web/@${latlng.lat},${latlng.lng},1200a,900d,60y,0h,35t,0r`;
+            window.open(url, '_blank', 'noopener');
+        }
+    });
+
+    if (layer) {
+        items.push({ sep: true });
+        if (layerIdx > 0) {
+            items.push({ icon: '?', label: 'Move layer up', action: () => moveLayerUp(layerId) });
+        }
+        if (layerIdx >= 0 && layerIdx < layers.length - 1) {
+            items.push({ icon: '?', label: 'Move layer down', action: () => moveLayerDown(layerId) });
+        }
+        if (layers.length > 1 && layerIdx !== 0) {
+            items.push({
+                icon: '?',
+                label: 'Bring to front',
+                action: () => {
+                    while (layers.indexOf(layers.find((l) => l.id === layerId)) > 0) {
+                        reorderLayer(layerId, 'up');
+                    }
+                    mapService.syncLayerOrder(getLayers().map((l) => l.id));
+                    _renderReactLeftPanel();
+                }
+            });
+        }
+        if (layers.length > 1 && layerIdx !== layers.length - 1) {
+            items.push({
+                icon: '?',
+                label: 'Send to back',
+                action: () => {
+                    while (layers.indexOf(layers.find((l) => l.id === layerId)) < layers.length - 1) {
+                        reorderLayer(layerId, 'down');
+                    }
+                    mapService.syncLayerOrder(getLayers().map((l) => l.id));
+                    _renderReactLeftPanel();
+                }
+            });
+        }
+        items.push({ sep: true });
+        items.push({
+            icon: layer.visible !== false ? '???????' : '???',
+            label: layer.visible !== false ? 'Hide layer' : 'Show layer',
+            action: () => {
+                toggleLayerVisibility(layerId);
+                mapService.toggleLayer(layerId, layers.find((l) => l.id === layerId)?.visible);
+                _renderReactLeftPanel();
+            }
+        });
+        items.push({
+            icon: '??',
+            label: 'Zoom to layer',
+            action: () => {
+                const ll = mapService.getLayerRecord(layerId);
+                if (ll?.geojson) {
+                    try {
+                        const bb = turf.bbox(ll.geojson);
+                        mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 });
+                    } catch (_) { /* ignore */ }
+                }
+            }
+        });
+        items.push({
+            icon: '?',
+            label: 'Set as active layer',
+            action: () => {
+                setActiveLayer(layerId);
+                refreshUI();
+            }
+        });
+    }
+
+    return { items, layerName: layer?.name || null };
+}
+
+async function _mountReactMapContextMenu() {
+    if (_reactMapContextMenuUnmount) return;
+    let host = document.getElementById('map-context-menu-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'map-context-menu-host';
+        document.body.appendChild(host);
+    }
+    const { mountMapContextMenu } = await import('../react/map/mountMapContextMenu.jsx');
+    const mounted = mountMapContextMenu(host, {
+        buildItems: (payload) => _buildMapContextMenuItems(payload)
+    });
+    _reactMapContextMenuUnmount = mounted.unmount;
+}
+
 async function _mountReactHeader() {
     if (_reactHeaderUnmount) return;
     const element = _getReactHeaderTarget();
@@ -345,7 +490,15 @@ async function _mountReactLeftPanel() {
             renameField: (name) => renameField(name),
             renameFieldInline: (name, el) => renameField(name, el)
         },
-        renderDataPrepTools: () => renderDataPrepToolsHtml(getActiveLayer)
+        renderDataPrepTools: () => renderDataPrepToolsHtml(getActiveLayer),
+        getActiveLayer,
+        getSelectionCount: (layerId) => mapService.getSelectionCount(layerId),
+        selectionActions: {
+            onSelectAll: selectAllFeatures,
+            onInvertSelection: invertSelection,
+            onDeleteSelected: deleteSelectedFeatures,
+            onClearSelection: clearSelection
+        }
     });
     _reactLeftPanelMount.render();
 }
@@ -1069,7 +1222,12 @@ function setupEventListeners() {
         showErrorToast(data.error);
     });
 
-    // Listen for selection changes
+    bus.on('map:popup:edit', (hit) => {
+        if (!hit) return;
+        mapService.closePopup();
+        openFeatureEditor(hit.layerId, hit.featureIndex);
+    });
+
     bus.on('selection:changed', () => updateSelectionUI());
     bus.on('selection:modeChanged', () => updateSelectionUI());
 
@@ -1085,8 +1243,6 @@ function setupEventListeners() {
         isDrawToolActive: () => !!drawManager.activeTool
     });
 
-    // Right-click context menu
-    bus.on('map:contextmenu', showMapContextMenu);
     bus.on('coord-search:add-new', _coordSearchAddNew);
     bus.on('coord-search:add-existing', _coordSearchAddToExisting);
     bus.on('coord-search:clear', _coordSearchClear);
@@ -2308,77 +2464,26 @@ async function openTemplateBuilder() {
     if (fields.length === 0) return showToast('No fields available', 'warning');
     const features = getFeatures();
 
-    const html = `
-        <div class="form-group"><label>Output field name</label>
-            <input type="text" id="tb-output" value="template_result"></div>
-        <div class="form-group"><label>Template (use {FieldName} for placeholders)</label>
-            <textarea id="tb-template" rows="3" placeholder="e.g. {Name} - {City}, {State}"></textarea></div>
-        <div class="form-group"><label>Insert field</label>
-            <div class="input-with-btn">
-                <select id="tb-field-select">${fields.map(f => `<option value="${f}">${f}</option>`).join('')}</select>
-                <button class="btn btn-sm btn-secondary" id="tb-insert">Insert</button>
-            </div></div>
-        <label class="checkbox-row"><input type="checkbox" id="tb-trim" checked> Trim whitespace</label>
-        <label class="checkbox-row"><input type="checkbox" id="tb-collapse" checked> Collapse spaces</label>
-        <label class="checkbox-row"><input type="checkbox" id="tb-wrappers" checked> Remove empty wrappers ()/[]/{}</label>
-        <label class="checkbox-row"><input type="checkbox" id="tb-dangling" checked> Remove dangling separators</label>
-        <label class="checkbox-row"><input type="checkbox" id="tb-collsep" checked> Collapse repeated separators</label>
-        <div class="divider"></div>
-        <div><strong>Live Preview:</strong></div>
-        <div id="tb-preview" class="text-sm text-mono" style="background:var(--bg); padding:8px; border-radius:4px; max-height:120px; overflow-y:auto; margin-top:6px;"></div>`;
-
-    showModal('Template Builder', html, {
+    const rootId = `template-builder-react-${Date.now()}`;
+    showModal('Template Builder', `<div id="${rootId}"></div>`, {
         width: '650px',
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
-        onMount: (overlay, close) => {
-            const textarea = overlay.querySelector('#tb-template');
-            const previewEl = overlay.querySelector('#tb-preview');
-
-            const updatePreview = () => {
-                const tmpl = textarea.value;
-                if (!tmpl) { previewEl.textContent = '(enter a template above)'; return; }
-                const opts = {
-                    trimWhitespace: overlay.querySelector('#tb-trim').checked,
-                    collapseSpaces: overlay.querySelector('#tb-collapse').checked,
-                    removeEmptyWrappers: overlay.querySelector('#tb-wrappers').checked,
-                    removeDanglingSeparators: overlay.querySelector('#tb-dangling').checked,
-                    collapseSeparators: overlay.querySelector('#tb-collsep').checked
-                };
-                const results = previewTemplate(features, tmpl, opts);
-                previewEl.innerHTML = results.map((r, i) => `<div>${i + 1}: ${r || '<em>empty</em>'}</div>`).join('');
-            };
-
-            textarea.addEventListener('input', updatePreview);
-            overlay.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', updatePreview));
-
-            overlay.querySelector('#tb-insert')?.addEventListener('click', () => {
-                const field = overlay.querySelector('#tb-field-select').value;
-                const pos = textarea.selectionStart;
-                const before = textarea.value.slice(0, pos);
-                const after = textarea.value.slice(pos);
-                textarea.value = before + `{${field}}` + after;
-                textarea.focus();
-                updatePreview();
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountTemplateBuilderDialog } = await import('../react/tools/mountTemplateBuilderDialog.jsx');
+            const mounted = mountTemplateBuilderDialog(root, {
+                fields,
+                features,
+                onCancel: () => close(),
+                onApply: ({ template, outputField, trimWhitespace, collapseSpaces, removeEmptyWrappers, removeDanglingSeparators, collapseSeparators }) => {
+                    if (!template) return showToast('Enter a template', 'warning');
+                    const opts = { trimWhitespace, collapseSpaces, removeEmptyWrappers, removeDanglingSeparators, collapseSeparators };
+                    const result = applyTemplate(features, template, outputField || 'template_result', opts);
+                    applyTransform(`Template: ${outputField || 'template_result'}`, result);
+                    close();
+                }
             });
-
-            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
-            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
-                const template = textarea.value;
-                if (!template) return showToast('Enter a template', 'warning');
-                const outputField = overlay.querySelector('#tb-output').value || 'template_result';
-                const opts = {
-                    trimWhitespace: overlay.querySelector('#tb-trim').checked,
-                    collapseSpaces: overlay.querySelector('#tb-collapse').checked,
-                    removeEmptyWrappers: overlay.querySelector('#tb-wrappers').checked,
-                    removeDanglingSeparators: overlay.querySelector('#tb-dangling').checked,
-                    collapseSeparators: overlay.querySelector('#tb-collsep').checked
-                };
-                const result = applyTemplate(features, template, outputField, opts);
-                applyTransform(`Template: ${outputField}`, result);
-                close();
-            });
-
-            updatePreview();
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -2447,7 +2552,6 @@ async function openTypeConvert() {
 
 // Filter Builder
 async function openFilterBuilder(targetLayerId) {
-    // If called with a specific layer, switch to it first
     if (targetLayerId) {
         setActiveLayer(targetLayerId);
         refreshUI();
@@ -2455,58 +2559,21 @@ async function openFilterBuilder(targetLayerId) {
     const layer = getActiveLayer();
     if (!layer) return showToast('No active layer', 'warning');
     const fields = getFieldNames();
-    const operators = transforms.FILTER_OPERATORS;
     const existing = layer._activeFilter || null;
 
-    const removeBtn = existing
-        ? '<button class="btn btn-danger" id="fb-remove-filter" style="margin-right:auto;">Remove Filter</button>'
-        : '';
-
-    const html = `
-        <div id="filter-rules"></div>
-        <button class="btn btn-sm btn-secondary mt-8" id="fb-add-rule">+ Add Rule</button>
-        <div class="form-group mt-8"><label>Logic</label>
-            <select id="fb-logic"><option value="AND" ${existing?.logic === 'AND' ? 'selected' : ''}>AND (all match)</option><option value="OR" ${existing?.logic === 'OR' ? 'selected' : ''}>OR (any match)</option></select></div>`;
-
-    showModal(existing ? 'Edit Filter' : 'Filter Builder', html, {
+    const rootId = `filter-builder-react-${Date.now()}`;
+    showModal(existing ? 'Edit Filter' : 'Filter Builder', `<div id="${rootId}"></div>`, {
         width: '650px',
-        footer: `${removeBtn}<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply Filter</button>`,
-        onMount: (overlay, close) => {
-            const rulesContainer = overlay.querySelector('#filter-rules');
-            let ruleCount = 0;
-
-            const addRule = (preset) => {
-                ruleCount++;
-                const ruleHtml = `<div class="flex gap-4 items-center mb-8" data-rule="${ruleCount}">
-                    <select class="rule-field" style="flex:1">${fields.map(f => `<option ${preset?.field === f ? 'selected' : ''}>${f}</option>`).join('')}</select>
-                    <select class="rule-op" style="flex:1">${operators.map(o => `<option value="${o.value}" ${preset?.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}</select>
-                    <input type="text" class="rule-val" placeholder="value" style="flex:1" value="${preset?.value ?? ''}">
-                    <button class="btn-icon" data-remove-parent="true">???</button>
-                </div>`;
-                rulesContainer.insertAdjacentHTML('beforeend', ruleHtml);
-            };
-
-            // Pre-populate existing rules or add one blank rule
-            if (existing && existing.rules.length > 0) {
-                existing.rules.forEach(r => addRule(r));
-            } else {
-                addRule();
-            }
-
-            rulesContainer.addEventListener('click', (event) => {
-                const removeButton = event.target.closest('[data-remove-parent="true"]');
-                if (!removeButton) return;
-                event.preventDefault();
-                removeButton.parentElement?.remove();
-            });
-
-            overlay.querySelector('#fb-add-rule')?.addEventListener('click', () => addRule());
-            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
-
-            // Remove filter button
-            const removeFilterBtn = overlay.querySelector('#fb-remove-filter');
-            if (removeFilterBtn) {
-                removeFilterBtn.addEventListener('click', () => {
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountFilterBuilderDialog } = await import('../react/tools/mountFilterBuilderDialog.jsx');
+            const mounted = mountFilterBuilderDialog(root, {
+                fields,
+                operators: transforms.FILTER_OPERATORS,
+                existing,
+                onCancel: () => close(),
+                onRemoveFilter: () => {
                     if (layer._preFilterSnapshot) {
                         saveSnapshot(layer.id, 'Remove Filter', layer.geojson);
                         layer.geojson = JSON.parse(JSON.stringify(layer._preFilterSnapshot));
@@ -2519,47 +2586,36 @@ async function openFilterBuilder(targetLayerId) {
                         refreshUI();
                         showToast('Filter removed', 'success');
                     } else {
-                        showToast('No snapshot ??? use Undo to revert', 'info');
+                        showToast('No snapshot ? use Undo to revert', 'info');
                     }
                     close();
-                });
-            }
-
-            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
-                const rules = Array.from(rulesContainer.querySelectorAll('[data-rule]')).map(el => ({
-                    field: el.querySelector('.rule-field').value,
-                    operator: el.querySelector('.rule-op').value,
-                    value: el.querySelector('.rule-val').value
-                }));
-                const logic = overlay.querySelector('#fb-logic').value;
-
-                // If re-filtering, restore pre-filter data first so filter stacks don't compound
-                const sourceFeatures = layer._preFilterSnapshot
-                    ? JSON.parse(JSON.stringify(layer._preFilterSnapshot)).features
-                    : getFeatures();
-
-                // Store pre-filter snapshot only on first filter
-                if (!layer._preFilterSnapshot) {
-                    layer._preFilterSnapshot = JSON.parse(JSON.stringify(layer.geojson));
+                },
+                onApply: async ({ rules, logic }) => {
+                    const sourceFeatures = layer._preFilterSnapshot
+                        ? JSON.parse(JSON.stringify(layer._preFilterSnapshot)).features
+                        : getFeatures();
+                    if (!layer._preFilterSnapshot) {
+                        layer._preFilterSnapshot = JSON.parse(JSON.stringify(layer.geojson));
+                    }
+                    let result;
+                    if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                        close();
+                        const filtered = await runWithTaskProgress('Filter', async () => {
+                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const task = new TaskRunner('Filter', 'DataPrep');
+                            return task.run((t) => transforms.applyFiltersAsync(sourceFeatures, rules, logic, t));
+                        });
+                        if (filtered === null) return;
+                        result = filtered;
+                    } else {
+                        result = transforms.applyFilters(sourceFeatures, rules, logic);
+                        close();
+                    }
+                    layer._activeFilter = { rules, logic };
+                    applyTransform(`Filter (${result.length} results)`, result);
                 }
-
-                let result;
-                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
-                    close();
-                    const filtered = await runWithTaskProgress('Filter', async () => {
-                        const { TaskRunner } = await import('./core/task-runner.js');
-                        const task = new TaskRunner('Filter', 'DataPrep');
-                        return task.run((t) => transforms.applyFiltersAsync(sourceFeatures, rules, logic, t));
-                    });
-                    if (filtered === null) return;
-                    result = filtered;
-                } else {
-                    result = transforms.applyFilters(sourceFeatures, rules, logic);
-                    close();
-                }
-                layer._activeFilter = { rules, logic };
-                applyTransform(`Filter (${result.length} results)`, result);
             });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -2597,70 +2653,54 @@ async function openDeduplicate() {
 // Join Tool
 async function openJoinTool() {
     const fields = getFieldNames();
-    const html = `
-        <div class="info-box mb-8">Upload a CSV or Excel file to join with the active layer.</div>
-        <div class="form-group"><label>Join file</label>
-            <input type="file" id="join-file" accept=".csv,.xlsx,.xls,.json"></div>
-        <div class="form-group"><label>Active layer key field</label>
-            <select id="join-left-key">${fields.map(f => `<option>${f}</option>`).join('')}</select></div>
-        <div class="form-group"><label>Join file key field</label>
-            <select id="join-right-key" disabled><option>Load file first</option></select></div>
-        <div class="form-group"><label>Fields to bring over</label>
-            <div id="join-fields-list" style="max-height:150px;overflow-y:auto;">Load file first</div></div>`;
+    let joinRows = [];
 
-    showModal('Join Tool', html, {
+    const rootId = `join-tool-react-${Date.now()}`;
+    showModal('Join Tool', `<div id="${rootId}"></div>`, {
         width: '600px',
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn" disabled>Join</button>',
-        onMount: (overlay, close) => {
-            let joinRows = [];
-
-            overlay.querySelector('#join-file')?.addEventListener('change', async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                try {
-                    const { importFile } = await import('./import/importer.js');
-                    const ds = await importFile(file);
-                    joinRows = ds.type === 'spatial'
-                        ? ds.geojson.features.map(f => f.properties)
-                        : ds.rows || [];
-
-                    const joinFields = joinRows.length > 0 ? Object.keys(joinRows[0]) : [];
-                    overlay.querySelector('#join-right-key').innerHTML = joinFields.map(f => `<option>${f}</option>`).join('');
-                    overlay.querySelector('#join-right-key').disabled = false;
-                    overlay.querySelector('#join-fields-list').innerHTML = joinFields.map(f =>
-                        `<label class="checkbox-row"><input type="checkbox" value="${f}" checked> ${f}</label>`
-                    ).join('');
-                    overlay.querySelector('.apply-btn').disabled = false;
-                    showToast(`Loaded ${joinRows.length} rows from ${file.name}`, 'success');
-                } catch (err) {
-                    showToast('Failed to load join file: ' + err.message, 'error');
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountJoinToolDialog } = await import('../react/tools/mountJoinToolDialog.jsx');
+            const mounted = mountJoinToolDialog(root, {
+                fields,
+                onCancel: () => close(),
+                onFileLoad: async (file) => {
+                    try {
+                        const ds = await importFile(file);
+                        joinRows = ds.type === 'spatial'
+                            ? ds.geojson.features.map((f) => f.properties)
+                            : ds.rows || [];
+                        const joinFields = joinRows.length > 0 ? Object.keys(joinRows[0]) : [];
+                        showToast(`Loaded ${joinRows.length} rows from ${file.name}`, 'success');
+                        return { joinFields, rowCount: joinRows.length };
+                    } catch (err) {
+                        showToast(`Failed to load join file: ${err.message}`, 'error');
+                        return null;
+                    }
+                },
+                onApply: async ({ leftKey, rightKey, fieldsToJoin }) => {
+                    const sourceFeatures = getFeatures();
+                    let joinResult;
+                    if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
+                        close();
+                        joinResult = await runWithTaskProgress('Join', async () => {
+                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const task = new TaskRunner('Join', 'DataPrep');
+                            return task.run((t) =>
+                                transforms.joinDataAsync(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin, t)
+                            );
+                        });
+                        if (joinResult === null) return;
+                    } else {
+                        joinResult = transforms.joinData(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin);
+                        close();
+                    }
+                    const { features: result, matched, unmatched } = joinResult;
+                    applyTransform(`Join (${matched} matched, ${unmatched} unmatched)`, result);
                 }
             });
-
-            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
-            overlay.querySelector('.apply-btn')?.addEventListener('click', async () => {
-                const leftKey = overlay.querySelector('#join-left-key').value;
-                const rightKey = overlay.querySelector('#join-right-key').value;
-                const fieldsToJoin = Array.from(overlay.querySelectorAll('#join-fields-list input:checked')).map(el => el.value);
-                const sourceFeatures = getFeatures();
-                let joinResult;
-                if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
-                    close();
-                    joinResult = await runWithTaskProgress('Join', async () => {
-                        const { TaskRunner } = await import('./core/task-runner.js');
-                        const task = new TaskRunner('Join', 'DataPrep');
-                        return task.run((t) =>
-                            transforms.joinDataAsync(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin, t)
-                        );
-                    });
-                    if (joinResult === null) return;
-                } else {
-                    joinResult = transforms.joinData(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin);
-                    close();
-                }
-                const { features: result, matched, unmatched } = joinResult;
-                applyTransform(`Join (${matched} matched, ${unmatched} unmatched)`, result);
-            });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -2668,66 +2708,27 @@ async function openJoinTool() {
 // Validation
 async function openValidation() {
     const fields = getFieldNames();
-    const html = `
-        <div id="val-rules"></div>
-        <button class="btn btn-sm btn-secondary mt-8" id="val-add">+ Add Rule</button>`;
-
-    showModal('Validation Rules', html, {
+    const rootId = `validation-react-${Date.now()}`;
+    showModal('Validation Rules', `<div id="${rootId}"></div>`, {
         width: '600px',
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Run Validation</button>',
-        onMount: (overlay, close) => {
-            const container = overlay.querySelector('#val-rules');
-            let count = 0;
-
-            const addRule = () => {
-                count++;
-                container.insertAdjacentHTML('beforeend', `
-                    <div class="flex gap-4 items-center mb-8" data-rule="${count}">
-                        <select class="val-field" style="flex:1">${fields.map(f => `<option>${f}</option>`).join('')}</select>
-                        <select class="val-type" style="flex:1">
-                            <option value="required">Required</option>
-                            <option value="numeric_range">Numeric Range</option>
-                            <option value="allowed_values">Allowed Values</option>
-                        </select>
-                        <input type="text" class="val-extra" placeholder="min,max or val1,val2" style="flex:1">
-                        <button class="btn-icon" data-remove-parent="true">???</button>
-                    </div>`);
-            };
-
-            addRule();
-            container.addEventListener('click', (event) => {
-                const removeButton = event.target.closest('[data-remove-parent="true"]');
-                if (!removeButton) return;
-                event.preventDefault();
-                removeButton.parentElement?.remove();
-            });
-            overlay.querySelector('#val-add')?.addEventListener('click', addRule);
-            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
-            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
-                const rules = Array.from(container.querySelectorAll('[data-rule]')).map(el => {
-                    const rule = {
-                        field: el.querySelector('.val-field').value,
-                        type: el.querySelector('.val-type').value
-                    };
-                    const extra = el.querySelector('.val-extra').value;
-                    if (rule.type === 'numeric_range' && extra) {
-                        const parts = extra.split(',');
-                        rule.min = parseFloat(parts[0]) || null;
-                        rule.max = parseFloat(parts[1]) || null;
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountValidationDialog } = await import('../react/tools/mountValidationDialog.jsx');
+            const mounted = mountValidationDialog(root, {
+                fields,
+                onCancel: () => close(),
+                onApply: (rules) => {
+                    const errors = transforms.validate(getFeatures(), rules);
+                    showToast(`Validation complete: ${errors.length} errors found`, errors.length > 0 ? 'warning' : 'success');
+                    if (errors.length > 0) {
+                        const detail = errors.slice(0, 20).map((e) => `Row ${e.featureIndex}: ${e.message}`).join('\n');
+                        showToast(`First errors:\n${detail}`, 'warning', { duration: 10000 });
                     }
-                    if (rule.type === 'allowed_values' && extra) {
-                        rule.values = extra.split(',').map(s => s.trim());
-                    }
-                    return rule;
-                });
-                const errors = transforms.validate(getFeatures(), rules);
-                showToast(`Validation complete: ${errors.length} errors found`, errors.length > 0 ? 'warning' : 'success');
-                if (errors.length > 0) {
-                    const detail = errors.slice(0, 20).map(e => `Row ${e.featureIndex}: ${e.message}`).join('\n');
-                    showToast(`First errors:\n${detail}`, 'warning', { duration: 10000 });
+                    close();
                 }
-                close();
             });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -2988,10 +2989,9 @@ async function deleteSelectedFeatures() {
     showToast(`Deleted ${indices.length} feature(s)`, 'success');
 }
 
-/** Update the selection bar UI */
+/** @deprecated Desktop selection bar is React-owned; mobile fallback until Phase 3 */
 function updateSelectionUI() {
     const bar = document.getElementById('selection-bar');
-    const hint = document.getElementById('selection-hint');
     if (!bar) return;
 
     const layer = getActiveLayer();
@@ -2999,8 +2999,9 @@ function updateSelectionUI() {
     const total = layer?.geojson?.features?.length || 0;
     const layerLabel = layer?.name ? ` on <strong>${layer.name}</strong>` : '';
 
+    const hint = document.getElementById('selection-hint');
     if (hint) {
-        hint.textContent = 'Click to select ? Shift+click add/remove ? Drag empty area to box-select ? Esc clear';
+        hint.textContent = 'Tap to select ? Shift+tap multi-select ? Drag empty area to box-select';
     }
 
     if (count > 0) {
@@ -4748,174 +4749,65 @@ function handleRedo() {
 }
 
 // ============================
-// Feature Editor ??? edit a single feature's attributes from popup
+// Feature Editor ? edit a single feature's attributes from popup
 // ============================
 function openFeatureEditor(layerId, featureIndex) {
     const layers = getLayers();
-    const layer = layers.find(l => l.id === layerId);
+    const layer = layers.find((l) => l.id === layerId);
     if (!layer || layer.type !== 'spatial') return showToast('Layer not found', 'warning');
 
     const feature = layer.geojson.features[featureIndex];
     if (!feature) return showToast('Feature not found', 'warning');
 
     const props = feature.properties || {};
-    const fields = Object.keys(props).filter(k => !k.startsWith('_'));
+    const fields = Object.keys(props).filter((k) => !k.startsWith('_'));
     const schemaFields = layer.schema?.fields || [];
-    const getFieldType = (name) => schemaFields.find(f => f.name === name)?.type || 'string';
-
-    const _formatFileSize = (bytes) => {
-        if (!bytes) return '';
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / 1048576).toFixed(1) + ' MB';
-    };
-
-    const rowsHtml = fields.map(f => {
-        const fieldType = getFieldType(f);
-        let val = props[f];
-        const isAtt = fieldType === 'attachment' || (val && typeof val === 'object' && val._att);
-
-        if (isAtt) {
-            const att = (val && val._att) ? val : null;
-            const isImage = att?.type?.startsWith('image/');
-            const previewHtml = att ? `
-                <div class="att-preview-row" data-field="${f}" style="display:flex;align-items:center;gap:8px;padding:4px 0;">
-                    ${isImage && att.dataUrl ? `<img src="${att.dataUrl}" style="max-width:60px;max-height:60px;border-radius:4px;border:1px solid var(--border);">` : '<span style="font-size:20px;">????</span>'}
-                    <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${att.name}">${att.name}</span>
-                    <span style="font-size:10px;color:var(--text-muted);">${_formatFileSize(att.size)}</span>
-                    <button class="att-remove-btn btn btn-sm" data-field="${f}" style="font-size:10px;padding:2px 6px;color:var(--error);" title="Remove">???</button>
-                </div>` : '';
-            return `<div class="form-group" style="margin-bottom:6px;">
-                <label style="font-size:11px;color:var(--text-muted);">${f} <span style="opacity:0.6;font-size:9px;">(photo)</span></label>
-                ${previewHtml}
-                <label style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--bg-surface);border:1px dashed var(--border);border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-muted);margin-top:2px;">
-                    ???? ${att ? 'Replace Photo' : 'Choose Photo'}
-                    <input type="file" class="feat-edit-file" data-field="${f}" accept="image/*" style="display:none;">
-                </label>
-                <span class="att-size-note" style="font-size:10px;color:var(--text-muted);margin-left:6px;">Max 10 MB ? KML/KMZ only</span>
-            </div>`;
-        }
-
-        if (val != null && typeof val === 'object') val = JSON.stringify(val);
-        return `<div class="form-group" style="margin-bottom:6px;">
-            <label style="font-size:11px;color:var(--text-muted);">${f}</label>
-            <input type="text" class="feat-edit-input" data-field="${f}" value="${val != null ? String(val).replace(/"/g, '&quot;') : ''}" style="width:100%;font-size:13px;">
-        </div>`;
-    }).join('');
-
+    const getFieldType = (name) => schemaFields.find((f) => f.name === name)?.type || 'string';
     const geomType = feature.geometry?.type || 'Unknown';
-    const header = `<div class="text-xs text-muted mb-8" style="border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:8px;">
-        <strong>${layer.name}</strong> ? Feature #${featureIndex + 1} ? ${geomType}
-    </div>`;
 
-    const html = header + `<div style="max-height:400px;overflow-y:auto;">${rowsHtml}</div>`;
-
-    showModal('Edit Feature', html, {
+    const rootId = `feature-editor-react-${Date.now()}`;
+    showModal('Edit Feature', `<div id="${rootId}"></div>`, {
         width: '420px',
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Save</button>',
-        onMount: (overlay, close) => {
-            // Focus first input
-            setTimeout(() => overlay.querySelector('.feat-edit-input')?.focus(), 50);
-
-            // Track attachment changes during editing
-            const attachmentUpdates = new Map();
-
-            // Handle file inputs for photo attachment fields
-            overlay.querySelectorAll('.feat-edit-file').forEach(input => {
-                input.addEventListener('change', (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    if (!file.type.startsWith('image/')) {
-                        showToast('Only image files are supported', 'warning');
-                        input.value = '';
-                        return;
-                    }
-                    if (file.size > 10 * 1024 * 1024) {
-                        showToast('Photo too large ??? max 10 MB', 'warning');
-                        input.value = '';
-                        return;
-                    }
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const field = input.dataset.field;
-                        const attObj = { _att: true, name: file.name, dataUrl: reader.result, type: file.type, size: file.size };
-                        attachmentUpdates.set(field, attObj);
-                        // Update preview in-place
-                        const isImage = file.type.startsWith('image/');
-                        let previewRow = overlay.querySelector(`.att-preview-row[data-field="${field}"]`);
-                        const formGroup = input.closest('.form-group');
-                        if (!previewRow) {
-                            previewRow = document.createElement('div');
-                            previewRow.className = 'att-preview-row';
-                            previewRow.dataset.field = field;
-                            previewRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;';
-                            formGroup.insertBefore(previewRow, formGroup.querySelector('label:last-of-type'));
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountFeatureEditorDialog } = await import('../react/tools/mountFeatureEditorDialog.jsx');
+            const mounted = mountFeatureEditorDialog(root, {
+                layerName: layer.name,
+                featureIndex,
+                geomType,
+                fields,
+                getFieldType,
+                getFieldValue: (name) => props[name],
+                onError: (msg) => showToast(msg, 'warning'),
+                onCancel: () => close(),
+                onSave: ({ textValues, attachmentUpdates }) => {
+                    saveSnapshot(layer.id, 'Edit Feature', layer.geojson);
+                    for (const [field, newVal] of Object.entries(textValues || {})) {
+                        const oldVal = props[field];
+                        if (oldVal === null || oldVal === undefined) {
+                            props[field] = newVal === '' ? null : newVal;
+                        } else if (typeof oldVal === 'number') {
+                            props[field] = newVal === '' ? null : (Number.isNaN(Number(newVal)) ? newVal : Number(newVal));
+                        } else if (typeof oldVal === 'boolean') {
+                            props[field] = newVal === 'true' || newVal === '1';
+                        } else {
+                            props[field] = newVal;
                         }
-                        const fmtSize = file.size < 1024 ? file.size + ' B' : file.size < 1048576 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / 1048576).toFixed(1) + ' MB';
-                        previewRow.innerHTML = `
-                            ${isImage ? `<img src="${reader.result}" style="max-width:60px;max-height:60px;border-radius:4px;border:1px solid var(--border);">` : '<span style="font-size:20px;">????</span>'}
-                            <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${file.name}">${file.name}</span>
-                            <span style="font-size:10px;color:var(--text-muted);">${fmtSize}</span>
-                            <button class="att-remove-btn btn btn-sm" data-field="${field}" style="font-size:10px;padding:2px 6px;color:var(--error);" title="Remove">???</button>`;
-                        // Bind remove on the new button
-                        previewRow.querySelector('.att-remove-btn').addEventListener('click', (ev) => {
-                            ev.preventDefault();
-                            attachmentUpdates.set(field, null);
-                            previewRow.remove();
-                        });
-                    };
-                    reader.readAsDataURL(file);
-                });
-            });
-
-            // Handle remove buttons (for existing attachments)
-            overlay.querySelectorAll('.att-remove-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const field = btn.dataset.field;
-                    attachmentUpdates.set(field, null);
-                    const previewRow = overlay.querySelector(`.att-preview-row[data-field="${field}"]`);
-                    if (previewRow) previewRow.remove();
-                });
-            });
-
-            overlay.querySelector('.cancel-btn')?.addEventListener('click', () => close());
-            overlay.querySelector('.apply-btn')?.addEventListener('click', () => {
-                // Save snapshot before editing
-                saveSnapshot(layer.id, 'Edit Feature', layer.geojson);
-
-                // Read all text inputs and update properties
-                overlay.querySelectorAll('.feat-edit-input').forEach(input => {
-                    const field = input.dataset.field;
-                    const newVal = input.value;
-                    const oldVal = props[field];
-
-                    // Coerce to original type
-                    if (oldVal === null || oldVal === undefined) {
-                        props[field] = newVal === '' ? null : newVal;
-                    } else if (typeof oldVal === 'number') {
-                        props[field] = newVal === '' ? null : (isNaN(Number(newVal)) ? newVal : Number(newVal));
-                    } else if (typeof oldVal === 'boolean') {
-                        props[field] = newVal === 'true' || newVal === '1';
-                    } else {
-                        props[field] = newVal;
                     }
-                });
-
-                // Apply attachment updates
-                for (const [field, data] of attachmentUpdates) {
-                    props[field] = data; // null removes, object sets
+                    for (const [field, data] of Object.entries(attachmentUpdates || {})) {
+                        props[field] = data;
+                    }
+                    layer.schema = analyzeSchema(layer.geojson);
+                    bus.emit('layer:updated', layer);
+                    bus.emit('layers:changed', getLayers());
+                    mapService.addLayer(layer, getLayers().indexOf(layer));
+                    refreshUI();
+                    showToast('Feature updated', 'success');
+                    close();
                 }
-
-                // Refresh map and UI
-                layer.schema = analyzeSchema(layer.geojson);
-                bus.emit('layer:updated', layer);
-                bus.emit('layers:changed', getLayers());
-                mapService.addLayer(layer, getLayers().indexOf(layer));
-                refreshUI();
-                showToast('Feature updated', 'success');
-                close();
             });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -4934,78 +4826,30 @@ function showDataTable() {
     if (displayRows.length === 0) return showToast('No data to show', 'warning');
 
     const firstProps = isSpatial ? (displayRows[0]?.properties || {}) : (displayRows[0] || {});
-    const fields = Object.keys(firstProps).filter(k => !k.startsWith('_'));
-    const headerHtml = `<th style="width:30px;">#</th>` + fields.map(f => `<th>${f}</th>`).join('');
-    const bodyHtml = displayRows.map((item, i) => {
-        const props = isSpatial ? (item.properties || {}) : item;
-        const cells = fields.map(f => {
-            let val = props[f];
-            // Attachment cells: show filename, non-editable
-            if (val && typeof val === 'object' && val._att) {
-                const icon = val.type?.startsWith('image/') ? '?????' : '????';
-                return `<td data-row="${i}" data-field="${f}" class="att-cell" style="cursor:default;color:var(--text-muted);font-style:italic;" title="${val.name || 'attachment'}">${icon} ${val.name || 'attachment'}</td>`;
-            }
-            if (val != null && typeof val === 'object') val = JSON.stringify(val);
-            return `<td contenteditable="true" data-row="${i}" data-field="${f}">${val ?? ''}</td>`;
-        }).join('');
-        return `<tr><td style="color:var(--text-muted);font-size:10px;text-align:center;">${i + 1}</td>${cells}</tr>`;
-    }).join('');
+    const fields = Object.keys(firstProps).filter((k) => !k.startsWith('_'));
+    const tableRows = displayRows.map((item) => (isSpatial ? (item.properties || {}) : item));
 
-    const html = `
-        <div class="text-xs text-muted mb-8">
-            Showing ${displayRows.length} of ${totalCount} rows ? <strong>Click a cell to edit</strong>.
-            Changes are saved when you click away.
-        </div>
-        <div class="data-table-wrap" style="max-height:450px;">
-            <table class="data-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>
-        </div>`;
-
-    showModal(`Data: ${layer.name}`, html, {
+    const rootId = `data-table-react-${Date.now()}`;
+    showModal(`Data: ${layer.name}`, `<div id="${rootId}"></div>`, {
         width: '90vw',
-        onMount: (overlay) => {
-            let dirty = false;
-            overlay.querySelectorAll('td[contenteditable]').forEach(td => {
-                td.addEventListener('focus', () => {
-                    td.style.outline = '2px solid var(--primary)';
-                    td.style.background = 'var(--bg-surface)';
-                });
-                td.addEventListener('blur', () => {
-                    td.style.outline = '';
-                    td.style.background = '';
-                    const row = parseInt(td.dataset.row);
-                    const field = td.dataset.field;
-                    const newVal = td.textContent;
-                    const target = isSpatial ? features[row]?.properties : (layer.rows || [])[row];
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountDataTableDialog } = await import('../react/tools/mountDataTableDialog.jsx');
+            const mounted = mountDataTableDialog(root, {
+                layerName: layer.name,
+                fields,
+                rows: tableRows,
+                totalCount,
+                isSpatial,
+                onCellEdit: (rowIndex, field, coerced, isFirstEdit) => {
+                    const target = isSpatial ? features[rowIndex]?.properties : (layer.rows || [])[rowIndex];
                     if (!target) return;
-                    const oldVal = target[field];
-                    const coerced = (oldVal === null || oldVal === undefined) ? newVal
-                        : typeof oldVal === 'number' ? (isNaN(Number(newVal)) ? newVal : Number(newVal))
-                        : typeof oldVal === 'boolean' ? (newVal === 'true')
-                        : newVal;
-                    if (String(oldVal) !== String(coerced)) {
-                        if (!dirty) {
-                            // Save snapshot on first edit
-                            if (isSpatial) saveSnapshot(layer.id, 'Edit field data', layer.geojson);
-                            dirty = true;
-                        }
-                        target[field] = coerced;
-                    }
-                });
-                td.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); td.blur(); }
-                    if (e.key === 'Escape') { td.blur(); }
-                    if (e.key === 'Tab') {
-                        e.preventDefault();
-                        const next = e.shiftKey ? td.previousElementSibling : td.nextElementSibling;
-                        if (next?.contentEditable === 'true') next.focus();
-                    }
-                });
-            });
-            // When modal closes, refresh if dirty
-            const obs = new MutationObserver(() => {
-                if (!document.body.contains(overlay)) {
-                    obs.disconnect();
-                    if (dirty && isSpatial) {
+                    if (isFirstEdit && isSpatial) saveSnapshot(layer.id, 'Edit field data', layer.geojson);
+                    target[field] = coerced;
+                },
+                onClose: ({ dirty: wasDirty }) => {
+                    if (wasDirty && isSpatial) {
                         layer.schema = analyzeSchema(layer.geojson);
                         bus.emit('layer:updated', layer);
                         bus.emit('layers:changed', getLayers());
@@ -5015,7 +4859,7 @@ function showDataTable() {
                     }
                 }
             });
-            obs.observe(overlay.parentElement || document.body, { childList: true, subtree: true });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
 }
@@ -5266,370 +5110,21 @@ function startInlineEdit(el, currentValue, onSave) {
 // Tool Info / Help Guide
 // ============================
 function showToolInfo() {
-    const sections = [
-                {
-            title: 'How To',
-            tools: [
-                ['1???? Import', '??? Add most Geospatial files types ????'],
-                ['2???? Interact', '????? View, edit, or manipulate ????'],
-                ['3???? Export', '???? Same file type or convert ????']
-                
-            ]
-        },
-        {
-            title: 'About',
-            tools: [
-                ['GIS Toolbox', 'A modern web app for working with geospatial data.'],
-                ['How it Works', 'Client-side, no backend server processing. All work is done in the browser, no need to download/ install any software.'],
-                ['Tools', 'Most tools use Turf.js, a modular geospatial engine written in JavaScript'],
-                ['Limitations', 'Large datasets may cause browser performance issues. Try using the "Import Fence" tool to load a smaller area.']
-                
-            ]
-        },
-        {
-            title: 'Import & Sources',
-            tools: [
-                ['???? Import', 'Drag-and-drop or browse to load GeoJSON, CSV, Excel, KML, KMZ, Shapefile (ZIP), or JSON files.'],
-                ['???? Photos', 'Import geotagged photos. Extracts GPS coordinates and EXIF data, maps them as points.'],
-                ['???? ArcGIS REST', 'Import features directly from an ArcGIS REST service URL (Feature/Map Server).']
-            ]
-        },
-        {
-            title: 'Layers & Fields',
-            tools: [
-                ['Layers Panel', 'View, select, toggle visibility, zoom to, rename, or remove imported layers.'],
-                ['Fields Panel', 'View, search, select/deselect, rename, or add new fields on the active layer.'],
-                ['Field Types', 'Text, Number, Boolean, Date, and Attach Photo. Photo fields let you attach images to individual features with inline previews. Photos are embedded when exported as KML/KMZ only.'],
-                ['Feature Selection', 'Pick a layer, then click features to select (cyan highlight). Shift+click to add/remove. Drag on empty map to box-select. Open a tool and choose Entire layer or Selected features. Esc clears selection.'],
-                ['Merge Layers', 'Select which layers to combine into a single layer. A source_file field is added so you can tell which features came from which original layer. Useful for exporting multiple layers into one KML or KMZ with folders.'],
-                ['Data Table', 'View the raw attribute table for the active layer.']
-            ]
-        },
-        {
-            title: 'Data Pipeline Editor',
-            tools: [
-                ['Overview', 'A visual node-based editor for building multi-step data processing pipelines. Drag nodes onto a canvas, connect them with wires, and run the whole chain in one click.'],
-                ['Input Nodes', 'Layer Input (use an already-imported layer) or File Import (load a file directly into the pipeline).'],
-                ['Transform Nodes', 'Filter Rows, Rename Fields, Delete Fields, Sort, Find & Replace, Deduplicate, and Add Unique ID.'],
-                ['Spatial Nodes', 'Buffer, Simplify, Dissolve, Clip, Union, Combine, Spatial Join, Nearest Join, Intersect, Merge Layers, Difference, Summarize Within, and Split by Geometry.'],
-                ['Output Nodes', 'Preview (inspect results in a data table) or Add to Map (push the result back as a new map layer).'],
-                ['Examples', 'Pre-built pipelines available from the Examples dropdown to get started quickly.']
-            ]
-        },
-        {
-            title: 'Layer Data Tools',
-            tools: [
-                ['Split Column', 'Split a field into multiple new fields by a delimiter (comma, space, etc.).'],
-                ['Combine', 'Merge two or more fields into a single field with a separator.'],
-                ['Template', 'Build a new field from a text template using values from existing fields.'],
-                ['Replace/Clean', 'Find and replace text, trim whitespace, or clean values in a field.'],
-                ['Type Convert', 'Change a field\'s data type (text ??? number, number ??? text, etc.).'],
-                ['Filter', 'Keep or remove rows based on conditions (equals, contains, greater than, etc.).'],
-                ['Dedup', 'Remove duplicate rows based on one or more key fields.'],
-                ['Join', 'Join two layers together on a matching key field.'],
-                ['Validate', 'Run validation rules on fields (required, min/max, regex pattern, etc.).'],
-                ['Add UID', 'Add a unique sequential ID field to every row.']
-            ]
-        },
-        {
-            title: 'GIS Widgets',
-            tools: [
-                ['Overview', 'Pre-built workflows that combine multiple steps into a simple, guided interface for common GIS tasks.'],
-                ['Import Fence', 'Draw a rectangle on the map to set a spatial filter. All subsequent imports (file or ArcGIS REST) only load features inside the fence. ArcGIS REST queries are filtered server-side so only matching features are downloaded, preventing large dataset browser issues.']
-            ]
-        },
-        {
-            title: 'GIS Tools ??? Measurement',
-            tools: [
-                ['Distance', 'Measure the straight-line distance between two points you click on the map.'],
-                ['Bearing', 'Find the compass direction (in degrees) from one point to another.'],
-                ['Destination', 'Given a start point, distance, and compass direction, find where you would end up.'],
-                ['Along', 'Find a point at a specific distance along a line feature.'],
-                ['Pt???Line Distance', 'Measure the shortest perpendicular distance from a point to a line.']
-            ]
-        },
-        {
-            title: 'GIS Tools ??? Transformation',
-            tools: [
-                ['Buffer', 'Draw a zone around features at a set distance.'],
-                ['BBox Clip', 'Draw a rectangle on the map and clip all features to that area.'],
-                ['Clip to Extent', 'Clip features to the current visible map area.'],
-                ['Simplify', 'Reduce vertex count on geometries to shrink file size.'],
-                ['Bezier Spline', 'Smooth jagged lines into gentle flowing curves.'],
-                ['Polygon Smooth', 'Round off rough polygon edges.'],
-                ['Line Offset', 'Create a parallel copy of a line shifted left or right.'],
-                ['Sector', 'Create a pie-slice shaped area from a center point, radius, and compass bearings.']
-            ]
-        },
-        {
-            title: 'GIS Tools ??? Lines & Analysis',
-            tools: [
-                ['Line Slice Along', 'Extract a section of a line between two distances.'],
-                ['Line Slice (Points)', 'Click two points on the map to cut out the section of line between them.'],
-                ['Line Intersect', 'Find all points where two sets of lines cross each other.'],
-                ['Kinks', 'Find self-intersections where a line or polygon edge crosses itself.'],
-                ['Combine', 'Merge all features of the same type into one multi-feature.'],
-                ['Union', 'Merge all polygons into a single unified shape.'],
-                ['Dissolve', 'Merge polygons that share the same attribute value.'],
-                ['Points in Polygon', 'Find which points fall inside which polygons.'],
-                ['Nearest Point', 'Click the map to find the closest feature in a point layer.'],
-                ['Nearest Pt on Line', 'Click near a line to snap to the closest point on it.'],
-                ['Nearest Pt to Line', 'Find which point in a layer is closest to a line.'],
-                ['NN Analysis', 'Statistically test whether points are clustered, dispersed, or random.']
-            ]
-        },
-        {
-            title: 'Export',
-            tools: [
-                ['GeoJSON', 'Export spatial data as a .geojson file.'],
-                ['CSV', 'Export attributes as a comma-separated .csv file.'],
-                ['Excel', 'Export attributes as an .xlsx spreadsheet.'],
-                ['KML', 'Export spatial data as a .kml file (Google Earth). Layer styles are preserved. With two or more layers, you can export a single multi-folder .kml.'],
-                ['KMZ', 'Export as .kmz (compressed KML) with styles. With two or more layers, you can export a single multi-folder .kmz (same folder-per-layer behavior as KML). Can include embedded photos.'],
-                ['JSON', 'Export raw data as a .json file.'],
-                ['Shapefile', 'Export spatial data as a zipped Shapefile (.shp).']
-            ]
-        },
-        {
-            title: 'ArcGIS REST Import',
-            tools: [
-                ['Overview', 'Import features directly from public ArcGIS REST endpoints ??? no download or login required. All processing is done in the browser.'],
-                ['Preset Layers', 'Choose from a curated list of UDOT and Utah layers including Routes ALRS, Reference Posts, Mile Points, Region Boundaries, Bridge Locations, Lanes, County Boundaries, and Municipal Boundaries.'],
-                ['Custom URL', 'Enter any public ArcGIS REST FeatureServer or MapServer layer URL to import features directly.'],
-                ['Supported', 'Works with Feature Servers, Map Servers, and individual layer endpoints. Handles paginated services that return features in batches automatically.']
-            ]
-        },
-        {
-            title: 'Workflows',
-            tools: [
-                ['Multi-Layer KMZ', 'Import your layers, style each one independently, then Export ??? KMZ. A picker lets you select which layers to include ??? each becomes its own folder in the KMZ with its own styling. No merge needed.'],
-                ['Merge ??? Export', 'Use Merge Layers to combine selected layers into one. The merged layer gets a source_file field tracking each feature\'s origin. When exported as KML or KMZ, features are auto-grouped into folders by source layer name.'],
-                ['Mixed Geometry', 'When you import a file with mixed geometry types (points + lines + polygons), they are automatically split into separate layers so you can style each type independently.']
-            ]
-        },
-        {
-            title: 'Other',
-            tools: [
-                ['AGOL Compatibility', 'Check and auto-fix field names/types for ArcGIS Online compatibility.']
-            ]
-        }
-    ];
-
-    const toolList = (tools) => `
-        <div style="display:flex;flex-direction:column;gap:4px;">
-            ${tools.map(([name, desc]) => `
-                <div style="display:flex;gap:8px;align-items:baseline;">
-                    <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);">${name}</span>
-                    <span style="color:var(--text-muted);font-size:13px;">${desc}</span>
-                </div>
-            `).join('')}
-        </div>`;
-
-    const howToList = (tools) => `
-        <div style="display:flex;flex-direction:column;gap:8px;">
-            ${tools.map(([name, desc]) => `
-                <div style="display:flex;gap:10px;align-items:baseline;">
-                    <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);font-size:16px;">${name}</span>
-                    <span style="color:var(--text-muted);font-size:15px;">${desc}</span>
-                </div>
-            `).join('')}
-        </div>`;
-
-    const html = sections.map(s => {
-        if (s.title === 'How To') {
-            return `<div style="margin-bottom:20px;">
-                <div style="font-weight:700;font-size:22px;color:var(--gold-light);margin-bottom:8px;border-bottom:2px solid var(--border);padding-bottom:4px;">${s.title}</div>
-                ${howToList(s.tools)}
-            </div>`;
-        }
-        return `<details class="guide-section">
-            <summary class="guide-section-title">${s.title}</summary>
-            <div class="guide-section-body">${toolList(s.tools)}</div>
-        </details>`;
-    }).join('');
-
     const isMobile = window.innerWidth < 768;
-    const mobileBanner = `<div class="splash-mobile-notice">???? Mobile site still under development ??? for a better experience use a larger screen</div>`;
-    const splashWidth = isMobile ? '99vw' : '560px';
-    const titleFontSize = isMobile ? 'clamp(18px, 5.5vw, 32px)' : '32px';
-    const titleIconSize = isMobile ? '28' : '36';
-    const byFontSize = isMobile ? 'clamp(7px, 2vw, 9px)' : '9px';
-    showModal(`<div style="display:inline-flex;align-items:baseline;gap:6px;flex-wrap:nowrap;max-width:100%;"><img src="icons/favicon.png" alt="" width="${titleIconSize}" height="${titleIconSize}" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:${titleFontSize};font-weight:700;line-height:1;white-space:nowrap;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:${byFontSize};font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>`, `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
-        width: splashWidth,
-        onMount: (overlay) => {
+    const rootId = `tool-guide-react-${Date.now()}`;
+    showModal('Guide', `<div id="${rootId}"></div>`, {
+        width: isMobile ? '99vw' : '560px',
+        onMount: async (overlay) => {
             if (isMobile) {
                 overlay.classList.add('splash-overlay');
-                const modal = overlay.querySelector('.modal');
-                if (modal) modal.classList.add('splash-modal');
+                overlay.querySelector('.modal')?.classList.add('splash-modal');
             }
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountToolGuideDialog } = await import('../react/tools/mountToolGuideDialog.jsx');
+            const mounted = mountToolGuideDialog(root, { isMobile, showTitle: true });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
-    });
-}
-
-// ============================
-// Right-click context menu
-// ============================
-let _ctxDismissAC = null; // AbortController for context menu dismiss listeners
-
-function dismissContextMenu() {
-    document.querySelector('.map-context-menu')?.remove();
-    if (_ctxDismissAC) { _ctxDismissAC.abort(); _ctxDismissAC = null; }
-}
-
-function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feature }) {
-    dismissContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'map-context-menu';
-
-    const layers = getLayers();
-    const layer = layerId ? layers.find(l => l.id === layerId) : null;
-    const layerIdx = layer ? layers.indexOf(layer) : -1;
-
-    // Header
-    if (layer) {
-        menu.innerHTML += `<div class="ctx-header">Layer: ${layer.name}</div>`;
-    }
-
-    const items = [];
-
-    // Feature-specific items
-    if (feature && layer) {
-        items.push({ icon: '????', label: 'View attributes', action: () => {
-            const nearby = mapService.findFeaturesNearClick(latlng, layerId, featureIndex);
-            if (nearby.length > 0) mapService.showMultiPopup(nearby, latlng);
-            else mapService.showPopup(feature, null, latlng);
-        }});
-        items.push({ icon: '????', label: 'Edit feature', action: () => {
-            openFeatureEditor(layerId, featureIndex);
-        }});
-    }
-
-    // Coordinates
-    items.push({ icon: '????', label: `Copy coordinates`, action: () => {
-        const text = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
-        navigator.clipboard.writeText(text).then(() => showToast(`Copied: ${text}`, 'success'))
-            .catch(() => showToast(text, 'info'));
-    }});
-
-    // Camera orbit
-    if (mapService.isOrbiting()) {
-        items.push({ icon: '??', label: 'Stop camera orbit', action: () => {
-            mapService.stopCameraOrbit();
-            showToast('Camera orbit stopped', 'info');
-        }});
-    } else {
-        items.push({ icon: '????', label: 'Orbit camera around point', action: () => {
-            mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
-            showToast('Camera orbiting ??? right-click to stop', 'info');
-        }});
-    }
-
-    // Google Street View
-    items.push({ icon: '?????', label: 'Open location in Google Street View', action: () => {
-        const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${latlng.lat},${latlng.lng}`;
-        window.open(url, '_blank', 'noopener');
-    }});
-
-    // Google Earth
-    items.push({ icon: '????', label: 'Open location in Google Earth', action: () => {
-        const url = `https://earth.google.com/web/@${latlng.lat},${latlng.lng},1200a,900d,60y,0h,35t,0r`;
-        window.open(url, '_blank', 'noopener');
-    }});
-
-    if (layer) {
-        items.push({ sep: true });
-
-        // Layer reordering
-        if (layerIdx > 0) {
-            items.push({ icon: '??', label: 'Move layer up', action: () => { moveLayerUp(layerId); }});
-        }
-        if (layerIdx >= 0 && layerIdx < layers.length - 1) {
-            items.push({ icon: '??', label: 'Move layer down', action: () => { moveLayerDown(layerId); }});
-        }
-        if (layers.length > 1 && layerIdx !== 0) {
-            items.push({ icon: '?', label: 'Bring to front', action: () => {
-                while (layers.indexOf(layers.find(l => l.id === layerId)) > 0) {
-                    reorderLayer(layerId, 'up');
-                }
-                mapService.syncLayerOrder(getLayers().map(l => l.id));
-                _renderReactLeftPanel();
-            }});
-        }
-        if (layers.length > 1 && layerIdx !== layers.length - 1) {
-            items.push({ icon: '?', label: 'Send to back', action: () => {
-                while (layers.indexOf(layers.find(l => l.id === layerId)) < layers.length - 1) {
-                    reorderLayer(layerId, 'down');
-                }
-                mapService.syncLayerOrder(getLayers().map(l => l.id));
-                _renderReactLeftPanel();
-            }});
-        }
-
-        items.push({ sep: true });
-
-        // Hide / show
-        items.push({ icon: layer.visible !== false ? '?????????????' : '?????', label: layer.visible !== false ? 'Hide layer' : 'Show layer', action: () => {
-            toggleLayerVisibility(layerId);
-            mapService.toggleLayer(layerId, layers.find(l => l.id === layerId)?.visible);
-            _renderReactLeftPanel();
-        }});
-
-        // Zoom to
-        items.push({ icon: '????', label: 'Zoom to layer', action: () => {
-            const ll = mapService.getLayerRecord(layerId);
-            if (ll && ll.geojson) { try { const bb = turf.bbox(ll.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {} }
-        }});
-
-        // Set active
-        items.push({ icon: '???', label: 'Set as active layer', action: () => { setActiveLayer(layerId); refreshUI(); }});
-    }
-
-    // Build items
-    items.forEach(item => {
-        if (item.sep) {
-            menu.innerHTML += '<div class="ctx-sep"></div>';
-            return;
-        }
-        const el = document.createElement('div');
-        el.className = 'ctx-item';
-        el.innerHTML = `<span class="ctx-icon">${item.icon}</span>${item.label}`;
-        el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            dismissContextMenu();
-            item.action();
-        });
-        menu.appendChild(el);
-    });
-
-    // Position menu at mouse location, clamped to viewport
-    let x = originalEvent.clientX;
-    let y = originalEvent.clientY;
-    document.body.appendChild(menu);
-    const rect = menu.getBoundingClientRect();
-    if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
-    if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-
-    // Dismiss listeners ??? deferred so the originating event doesn't immediately dismiss
-    _ctxDismissAC = new AbortController();
-    const sig = _ctxDismissAC.signal;
-    requestAnimationFrame(() => {
-        if (sig.aborted) return;
-        // Click anywhere outside the menu dismisses it
-        document.addEventListener('pointerdown', (e) => {
-            if (!e.target.closest('.map-context-menu')) dismissContextMenu();
-        }, { signal: sig });
-        // Another right-click outside the menu dismisses it (new one will replace)
-        document.addEventListener('contextmenu', (e) => {
-            if (!e.target.closest('.map-context-menu')) dismissContextMenu();
-        }, { signal: sig });
-        // Escape key dismisses
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') dismissContextMenu();
-        }, { signal: sig });
-        // Scroll / map interaction dismisses
-        document.addEventListener('wheel', () => dismissContextMenu(), { signal: sig, passive: true });
     });
 }
 

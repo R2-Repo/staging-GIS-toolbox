@@ -52,10 +52,8 @@ describe('tool-catalog', () => {
         expect(isPipelineNodeEnabled('union')).toBe(false);
     });
 
-    it('renderMapGisToolsPanelHtml includes selection UI and V1 actions only', () => {
+    it('renderMapGisToolsPanelHtml includes V1 actions only', () => {
         const html = renderMapGisToolsPanelHtml();
-        expect(html).toContain('selection-hint');
-        expect(html).toContain('selection-bar');
         expect(html).toContain('data-app-action="openBuffer"');
         expect(html).toContain('data-app-action="openPointsWithinPolygon"');
         expect(html).not.toContain('data-app-action="openDistanceTool"');

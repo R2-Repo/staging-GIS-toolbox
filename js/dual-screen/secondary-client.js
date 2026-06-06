@@ -45,11 +45,7 @@ function teardownDrawRelay() {
 }
 
 function setupPopupBridge(post) {
-    window._mapPopupNav = (dir) => {
-        mapService.cyclePopup(dir);
-    };
-    window._mapPopupEdit = () => {
-        const hit = mapService.getActivePopupHit();
+    bus.on('map:popup:edit', (hit) => {
         if (!hit) return;
         mapService.closePopup();
         post(MessageType.POPUP_ACTION, {
@@ -57,7 +53,7 @@ function setupPopupBridge(post) {
             layerId: hit.layerId,
             featureIndex: hit.featureIndex
         });
-    };
+    });
 }
 
 function setupFileDrop(post) {

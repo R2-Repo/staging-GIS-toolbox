@@ -95,6 +95,7 @@ class MapManager {
 
         // Popup
         this._popup = null;
+        this._popupDelegationBound = false;
 
         // Camera orbit
         this._orbitAnimId = null;
@@ -141,6 +142,7 @@ class MapManager {
         this.map.scrollZoom.setWheelZoomRate(1 / 110);
 
         this.map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+        this._bindPopupDelegation();
 
         this.map.on('error', (e) => {
             if (e.error?.status === 404 || e.error?.message?.includes('tile')) {
@@ -803,14 +805,14 @@ class MapManager {
         let navHtml = '';
         if (hits.length > 1) {
             navHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:11px;">
-                <button onclick="window._mapPopupNav(-1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&larr;</button>
+                <button type="button" data-map-popup-action="nav" data-dir="-1" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&larr;</button>
                 <span>${idx + 1} of ${hits.length}</span>
-                <button onclick="window._mapPopupNav(1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&rarr;</button>
+                <button type="button" data-map-popup-action="nav" data-dir="1" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&rarr;</button>
             </div>`;
         }
 
         const editBtn = `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;text-align:right;">
-            <button onclick="window._mapPopupEdit()" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button>
+            <button type="button" data-map-popup-action="edit" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button>
         </div>`;
 
         const html = `<div class="map-popup-content">${layerLabel}${navHtml}${bodyHtml}${editBtn}</div>`;
@@ -2492,6 +2494,36 @@ class MapManager {
 
         const ctrl = { onAdd: () => container, onRemove: () => { deactivate(); container.remove(); } };
         this.map.addControl(ctrl, 'top-left');
+    }
+
+    _getActivePopupHit() {
+        const hits = this._popupHits;
+        const idx = this._popupIndex;
+        return hits?.[idx] ?? null;
+    }
+
+    _bindPopupDelegation() {
+        if (this._popupDelegationBound) return;
+        this._popupDelegationBound = true;
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest?.('[data-map-popup-action]');
+            if (!btn || !btn.closest('.maplibregl-popup')) return;
+
+            e.preventDefault();
+            const action = btn.dataset.mapPopupAction;
+            if (action === 'nav') {
+                const dir = parseInt(btn.dataset.dir, 10) || 1;
+                if (!Array.isArray(this._popupHits) || this._popupHits.length === 0) return;
+                const len = this._popupHits.length;
+                this._popupIndex = (this._popupIndex + dir + len) % len;
+                this._renderCyclePopup();
+            } else if (action === 'edit') {
+                const hit = this._getActivePopupHit();
+                if (!hit) return;
+                bus.emit('map:popup:edit', hit);
+            }
+        });
     }
 }
 

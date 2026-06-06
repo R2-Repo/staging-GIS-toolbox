@@ -6,8 +6,6 @@
 import bus from '../core/event-bus.js';
 import logger from '../core/logger.js';
 import mapService from './map-service.js';
-import { isReactToolDialogsEnabled } from '../ui/tool-dialog-feature-flags.js';
-
 const DRAW_STYLE = {
     lineColor: '#01bcdd',
     lineWidth: 3,
@@ -41,7 +39,6 @@ class DrawManager {
         this._toolbar = null;        // DOM element for draw toolbar
         this._toolbarLayerName = '';
         this._toolbarHint = '';
-        this._isReactToolbar = false;
         this._reactToolbarMount = null;
         this._mountDrawToolbarFn = null;
         this._escHandler = null;
@@ -89,96 +86,9 @@ class DrawManager {
         this._targetLayerId = layerId;
         this._toolbarLayerName = layerName;
         this._toolbarHint = '';
-        this._isReactToolbar = isReactToolDialogsEnabled();
-
-        if (this._isReactToolbar) {
-            const toolbar = document.createElement('div');
-            toolbar.className = 'draw-toolbar-react-host';
-            toolbar.addEventListener('click', (e) => e.stopPropagation());
-            toolbar.addEventListener('dblclick', (e) => e.stopPropagation());
-            toolbar.addEventListener('mousedown', (e) => e.stopPropagation());
-
-            this.map.getContainer().appendChild(toolbar);
-            this._toolbar = toolbar;
-            this._active = true;
-            void this._mountOrUpdateReactToolbar();
-
-            logger.info('Draw', `Draw toolbar opened for layer: ${layerName}`);
-            bus.emit('draw:toolbarOpened', { layerId });
-            return;
-        }
 
         const toolbar = document.createElement('div');
-        toolbar.className = 'draw-toolbar';
-        toolbar.innerHTML = `
-            <div class="draw-toolbar-header">
-                <span class="draw-toolbar-title">✏️ Draw: <strong>${layerName}</strong></span>
-                <button class="draw-toolbar-close" title="Close draw tools">✕</button>
-            </div>
-            <div class="draw-toolbar-tools">
-                <button class="draw-tool-btn" data-tool="select" title="Edit feature vertices">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 1l5 14 1.5-5.5L14 8 2 1z" fill="currentColor"/></svg>
-                    <span>Edit Vertices</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="point" title="Draw point">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg>
-                    <span>Point</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="line" title="Draw line">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 14L14 2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-                    <span>Line</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="polygon" title="Draw polygon">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,12 1,12" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
-                    <span>Polygon</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="rectangle" title="Rectangle (click and drag on the map)">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3" rx="1"/></svg>
-                    <span>Rect</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="circle" title="Draw circle">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
-                    <span>Circle</span>
-                </button>
-                <button class="draw-tool-btn" data-tool="sector" title="Draw sector (pie wedge)">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 8L14 8A6 6 0 0 0 8 2Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.3"/></svg>
-                    <span>Sector</span>
-                </button>
-            </div>
-            <div class="draw-toolbar-actions">
-                <button class="draw-action-btn draw-undo-btn" style="display:none;" title="Undo last vertex (Right-click)">↩ Undo</button>
-                <button class="draw-action-btn draw-delete-btn" style="display:none;" title="Delete selected feature">🗑 Delete</button>
-            </div>
-            <div class="draw-toolbar-hint"></div>
-            <button class="draw-finish-btn" style="display:none;">✓ Finish</button>
-        `;
-
-        toolbar.querySelector('.draw-toolbar-close').onclick = () => this.hideToolbar();
-        toolbar.querySelector('.draw-finish-btn').onclick = (e) => {
-            e.stopPropagation();
-            this._finishDraw();
-        };
-        toolbar.querySelectorAll('.draw-tool-btn').forEach(btn => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                const tool = btn.dataset.tool;
-                if (this._tool === tool) {
-                    this.cancelDraw();
-                } else {
-                    this.startTool(tool);
-                }
-            };
-        });
-
-        toolbar.querySelector('.draw-delete-btn').onclick = (e) => {
-            e.stopPropagation();
-            this._deleteSelected();
-        };
-        toolbar.querySelector('.draw-undo-btn').onclick = (e) => {
-            e.stopPropagation();
-            this._undoLastVertex();
-        };
-
+        toolbar.className = 'draw-toolbar-react-host';
         toolbar.addEventListener('click', (e) => e.stopPropagation());
         toolbar.addEventListener('dblclick', (e) => e.stopPropagation());
         toolbar.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -186,6 +96,7 @@ class DrawManager {
         this.map.getContainer().appendChild(toolbar);
         this._toolbar = toolbar;
         this._active = true;
+        void this._mountOrUpdateReactToolbar();
 
         logger.info('Draw', `Draw toolbar opened for layer: ${layerName}`);
         bus.emit('draw:toolbarOpened', { layerId });
@@ -205,30 +116,16 @@ class DrawManager {
         this._targetLayerId = null;
         this._toolbarLayerName = '';
         this._toolbarHint = '';
-        this._isReactToolbar = false;
         bus.emit('draw:toolbarClosed');
     }
 
     _setHint(text) {
         this._toolbarHint = text || '';
-        if (this._isReactToolbar) {
-            void this._mountOrUpdateReactToolbar();
-            return;
-        }
-        if (!this._toolbar) return;
-        const hint = this._toolbar.querySelector('.draw-toolbar-hint');
-        if (hint) hint.textContent = text;
+        void this._mountOrUpdateReactToolbar();
     }
 
     _updateToolButtons() {
-        if (this._isReactToolbar) {
-            void this._mountOrUpdateReactToolbar();
-            return;
-        }
-        if (!this._toolbar) return;
-        this._toolbar.querySelectorAll('.draw-tool-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.tool === this._tool);
-        });
+        void this._mountOrUpdateReactToolbar();
     }
 
     _getToolbarUiState() {
@@ -258,7 +155,7 @@ class DrawManager {
     }
 
     async _mountOrUpdateReactToolbar() {
-        if (!this._isReactToolbar || !this._toolbar) return;
+        if (!this._toolbar) return;
         const props = this._getToolbarUiState();
 
         if (!this._reactToolbarMount) {
@@ -266,7 +163,7 @@ class DrawManager {
                 const { mountDrawToolbar } = await import('../../react/map/mountDrawToolbar.jsx');
                 this._mountDrawToolbarFn = mountDrawToolbar;
             }
-            if (!this._isReactToolbar || !this._toolbar) return;
+            if (!this._toolbar) return;
             this._reactToolbarMount = this._mountDrawToolbarFn(this._toolbar, props);
             return;
         }
@@ -525,15 +422,7 @@ class DrawManager {
     }
 
     _updateFinishBtn() {
-        if (this._isReactToolbar) {
-            void this._mountOrUpdateReactToolbar();
-            return;
-        }
-        if (!this._toolbar) return;
-        const btn = this._toolbar.querySelector('.draw-finish-btn');
-        if (!btn) return;
-        const minVerts = this._tool === 'polygon' ? 3 : 2;
-        btn.style.display = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length >= minVerts ? '' : 'none';
+        void this._mountOrUpdateReactToolbar();
     }
 
     _onMapMove(e) {
@@ -829,13 +718,7 @@ class DrawManager {
     }
 
     _updateActionButtons() {
-        if (this._isReactToolbar) {
-            void this._mountOrUpdateReactToolbar();
-            return;
-        }
-        if (!this._toolbar) return;
-        const delBtn = this._toolbar.querySelector('.draw-delete-btn');
-        if (delBtn) delBtn.style.display = this._selectedFeatureIndex !== null ? '' : 'none';
+        void this._mountOrUpdateReactToolbar();
     }
 
     // ============================
@@ -864,16 +747,7 @@ class DrawManager {
     }
 
     _updateUndoBtn() {
-        if (this._isReactToolbar) {
-            void this._mountOrUpdateReactToolbar();
-            return;
-        }
-        if (!this._toolbar) return;
-        const undoBtn = this._toolbar.querySelector('.draw-undo-btn');
-        if (undoBtn) {
-            const isDrawing = (this._tool === 'line' || this._tool === 'polygon') && this._vertices.length > 0;
-            undoBtn.style.display = isDrawing ? '' : 'none';
-        }
+        void this._mountOrUpdateReactToolbar();
     }
 
     // ============================

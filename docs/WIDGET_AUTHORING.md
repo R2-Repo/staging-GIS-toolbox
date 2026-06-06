@@ -92,8 +92,6 @@ import { openReactIsland } from '../../ui/open-react-island.js';
 import { getSpatialLayerOptions } from '../widget-context.js';
 
 export async function openMyWidget(ctx) {
-    if (!ctx.isReactToolDialogs) return; // new widgets: React-only
-
     await openReactIsland({
         title: 'My Widget',
         width: '560px',
@@ -146,7 +144,7 @@ Defined in `js/widgets/widget-types.js`:
 - `refreshUI`, `showToast`
 - `setActiveLayer`, `updateSelectionUI` (selection workflows)
 - `analyzeSchema` (schema refresh after attribute writes)
-- `isReactToolDialogs`, `turf`
+- `turf`
 
 ---
 

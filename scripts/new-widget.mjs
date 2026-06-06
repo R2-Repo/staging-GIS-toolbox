@@ -70,11 +70,6 @@ import { getSpatialLayerOptions } from '../widget-context.js';
 import { run${pascal} } from './engine.js';
 
 export async function ${action}(ctx) {
-    if (!ctx.isReactToolDialogs) {
-        ctx.showToast('${pascal} requires React dialogs.', 'warning');
-        return;
-    }
-
     await openReactIsland({
         title: '${pascal}',
         width: '560px',

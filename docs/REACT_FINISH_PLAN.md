@@ -1,6 +1,6 @@
 # React Finish Plan — GIS Toolbox
 
-> **Status:** Approved, not started (2026-06-06)
+> **Status:** Phase 1 complete (2026-06-06)
 > **Supersedes:** incremental milestones in [REACT_REFACTOR_PLAN.md](REACT_REFACTOR_PLAN.md) for all remaining work
 > **Read first:** agents starting the React finish should read this file end-to-end before touching code
 
@@ -14,7 +14,7 @@
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 1 | Delete rollback scaffolding (~8k LOC) | pending |
+| 1 | Delete rollback scaffolding (~8k LOC) | completed |
 | 2 | Port last vanilla-only modals + SelectionBar | pending |
 | 3 | Remove mobile UI; add persistent MobileGate splash | pending |
 | 4 | Full workflow React (overlay, inspectors, preview) | pending |

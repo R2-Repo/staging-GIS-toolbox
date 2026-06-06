@@ -10,7 +10,6 @@
  * @property {(id: string) => void} [setActiveLayer]
  * @property {() => void} [updateSelectionUI]
  * @property {(geojson: object) => object} [analyzeSchema]
- * @property {boolean} [isReactToolDialogs]
  * @property {typeof globalThis.turf} [turf]
  */
 

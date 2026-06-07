@@ -33,23 +33,6 @@ export class BufferNode extends NodeBase {
         this.config = { distance: 100, units: 'feet' };
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <label class="wf-inspector-label">Distance</label>
-            <input class="wf-inspector-input" type="number" data-cfg="distance" value="${this.config.distance}" min="0" step="0.1">
-            <label class="wf-inspector-label" style="margin-top:8px">Units</label>
-            <select class="wf-inspector-select" data-cfg="units">
-                ${['meters', 'kilometers', 'miles', 'feet'].map(u =>
-                    `<option value="${u}" ${u === this.config.units ? 'selected' : ''}>${u}</option>`
-                ).join('')}
-            </select>`;
-    }
-
-    readInspector(container) {
-        this.config.distance = parseFloat(container.querySelector('[data-cfg="distance"]')?.value) || 1;
-        this.config.units = container.querySelector('[data-cfg="units"]')?.value || 'kilometers';
-    }
-
     validate() {
         if (this.config.distance <= 0) return { valid: false, message: 'Distance must be > 0' };
         return { valid: true, message: '' };
@@ -76,17 +59,6 @@ export class SimplifyNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Features', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'Simplified', dataType: 'dataset' }];
         this.config = { tolerance: 0.001 };
-    }
-
-    renderInspector(container) {
-        container.innerHTML = `
-            <label class="wf-inspector-label">Tolerance</label>
-            <input class="wf-inspector-input" type="number" data-cfg="tolerance" value="${this.config.tolerance}" min="0.0001" step="0.0001">
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">Smaller = more detail. Default 0.001</p>`;
-    }
-
-    readInspector(container) {
-        this.config.tolerance = parseFloat(container.querySelector('[data-cfg="tolerance"]')?.value) || 0.001;
     }
 
     validate() {
@@ -118,28 +90,6 @@ export class DissolveNode extends NodeBase {
         this.config = { field: '' };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
-        container.innerHTML = `
-            <label class="wf-inspector-label">Dissolve Field</label>
-            <select class="wf-inspector-select" data-cfg="field">
-                <option value="">— All features —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.field ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">Merge geometries by shared field values</p>`;
-    }
-
-    readInspector(container) {
-        this.config.field = container.querySelector('[data-cfg="field"]')?.value || '';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -167,16 +117,6 @@ export class ClipNode extends NodeBase {
         this.outputPorts = [{ id: 'out', label: 'Clipped', dataType: 'dataset' }];
         this.config = {};
     }
-
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">
-                Connect <strong>Features</strong> (to clip) and <strong>Clip Area</strong> (polygon boundary).
-                All features will be clipped to the clip area boundary.
-            </p>`;
-    }
-
-    readInspector() { }
 
     validate() { return { valid: true, message: '' }; }
 
@@ -209,12 +149,6 @@ export class UnionNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">Merges all polygon features into a single geometry.</p>`;
-    }
-
-    readInspector() { }
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -240,12 +174,6 @@ export class CombineNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">Groups features by geometry type into Multi* features (e.g. Points → MultiPoint).</p>`;
-    }
-
-    readInspector() { }
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -272,33 +200,6 @@ export class SpatialJoinNode extends NodeBase {
         ];
         this.outputPorts = [{ id: 'out', label: 'Joined', dataType: 'dataset' }];
         this.config = { joinFields: '', prefix: '' };
-    }
-
-    renderInspector(container, context) {
-        // Try to list polygon fields from upstream
-        const polyData = context.getUpstreamOutputForPort?.(this.id, 'polygons');
-        const fields = polyData?.schema?.fields?.map(f => f.name) || [];
-
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">
-                For each <strong>Point</strong>, finds the containing <strong>Polygon</strong>
-                and copies its attributes to the point. Creates a new layer on the output port
-                (does not modify source layers). Map <strong>Points in Poly (filter)</strong> only
-                keeps matching points without joining attributes.
-            </p>
-            <label class="wf-inspector-label">Fields to Join</label>
-            <input class="wf-inspector-input" data-cfg="joinFields" value="${this.config.joinFields}"
-                   placeholder="Leave blank for all fields">
-            ${fields.length ? `<p style="color:var(--text-muted);font-size:11px;margin-top:2px">
-                Available: ${fields.join(', ')}</p>` : ''}
-            <label class="wf-inspector-label" style="margin-top:8px">Field Prefix</label>
-            <input class="wf-inspector-input" data-cfg="prefix" value="${this.config.prefix}"
-                   placeholder="e.g. poly_ (optional)">`;
-    }
-
-    readInspector(container) {
-        this.config.joinFields = container.querySelector('[data-cfg="joinFields"]')?.value?.trim() || '';
-        this.config.prefix = container.querySelector('[data-cfg="prefix"]')?.value?.trim() || '';
     }
 
     validate() { return { valid: true, message: '' }; }
@@ -335,35 +236,6 @@ export class NearestJoinNode extends NodeBase {
         this.config = { joinFields: '', units: 'kilometers' };
     }
 
-    renderInspector(container, context) {
-        const joinData = context.getUpstreamOutputForPort?.(this.id, 'join');
-        const fields = joinData?.schema?.fields?.map(f => f.name) || [];
-
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">
-                For each <strong>Target</strong> feature, finds the nearest feature in
-                <strong>Join From</strong> using shortest distance between geometries
-                (points, lines, polygon boundaries — same rules as the Proximity Join widget),
-                then copies its attributes plus distance.
-            </p>
-            <label class="wf-inspector-label">Fields to Join</label>
-            <input class="wf-inspector-input" data-cfg="joinFields" value="${this.config.joinFields}"
-                   placeholder="Leave blank for all fields">
-            ${fields.length ? `<p style="color:var(--text-muted);font-size:11px;margin-top:2px">
-                Available: ${fields.join(', ')}</p>` : ''}
-            <label class="wf-inspector-label" style="margin-top:8px">Distance Units</label>
-            <select class="wf-inspector-select" data-cfg="units">
-                ${['meters', 'kilometers', 'miles', 'feet'].map(u =>
-                    `<option value="${u}" ${u === this.config.units ? 'selected' : ''}>${u}</option>`
-                ).join('')}
-            </select>`;
-    }
-
-    readInspector(container) {
-        this.config.joinFields = container.querySelector('[data-cfg="joinFields"]')?.value?.trim() || '';
-        this.config.units = container.querySelector('[data-cfg="units"]')?.value || 'kilometers';
-    }
-
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -398,16 +270,6 @@ export class IntersectNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">
-                Produces features where <strong>Layer A</strong> and <strong>Layer B</strong>
-                polygons overlap. Attributes from both layers are merged
-                (Layer B fields are prefixed with <code>B_</code>).
-            </p>`;
-    }
-
-    readInspector() {}
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -439,15 +301,6 @@ export class MergeLayersNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">
-                Concatenates all features from <strong>Layer A</strong> and <strong>Layer B</strong>
-                into a single feature collection.
-            </p>`;
-    }
-
-    readInspector() {}
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -479,15 +332,6 @@ export class DifferenceNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">
-                Removes areas from <strong>Layer A</strong> polygons that overlap
-                with <strong>Subtract</strong> polygons.
-            </p>`;
-    }
-
-    readInspector() {}
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {
@@ -517,38 +361,6 @@ export class SummarizeWithinNode extends NodeBase {
         ];
         this.outputPorts = [{ id: 'out', label: 'Summary', dataType: 'dataset' }];
         this.config = { sumField: '', avgField: '' };
-    }
-
-    renderInspector(container, context) {
-        const ptData = context.getUpstreamOutputForPort?.(this.id, 'points');
-        const numFields = (ptData?.schema?.fields || []).filter(f => f.type === 'number').map(f => f.name);
-        if (this.config.sumField && !numFields.includes(this.config.sumField)) numFields.push(this.config.sumField);
-        if (this.config.avgField && !numFields.includes(this.config.avgField)) numFields.push(this.config.avgField);
-
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px">
-                Counts <strong>Point</strong> features within each <strong>Polygon</strong>.
-                Optionally sums or averages a numeric point field.
-            </p>
-            <label class="wf-inspector-label">Sum Field (optional)</label>
-            <select class="wf-inspector-select" data-cfg="sumField">
-                <option value="">— None —</option>
-                ${numFields.map(f => `<option value="${f}" ${f === this.config.sumField ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Average Field (optional)</label>
-            <select class="wf-inspector-select" data-cfg="avgField">
-                <option value="">— None —</option>
-                ${numFields.map(f => `<option value="${f}" ${f === this.config.avgField ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:8px">
-                Adds <code>point_count</code> to each polygon. Sum/avg fields add
-                <code>sum_&lt;field&gt;</code> and <code>avg_&lt;field&gt;</code>.
-            </p>`;
-    }
-
-    readInspector(container) {
-        this.config.sumField = container.querySelector('[data-cfg="sumField"]')?.value || '';
-        this.config.avgField = container.querySelector('[data-cfg="avgField"]')?.value || '';
     }
 
     validate() { return { valid: true, message: '' }; }
@@ -583,23 +395,6 @@ export class SplitByGeometryNode extends NodeBase {
         this.config = {};
     }
 
-    renderInspector(container) {
-        container.innerHTML = `
-            <p style="color:var(--text-muted);font-size:12px">
-                Splits a mixed-geometry layer into three separate outputs by geometry type.
-            </p>
-            <div style="margin-top:8px;font-size:12px;line-height:1.8">
-                <div><strong style="color:#ef4444">● Points</strong> — Point, MultiPoint</div>
-                <div><strong style="color:#3b82f6">● Lines</strong> — LineString, MultiLineString</div>
-                <div><strong style="color:#22c55e">● Polygons</strong> — Polygon, MultiPolygon</div>
-            </div>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:8px">
-                Wire each output port to the appropriate downstream node.
-                Empty outputs (no features of that type) will pass through as empty datasets.
-            </p>`;
-    }
-
-    readInspector() {}
     validate() { return { valid: true, message: '' }; }
 
     async execute(inputs) {

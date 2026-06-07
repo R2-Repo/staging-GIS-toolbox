@@ -1,0 +1,203 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import bus from '../../js/core/event-bus.js';
+import { PipelineEditor } from './PipelineEditor.jsx';
+import { WorkflowPalette } from './WorkflowPalette.jsx';
+import { InspectorPanel } from './InspectorPanel.jsx';
+import { DataPreviewPanel } from './DataPreviewPanel.jsx';
+
+export function WorkflowOverlay({ controller, getLayers, importFile }) {
+    const { engine } = controller;
+    const previewRef = useRef(null);
+    const canvasRef = useRef(null);
+
+    const [examplesOpen, setExamplesOpen] = useState(false);
+    const [examples, setExamples] = useState(null);
+    const [examplesError, setExamplesError] = useState(false);
+    const [running, setRunning] = useState(false);
+
+    useEffect(() => {
+        controller.setPreviewApi({
+            show: (data, maxRows) => previewRef.current?.show(data, maxRows),
+            hide: () => previewRef.current?.hide()
+        });
+    }, [controller]);
+
+    useEffect(() => {
+        fetch('./pipelines/index.json')
+            .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+            .then((files) => setExamples(files))
+            .catch(() => setExamplesError(true));
+    }, []);
+
+    useEffect(() => {
+        const unsub = bus.on('workflow:delete-node', ({ nodeId }) => {
+            engine.removeNode(nodeId);
+            bus.emit('workflow:node-deselected');
+            controller.refreshCanvasViews();
+            previewRef.current?.hide();
+        });
+        return () => { try { unsub(); } catch { /* noop */ } };
+    }, [controller, engine]);
+
+    useEffect(() => {
+        const unsub = bus.on('workflow:palette-add', ({ type }) => {
+            const canvasEl = canvasRef.current;
+            if (!canvasEl) return;
+            const rect = canvasEl.getBoundingClientRect();
+            bus.emit('workflow:add-node-request', {
+                type,
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2
+            });
+        });
+        return () => { try { unsub(); } catch { /* noop */ } };
+    }, []);
+
+    const onKeyDown = useCallback((e) => {
+        if (e.key === 'Escape') controller.close();
+    }, [controller]);
+
+    useEffect(() => {
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [onKeyDown]);
+
+    const onDragEvent = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, []);
+
+    const onCanvasDrop = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const json = e.dataTransfer.getData('application/x-wf-node');
+        if (!json) return;
+        const { type } = JSON.parse(json);
+        bus.emit('workflow:add-node-request', { type, clientX: e.clientX, clientY: e.clientY });
+    }, []);
+
+    const onRun = useCallback(async () => {
+        if (engine.isRunning || running) return;
+        setRunning(true);
+        try {
+            await controller.runPipeline();
+        } finally {
+            setRunning(false);
+        }
+    }, [controller, engine.isRunning, running]);
+
+    const onClear = useCallback(() => {
+        controller.clearPipeline();
+    }, [controller]);
+
+    const examplesWrapperRef = useRef(null);
+
+    useEffect(() => {
+        if (!examplesOpen) return undefined;
+        const closeDropdown = (e) => {
+            if (!examplesWrapperRef.current?.contains(e.target)) {
+                setExamplesOpen(false);
+            }
+        };
+        document.addEventListener('click', closeDropdown);
+        return () => document.removeEventListener('click', closeDropdown);
+    }, [examplesOpen]);
+
+    return (
+        <div id="wf-overlay" className="wf-overlay">
+            <div className="wf-topbar">
+                <button type="button" className="wf-topbar-btn" id="wf-back" title="Back to map" onClick={() => controller.close()}>
+                    ← Back to Map
+                </button>
+                <span className="wf-topbar-title">Data Pipeline Editor</span>
+                <div className="wf-topbar-actions">
+                    <div className="wf-examples-wrapper" id="wf-examples-wrapper" ref={examplesWrapperRef}>
+                        <button
+                            type="button"
+                            className="wf-topbar-btn wf-topbar-io"
+                            id="wf-examples-btn"
+                            title="Load a preconfigured example"
+                            onClick={(e) => { e.stopPropagation(); setExamplesOpen((o) => !o); }}
+                        >
+                            📋 Examples ▾
+                        </button>
+                        <div className={`wf-examples-dropdown${examplesOpen ? ' open' : ''}`} id="wf-examples-dropdown">
+                            <div className="wf-examples-title">Preconfigured Examples</div>
+                            <div className="wf-examples-list" id="wf-examples-list">
+                                {examplesError && 'Failed to load examples.'}
+                                {!examplesError && examples === null && 'Loading…'}
+                                {!examplesError && examples?.length === 0 && 'No examples available.'}
+                                {!examplesError && examples?.map((file) => (
+                                    <button
+                                        key={file}
+                                        type="button"
+                                        className="wf-examples-item"
+                                        onClick={() => {
+                                            setExamplesOpen(false);
+                                            void controller.loadExample(file);
+                                        }}
+                                    >
+                                        {file.replace(/\.json$/i, '')}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" className="wf-topbar-btn wf-topbar-io" id="wf-import-config" title="Import workflow config" onClick={() => controller.importConfig()}>
+                        📂 Import
+                    </button>
+                    <button type="button" className="wf-topbar-btn wf-topbar-io" id="wf-export-config" title="Export workflow config" onClick={() => controller.exportConfig()}>
+                        💾 Export
+                    </button>
+                    <button type="button" className="wf-topbar-btn" id="wf-clear" title="Clear pipeline" onClick={onClear}>
+                        🗑️ Clear
+                    </button>
+                    <button
+                        type="button"
+                        className="wf-topbar-btn wf-topbar-run"
+                        id="wf-run"
+                        title="Run pipeline"
+                        disabled={running || engine.isRunning}
+                        onClick={() => void onRun()}
+                    >
+                        {running || engine.isRunning ? '⏳ Running…' : '▶ Run Pipeline'}
+                    </button>
+                    <button
+                        type="button"
+                        className="wf-topbar-btn dual-screen-desktop-only"
+                        id="wf-dual-screen"
+                        data-dual-screen-toggle
+                        title="Open map in a second window (Dual Screen)"
+                        onClick={() => { if (typeof window._toggleDualScreen === 'function') window._toggleDualScreen(); }}
+                    >
+                        🖥 Dual Screen
+                    </button>
+                </div>
+            </div>
+
+            <div
+                className="wf-body"
+                onDragOver={onDragEvent}
+                onDragEnter={onDragEvent}
+                onDragLeave={onDragEvent}
+                onDrop={onDragEvent}
+            >
+                <WorkflowPalette />
+                <div
+                    className="wf-canvas-area"
+                    ref={canvasRef}
+                    style={{ position: 'relative' }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; }}
+                    onDrop={onCanvasDrop}
+                >
+                    <div className="wf-reactflow-host" style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', opacity: 1, zIndex: 2 }}>
+                        <PipelineEditor engine={engine} />
+                    </div>
+                </div>
+                <InspectorPanel engine={engine} getLayers={getLayers} importFile={importFile} />
+            </div>
+
+            <DataPreviewPanel ref={previewRef} />
+        </div>
+    );
+}

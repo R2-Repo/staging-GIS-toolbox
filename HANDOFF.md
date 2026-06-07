@@ -5,55 +5,71 @@ Keep this file current so the next session can continue without re-discovery.
 ## Latest
 
 - **Date**: 2026-06-06
-- **Phase completed**: **Phase 3** — Mobile gate ([docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md))
-- **Goal**: React finish migration — Phase 4 next (Full workflow React)
+- **Phase completed**: **Phase 4** — Full workflow React ([docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md))
+- **Goal**: React finish migration — Phase 5 next (React shell flip)
 - **Branch**: `main`
 
-### What was done (Phase 3)
+### What was done (Phase 4)
 
-Replaced the mobile app UI with a persistent small-screen gate:
+Replaced the hybrid workflow shell with full React UI:
 
-- **Removed** from `index.html`: bottom nav, mobile content panels, FABs/flyouts, mobile title pill, mobile header menu button, mobile dropdown menu
-- **Removed** from `js/app.js`: `renderMobileContent`, `renderMobile*`, `mobileShow*`, FAB/flyout handlers, mobile nav/dropdown listeners, `mobileAddCurrentLocation`; simplified `updateSelectionUI()` to no-op (React `SelectionBar` owns UI)
-- **Removed** from `js/tools/tool-catalog.js`: `getMobileGisToolFlyoutItems`, `renderMobileGisToolButtonsHtml`
-- **Reduced** `css/mobile.css` to splash-only rules for `MobileGate`
-- **Added** `react/shell/MobileGate.jsx` — full-screen non-dismissable overlay below 768px with branding, gate message, and How To content
-- **Added** `react/shell/mountMobileGate.jsx` — mounted first in `app.js` boot (same pattern as `ModalHost`)
-- **Cleaned** `react/header/HeaderBar.jsx` and `react/tools/ToolGuideDialog.jsx` (removed obsolete mobile menu / mobile notice)
+**4a — React workflow shell**
+- **Added** `react/workflow/WorkflowOverlay.jsx` — top bar, palette, canvas, inspector, preview
+- **Added** `react/workflow/mountWorkflowOverlay.jsx` + `js/workflow/workflow-controller.js` (engine lifecycle, run/import/export/examples)
+- **Added** `react/workflow/WorkflowPalette.jsx` — React palette (replaces DOM build in `workflow-palette.js` class usage)
+
+**4b — Node inspectors (3 batches)**
+- **Added** `react/workflow/InspectorPanel.jsx` — node selection, data summary, validation, comment, delete
+- **Added** `react/workflow/inspectors/` — one React inspector per node type (~35), shared primitives + registry
+  - Batch 1: `inputInspectors.jsx`, `outputInspectors.jsx`, `enrichmentInspectors.jsx`
+  - Batch 2: `transformInspectors.jsx` (17 types)
+  - Batch 3: `spatialInspectors.jsx` (13 types)
+
+**4c — Preview panel**
+- **Added** `react/workflow/DataPreviewPanel.jsx` — sortable virtual-scrolled table
+
+**Deleted** (parity confirmed)
+- `js/workflow/workflow-overlay.js`, `workflow-inspector.js`, `workflow-data-preview.js`
+- `renderInspector` / `readInspector` from all node classes (`node-base.js`, `input-nodes.js`, `output-nodes.js`, `enrichment-nodes.js`, `transform-nodes.js`, `spatial-nodes.js`)
+
+**Wired**
+- `js/app.js` uses `createWorkflowController()` instead of `WorkflowOverlay` class
+- `PipelineEditor.jsx` mounted inside `WorkflowOverlay` (no separate mount lifecycle)
 
 ### Preserved (unchanged behavior)
 
 - 3 widgets, V1 GIS tools, SmartStyle, selection shortcuts + React `SelectionBar`, dual-screen protocol, workflow React Flow canvas, PWA build
+- `js/workflow/workflow-palette.js` kept for `WorkflowPalette.findDef()` (node registry lookup)
+- `js/workflow/workflow-engine.js`, `workflow-store.js` unchanged
 
 ### Files changed (high level)
 
-**Added**: `react/shell/MobileGate.jsx`, `react/shell/mountMobileGate.jsx`
+**Added**: `js/workflow/workflow-controller.js`, `react/workflow/WorkflowOverlay.jsx`, `mountWorkflowOverlay.jsx`, `WorkflowPalette.jsx`, `InspectorPanel.jsx`, `DataPreviewPanel.jsx`, `react/workflow/inspectors/*`, `tests/workflow-inspectors.test.js`
 
-**Modified**: `index.html`, `js/app.js`, `js/tools/tool-catalog.js`, `css/mobile.css`, `react/header/HeaderBar.jsx`, `react/tools/ToolGuideDialog.jsx`, `docs/REACT_FINISH_PLAN.md`, `HANDOFF.md`
+**Modified**: `js/app.js`, `js/workflow/nodes/*.js`, `react/workflow/PipelineEditor.jsx`, `docs/REACT_FINISH_PLAN.md`, `HANDOFF.md`
 
-**Removed logic** (~830 LOC mobile handlers in `app.js`; mobile markup in `index.html`)
+**Removed**: `workflow-overlay.js`, `workflow-inspector.js`, `workflow-data-preview.js` (~35k LOC inspector DOM across nodes + shell)
 
 ### Verification
 
-- `npm test` — green (28 files, 127 tests)
-- `npm run build` — green; emits `dist/` including `mountMobileGate` chunk
+- `npm test` — green (29 files, 129 tests; +2 inspector registry tests)
+- `npm run build` — green; emits `mountWorkflowOverlay` chunk (~52 kB)
 
-### Issues / notes for Phase 4
+### Issues / notes for Phase 5
 
-- **Workflow shell** still vanilla: `workflow-overlay.js`, `workflow-inspector.js`, `workflow-data-preview.js` — Phase 4a–4c
-- **Dead CSS** in `css/main.css` (`.mobile-menu-*`, `.splash-mobile-notice`) — defer cleanup to Phase 6 unless touched during workflow work
-- **`checkMobile()` / `state.ui.isMobile`** retained for dual-screen guard and body class; map/draw managers still use viewport checks for touch hints (unrelated to mobile UI)
-- **Tool guide splash** skipped on viewport &lt; 768px at boot; `MobileGate` shows branding + How To instead
-- **Phase 4 does NOT start automatically** — next agent should read Phase 4 section only
+- **`workflow-palette.js`** still has vanilla `WorkflowPalette` class (only `findDef` used at runtime; palette UI is React). Optional cleanup: extract `findDef` to a registry module in Phase 6.
+- **`workflow-canvas.js`** may still exist as dead code from Phase 1 — verify and delete during shell flip if unused.
+- **Phase 5 scope**: `react/App.jsx` + `react/main.jsx`, delete `js/app.js`, `#root` shell, thin Zustand `AppStore` — see plan § Phase 5.
+- **Manual smoke** deferred to Phase 5/6 gate: load `pipelines/*.json`, configure nodes, run pipeline, Add to Map.
 
 ### Next
 
-**Phase 4** — Full workflow React per [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) § Phase 4.
+**Phase 5** — React shell flip per [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) § Phase 5.
 
 ---
 
 _Archive older bullets when stale (optional):_
 
+- 2026-06-06: Phase 3 — Mobile gate.
 - 2026-06-06: Phase 2 — Finish last vanilla-only UIs.
 - 2026-06-06: Phase 1 — Cut rollback scaffolding.
-- 2026-06-05: M4–M12 incremental React migration (superseded by finish plan).

@@ -32,14 +32,6 @@ export class NodeBase {
         this._running = false;
     }
 
-    /** Override: Build the config form HTML for the inspector */
-    renderInspector(container, context) {
-        container.innerHTML = '<p style="color:var(--text-muted)">No configuration needed.</p>';
-    }
-
-    /** Override: Read config values from the inspector DOM */
-    readInspector(container) {}
-
     /** Override: Execute this node's operation */
     async execute(inputs, context) {
         return inputs[0] || null;

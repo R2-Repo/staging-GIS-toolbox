@@ -49,7 +49,7 @@ import { initSelectionShortcuts } from './map/selection-shortcuts.js';
 import sessionStore from './core/session-store.js';
 import { GIS_WIDGETS, renderWidgetPanelHtml, buildWidgetActions } from './widgets/registry.js';
 import { createWidgetContext } from './widgets/widget-context.js';
-import { WorkflowOverlay } from './workflow/workflow-overlay.js';
+import { createWorkflowController } from './workflow/workflow-controller.js';
 
 // ============================
 // Initialize app
@@ -974,7 +974,7 @@ function setupEventListeners() {
 
     // Workflow editor
     if (!_workflowOverlay) {
-        _workflowOverlay = new WorkflowOverlay({
+        _workflowOverlay = createWorkflowController({
             getLayers: () => getLayers(),
             importFile: (file) => importFile(file),
             addToMap: (data, name, opts = {}) => {

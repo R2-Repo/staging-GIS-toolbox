@@ -22,80 +22,6 @@ export class FilterRowsNode extends NodeBase {
         this.config = { rules: [{ field: '', operator: 'equals', value: '' }], logic: 'AND' };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getAvailableFields(context);
-        for (const r of this.config.rules) { if (r.field && !fields.includes(r.field)) fields.push(r.field); }
-        const ops = [
-            { v: 'equals', l: '=' }, { v: 'not_equals', l: '≠' },
-            { v: 'contains', l: 'contains' }, { v: 'not_contains', l: '!contains' },
-            { v: 'starts_with', l: 'starts with' }, { v: 'ends_with', l: 'ends with' },
-            { v: 'greater_than', l: '>' }, { v: 'less_than', l: '<' },
-            { v: 'gte', l: '≥' }, { v: 'lte', l: '≤' },
-            { v: 'is_null', l: 'is empty' }, { v: 'is_not_null', l: 'is not empty' },
-            { v: 'in', l: 'in list' }
-        ];
-
-        const rulesHtml = this.config.rules.map((r, i) => `
-            <div class="wf-filter-rule" data-idx="${i}">
-                <select class="wf-inspector-select wf-filter-field" data-idx="${i}" style="flex:1">
-                    <option value="">Field…</option>
-                    ${fields.map(f => `<option value="${f}" ${f === r.field ? 'selected' : ''}>${f}</option>`).join('')}
-                </select>
-                <select class="wf-inspector-select wf-filter-op" data-idx="${i}" style="width:90px">
-                    ${ops.map(o => `<option value="${o.v}" ${o.v === r.operator ? 'selected' : ''}>${o.l}</option>`).join('')}
-                </select>
-                <input class="wf-inspector-input wf-filter-val" data-idx="${i}" value="${r.value ?? ''}" placeholder="Value" style="flex:1">
-                <button class="wf-btn-icon wf-filter-rm" data-idx="${i}" title="Remove rule">&times;</button>
-            </div>
-        `).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Logic</label>
-            <div class="wf-toggle-row">
-                <button class="wf-toggle-btn ${this.config.logic === 'AND' ? 'active' : ''}" data-logic="AND">AND</button>
-                <button class="wf-toggle-btn ${this.config.logic === 'OR' ? 'active' : ''}" data-logic="OR">OR</button>
-            </div>
-            <label class="wf-inspector-label" style="margin-top:8px">Rules</label>
-            <div id="wf-filter-rules">${rulesHtml}</div>
-            <button class="wf-btn-sm" id="wf-add-rule" style="margin-top:6px">+ Add Rule</button>`;
-
-        container.querySelectorAll('.wf-toggle-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.config.logic = btn.dataset.logic;
-                container.querySelectorAll('.wf-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.logic === this.config.logic));
-            });
-        });
-        container.querySelector('#wf-add-rule').addEventListener('click', () => {
-            this.config.rules.push({ field: '', operator: 'equals', value: '' });
-            this.renderInspector(container, context);
-        });
-        container.querySelectorAll('.wf-filter-rm').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const idx = parseInt(btn.dataset.idx);
-                if (this.config.rules.length > 1) {
-                    this.config.rules.splice(idx, 1);
-                    this.renderInspector(container, context);
-                }
-            });
-        });
-    }
-
-    readInspector(container) {
-        container.querySelectorAll('.wf-filter-rule').forEach((el, i) => {
-            if (!this.config.rules[i]) return;
-            this.config.rules[i].field = el.querySelector('.wf-filter-field')?.value || '';
-            this.config.rules[i].operator = el.querySelector('.wf-filter-op')?.value || 'equals';
-            this.config.rules[i].value = el.querySelector('.wf-filter-val')?.value ?? '';
-        });
-    }
-
-    _getAvailableFields(context) {
-        // Try to get fields from upstream node output
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         const activeRules = this.config.rules.filter(r => r.field);
         if (activeRules.length === 0) return { valid: false, message: 'No filter rules defined' };
@@ -169,53 +95,6 @@ export class RenameFieldsNode extends NodeBase {
         this.config = { mappings: [] }; // [{ from, to }]
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        for (const m of this.config.mappings) { if (m.from && !fields.includes(m.from)) fields.push(m.from); }
-        if (this.config.mappings.length === 0 && fields.length > 0) {
-            this.config.mappings = [{ from: fields[0], to: '' }];
-        }
-        const rows = this.config.mappings.map((m, i) => `
-            <div class="wf-rename-row" data-idx="${i}">
-                <select class="wf-inspector-select" data-role="from" data-idx="${i}" style="flex:1">
-                    ${fields.map(f => `<option value="${f}" ${f === m.from ? 'selected' : ''}>${f}</option>`).join('')}
-                </select>
-                <span style="color:var(--text-muted)">→</span>
-                <input class="wf-inspector-input" data-role="to" data-idx="${i}" value="${m.to}" placeholder="New name" style="flex:1">
-                <button class="wf-btn-icon wf-rename-rm" data-idx="${i}">&times;</button>
-            </div>`).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Field Renames</label>
-            <div id="wf-rename-rows">${rows}</div>
-            <button class="wf-btn-sm" id="wf-add-rename" style="margin-top:6px">+ Add Rename</button>`;
-
-        container.querySelector('#wf-add-rename').addEventListener('click', () => {
-            this.config.mappings.push({ from: fields[0] || '', to: '' });
-            this.renderInspector(container, context);
-        });
-        container.querySelectorAll('.wf-rename-rm').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.config.mappings.splice(parseInt(btn.dataset.idx), 1);
-                this.renderInspector(container, context);
-            });
-        });
-    }
-
-    readInspector(container) {
-        container.querySelectorAll('.wf-rename-row').forEach((el, i) => {
-            if (!this.config.mappings[i]) return;
-            this.config.mappings[i].from = el.querySelector('[data-role="from"]')?.value || '';
-            this.config.mappings[i].to = el.querySelector('[data-role="to"]')?.value || '';
-        });
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         const active = this.config.mappings.filter(m => m.from && m.to);
         if (active.length === 0) return { valid: false, message: 'No renames defined' };
@@ -264,29 +143,6 @@ export class DeleteFieldsNode extends NodeBase {
         this.config = { fieldsToDelete: [] };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        for (const f of this.config.fieldsToDelete) { if (f && !fields.includes(f)) fields.push(f); }
-        const checks = fields.map(f => `
-            <label class="wf-check-row">
-                <input type="checkbox" value="${f}" ${this.config.fieldsToDelete.includes(f) ? 'checked' : ''}>
-                <span>${f}</span>
-            </label>`).join('');
-        container.innerHTML = `
-            <label class="wf-inspector-label">Fields to Remove</label>
-            <div class="wf-check-list">${checks || '<p style="color:var(--text-muted);font-size:12px">No fields available</p>'}</div>`;
-    }
-
-    readInspector(container) {
-        this.config.fieldsToDelete = [...container.querySelectorAll('.wf-check-list input:checked')].map(cb => cb.value);
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (this.config.fieldsToDelete.length === 0) return { valid: false, message: 'No fields selected to delete' };
         return { valid: true, message: '' };
@@ -332,39 +188,6 @@ export class SortNode extends NodeBase {
         this.config = { field: '', direction: 'asc' };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
-        container.innerHTML = `
-            <label class="wf-inspector-label">Sort Field</label>
-            <select class="wf-inspector-select" data-cfg="field">
-                <option value="">— Select —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.field ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Direction</label>
-            <div class="wf-toggle-row">
-                <button class="wf-toggle-btn ${this.config.direction === 'asc' ? 'active' : ''}" data-dir="asc">↑ Ascending</button>
-                <button class="wf-toggle-btn ${this.config.direction === 'desc' ? 'active' : ''}" data-dir="desc">↓ Descending</button>
-            </div>`;
-
-        container.querySelectorAll('[data-dir]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.config.direction = btn.dataset.dir;
-                container.querySelectorAll('[data-dir]').forEach(b => b.classList.toggle('active', b.dataset.dir === this.config.direction));
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.field = container.querySelector('[data-cfg="field"]')?.value || '';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (!this.config.field) return { valid: false, message: 'No sort field selected' };
         return { valid: true, message: '' };
@@ -406,41 +229,6 @@ export class FindReplaceNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Data', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'Replaced', dataType: 'dataset' }];
         this.config = { field: '', find: '', replace: '', caseTransform: '' };
-    }
-
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
-        container.innerHTML = `
-            <label class="wf-inspector-label">Field</label>
-            <select class="wf-inspector-select" data-cfg="field">
-                <option value="">— Select —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.field ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Find</label>
-            <input class="wf-inspector-input" data-cfg="find" value="${this.config.find}" placeholder="Text to find">
-            <label class="wf-inspector-label" style="margin-top:6px">Replace with</label>
-            <input class="wf-inspector-input" data-cfg="replace" value="${this.config.replace}" placeholder="Replacement text">
-            <label class="wf-inspector-label" style="margin-top:8px">Case Transform</label>
-            <select class="wf-inspector-select" data-cfg="caseTransform">
-                <option value="" ${!this.config.caseTransform ? 'selected' : ''}>None</option>
-                <option value="upper" ${this.config.caseTransform === 'upper' ? 'selected' : ''}>UPPERCASE</option>
-                <option value="lower" ${this.config.caseTransform === 'lower' ? 'selected' : ''}>lowercase</option>
-                <option value="title" ${this.config.caseTransform === 'title' ? 'selected' : ''}>Title Case</option>
-            </select>`;
-    }
-
-    readInspector(container) {
-        this.config.field = container.querySelector('[data-cfg="field"]')?.value || '';
-        this.config.find = container.querySelector('[data-cfg="find"]')?.value || '';
-        this.config.replace = container.querySelector('[data-cfg="replace"]')?.value || '';
-        this.config.caseTransform = container.querySelector('[data-cfg="caseTransform"]')?.value || '';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
     }
 
     validate() {
@@ -488,40 +276,6 @@ export class DeduplicateNode extends NodeBase {
         this.config = { keyFields: [], keep: 'first' };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        for (const f of this.config.keyFields) { if (f && !fields.includes(f)) fields.push(f); }
-        const checks = fields.map(f => `
-            <label class="wf-check-row">
-                <input type="checkbox" value="${f}" ${this.config.keyFields.includes(f) ? 'checked' : ''}>
-                <span>${f}</span>
-            </label>`).join('');
-        container.innerHTML = `
-            <label class="wf-inspector-label">Key Fields (duplicates matched on these)</label>
-            <div class="wf-check-list">${checks || '<p style="color:var(--text-muted);font-size:12px">No fields available</p>'}</div>
-            <label class="wf-inspector-label" style="margin-top:8px">Keep</label>
-            <div class="wf-toggle-row">
-                <button class="wf-toggle-btn ${this.config.keep === 'first' ? 'active' : ''}" data-keep="first">First</button>
-                <button class="wf-toggle-btn ${this.config.keep === 'last' ? 'active' : ''}" data-keep="last">Last</button>
-            </div>`;
-        container.querySelectorAll('[data-keep]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.config.keep = btn.dataset.keep;
-                container.querySelectorAll('[data-keep]').forEach(b => b.classList.toggle('active', b.dataset.keep === this.config.keep));
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.keyFields = [...container.querySelectorAll('.wf-check-list input:checked')].map(cb => cb.value);
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (this.config.keyFields.length === 0) return { valid: false, message: 'No key fields selected' };
         return { valid: true, message: '' };
@@ -567,27 +321,6 @@ export class AddUniqueIdNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Data', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'With ID', dataType: 'dataset' }];
         this.config = { fieldName: 'uid', method: 'sequential' };
-    }
-
-    renderInspector(container) {
-        container.innerHTML = `
-            <label class="wf-inspector-label">ID Field Name</label>
-            <input class="wf-inspector-input" data-cfg="fieldName" value="${this.config.fieldName}" placeholder="uid">
-            <label class="wf-inspector-label" style="margin-top:8px">Method</label>
-            <div class="wf-toggle-row">
-                <button class="wf-toggle-btn ${this.config.method === 'sequential' ? 'active' : ''}" data-method="sequential">1, 2, 3…</button>
-                <button class="wf-toggle-btn ${this.config.method === 'uuid' ? 'active' : ''}" data-method="uuid">UUID</button>
-            </div>`;
-        container.querySelectorAll('[data-method]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.config.method = btn.dataset.method;
-                container.querySelectorAll('[data-method]').forEach(b => b.classList.toggle('active', b.dataset.method === this.config.method));
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.fieldName = container.querySelector('[data-cfg="fieldName"]')?.value || 'uid';
     }
 
     validate() {
@@ -655,40 +388,6 @@ export class CombineFieldsNode extends NodeBase {
         this.config = { fields: [], delimiter: ' ', outputField: 'combined', skipBlanks: true };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        for (const f of this.config.fields) { if (f && !fields.includes(f)) fields.push(f); }
-        const checks = fields.map(f => `
-            <label class="wf-check-row">
-                <input type="checkbox" value="${f}" ${this.config.fields.includes(f) ? 'checked' : ''}>
-                <span>${f}</span>
-            </label>`).join('');
-        container.innerHTML = `
-            <label class="wf-inspector-label">Fields to Combine (in order)</label>
-            <div class="wf-check-list">${checks || '<p style="color:var(--text-muted);font-size:12px">No fields available</p>'}</div>
-            <label class="wf-inspector-label" style="margin-top:8px">Delimiter</label>
-            <input class="wf-inspector-input" data-cfg="delimiter" value="${this.config.delimiter}" placeholder="Space, comma, etc.">
-            <label class="wf-inspector-label" style="margin-top:6px">Output Field Name</label>
-            <input class="wf-inspector-input" data-cfg="outputField" value="${this.config.outputField}" placeholder="combined">
-            <label class="wf-check-row" style="margin-top:6px">
-                <input type="checkbox" data-cfg="skipBlanks" ${this.config.skipBlanks ? 'checked' : ''}>
-                <span>Skip blank values</span>
-            </label>`;
-    }
-
-    readInspector(container) {
-        this.config.fields = [...container.querySelectorAll('.wf-check-list input:checked')].map(cb => cb.value);
-        this.config.delimiter = container.querySelector('[data-cfg="delimiter"]')?.value ?? ' ';
-        this.config.outputField = container.querySelector('[data-cfg="outputField"]')?.value?.trim() || 'combined';
-        this.config.skipBlanks = container.querySelector('[data-cfg="skipBlanks"]')?.checked ?? true;
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (this.config.fields.length < 2) return { valid: false, message: 'Select at least 2 fields' };
         if (!this.config.outputField) return { valid: false, message: 'Output field name required' };
@@ -738,37 +437,6 @@ export class SplitColumnNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Data', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'Split', dataType: 'dataset' }];
         this.config = { field: '', delimiter: ',', maxParts: 0, outputNames: '' };
-    }
-
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
-        container.innerHTML = `
-            <label class="wf-inspector-label">Field to Split</label>
-            <select class="wf-inspector-select" data-cfg="field">
-                <option value="">— Select —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.field ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Delimiter</label>
-            <input class="wf-inspector-input" data-cfg="delimiter" value="${this.config.delimiter}" placeholder=",">
-            <label class="wf-inspector-label" style="margin-top:6px">Max Parts (0 = unlimited)</label>
-            <input class="wf-inspector-input" type="number" data-cfg="maxParts" value="${this.config.maxParts}" min="0" step="1">
-            <label class="wf-inspector-label" style="margin-top:6px">Output Names (comma-separated, optional)</label>
-            <input class="wf-inspector-input" data-cfg="outputNames" value="${this.config.outputNames}" placeholder="part_1, part_2, ...">
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">Leave blank to auto-name: field_1, field_2, …</p>`;
-    }
-
-    readInspector(container) {
-        this.config.field = container.querySelector('[data-cfg="field"]')?.value || '';
-        this.config.delimiter = container.querySelector('[data-cfg="delimiter"]')?.value || ',';
-        this.config.maxParts = parseInt(container.querySelector('[data-cfg="maxParts"]')?.value) || 0;
-        this.config.outputNames = container.querySelector('[data-cfg="outputNames"]')?.value || '';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
     }
 
     validate() {
@@ -834,59 +502,6 @@ export class TemplateBuilderNode extends NodeBase {
         this.config = { template: '', outputField: 'formatted', skipBlanks: true };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        // Extract field names referenced in template like {FieldName}
-        for (const m of this.config.template.matchAll(/\{([^}]+)\}/g)) {
-            if (m[1] && !fields.includes(m[1])) fields.push(m[1]);
-        }
-        const chips = fields.map(f =>
-            `<span class="wf-field-chip" data-field="${f}" title="Click to insert">{${f}}</span>`
-        ).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Available Fields <span style="font-weight:normal;color:var(--text-muted)">(click to insert)</span></label>
-            <div class="wf-field-chips">${chips || '<span style="color:var(--text-muted);font-size:12px">No fields available</span>'}</div>
-            <label class="wf-inspector-label" style="margin-top:8px">Template</label>
-            <textarea class="wf-inspector-input" data-cfg="template" rows="3" placeholder="{FirstName} {LastName} ({City}, {State})" style="resize:vertical;font-family:monospace;font-size:12px">${this.config.template}</textarea>
-            <label class="wf-inspector-label" style="margin-top:6px">Output Field Name</label>
-            <input class="wf-inspector-input" data-cfg="outputField" value="${this.config.outputField}" placeholder="formatted">
-            <label class="wf-check-row" style="margin-top:6px">
-                <input type="checkbox" data-cfg="skipBlanks" ${this.config.skipBlanks ? 'checked' : ''}>
-                <span>Clean up blank placeholders</span>
-            </label>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">
-                Use {FieldName} placeholders. Empty wrappers like () and dangling separators are auto-removed.
-            </p>`;
-
-        // Click-to-insert field chips
-        container.querySelectorAll('.wf-field-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-                const ta = container.querySelector('[data-cfg="template"]');
-                if (!ta) return;
-                const pos = ta.selectionStart ?? ta.value.length;
-                const insertion = `{${chip.dataset.field}}`;
-                ta.value = ta.value.slice(0, pos) + insertion + ta.value.slice(pos);
-                ta.focus();
-                ta.selectionStart = ta.selectionEnd = pos + insertion.length;
-                // Trigger change for live validation
-                ta.dispatchEvent(new Event('input', { bubbles: true }));
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.template = container.querySelector('[data-cfg="template"]')?.value || '';
-        this.config.outputField = container.querySelector('[data-cfg="outputField"]')?.value?.trim() || 'formatted';
-        this.config.skipBlanks = container.querySelector('[data-cfg="skipBlanks"]')?.checked ?? true;
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (!this.config.template) return { valid: false, message: 'Template is empty' };
         if (!this.config.outputField) return { valid: false, message: 'Output field name required' };
@@ -942,36 +557,6 @@ export class TypeConvertNode extends NodeBase {
         this.config = { field: '', targetType: 'number' };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.field && !fields.includes(this.config.field)) fields.push(this.config.field);
-        container.innerHTML = `
-            <label class="wf-inspector-label">Field</label>
-            <select class="wf-inspector-select" data-cfg="field">
-                <option value="">— Select —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.field ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Convert To</label>
-            <select class="wf-inspector-select" data-cfg="targetType">
-                <option value="number" ${this.config.targetType === 'number' ? 'selected' : ''}>Number</option>
-                <option value="string" ${this.config.targetType === 'string' ? 'selected' : ''}>Text</option>
-                <option value="boolean" ${this.config.targetType === 'boolean' ? 'selected' : ''}>Boolean (true/false)</option>
-                <option value="date" ${this.config.targetType === 'date' ? 'selected' : ''}>Date (ISO)</option>
-            </select>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">Converts all values in the field to the selected type. Invalid values remain unchanged.</p>`;
-    }
-
-    readInspector(container) {
-        this.config.field = container.querySelector('[data-cfg="field"]')?.value || '';
-        this.config.targetType = container.querySelector('[data-cfg="targetType"]')?.value || 'number';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (!this.config.field) return { valid: false, message: 'No field selected' };
         return { valid: true, message: '' };
@@ -1015,63 +600,6 @@ export class JoinLookupNode extends NodeBase {
         ];
         this.outputPorts = [{ id: 'out', label: 'Joined', dataType: 'dataset' }];
         this.config = { leftKey: '', rightKey: '', fieldsToJoin: [] };
-    }
-
-    renderInspector(container, context) {
-        const leftFields = this._getFieldsForPort(context, 'in');
-        const rightFields = this._getFieldsForPort(context, 'lookup');
-        if (this.config.leftKey && !leftFields.includes(this.config.leftKey)) leftFields.push(this.config.leftKey);
-        if (this.config.rightKey && !rightFields.includes(this.config.rightKey)) rightFields.push(this.config.rightKey);
-        for (const f of this.config.fieldsToJoin) { if (f && !rightFields.includes(f)) rightFields.push(f); }
-
-        const leftOpts = leftFields.map(f =>
-            `<option value="${f}" ${f === this.config.leftKey ? 'selected' : ''}>${f}</option>`
-        ).join('');
-        const rightOpts = rightFields.map(f =>
-            `<option value="${f}" ${f === this.config.rightKey ? 'selected' : ''}>${f}</option>`
-        ).join('');
-        const joinChecks = rightFields.map(f => `
-            <label class="wf-check-row">
-                <input type="checkbox" value="${f}" ${this.config.fieldsToJoin.includes(f) ? 'checked' : ''}>
-                <span>${f}</span>
-            </label>`).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Main Key Field</label>
-            <select class="wf-inspector-select" data-cfg="leftKey">
-                <option value="">— Select —</option>
-                ${leftOpts}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Lookup Key Field</label>
-            <select class="wf-inspector-select" data-cfg="rightKey">
-                <option value="">— Select —</option>
-                ${rightOpts}
-            </select>
-            <label class="wf-inspector-label" style="margin-top:8px">Fields to Add from Lookup</label>
-            <div class="wf-check-list">${joinChecks || '<p style="color:var(--text-muted);font-size:12px">Connect a lookup table to the second input</p>'}</div>
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">
-                Like VLOOKUP: matches rows by key and copies selected fields from the lookup table.
-            </p>`;
-    }
-
-    readInspector(container) {
-        this.config.leftKey = container.querySelector('[data-cfg="leftKey"]')?.value || '';
-        this.config.rightKey = container.querySelector('[data-cfg="rightKey"]')?.value || '';
-        this.config.fieldsToJoin = [...container.querySelectorAll('.wf-check-list input:checked')].map(cb => cb.value);
-    }
-
-    _getFieldsForPort(context, portId) {
-        // Use port-specific upstream lookup if available
-        if (context.getUpstreamOutputForPort) {
-            const out = context.getUpstreamOutputForPort(this.id, portId);
-            if (out?.schema?.fields) return out.schema.fields.map(f => f.name);
-        }
-        // Fallback for the primary input port
-        if (portId === 'in') {
-            const upstream = context.getUpstreamOutput?.(this.id);
-            if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        }
-        return [];
     }
 
     validate() {
@@ -1144,53 +672,6 @@ export class CalculateFieldNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Data', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'Calculated', dataType: 'dataset' }];
         this.config = { expression: '', outputField: 'result' };
-    }
-
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        // Extract field names referenced in expression like [FieldName]
-        for (const m of this.config.expression.matchAll(/\[([^\]]+)\]/g)) {
-            if (m[1] && !fields.includes(m[1])) fields.push(m[1]);
-        }
-        const chips = fields.map(f =>
-            `<span class="wf-field-chip" data-field="${f}" title="Click to insert">[${f}]</span>`
-        ).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Available Fields <span style="font-weight:normal;color:var(--text-muted)">(click to insert)</span></label>
-            <div class="wf-field-chips">${chips || '<span style="color:var(--text-muted);font-size:12px">No fields available</span>'}</div>
-            <label class="wf-inspector-label" style="margin-top:8px">Expression</label>
-            <input class="wf-inspector-input" data-cfg="expression" value="${this.config.expression}" placeholder="[price] * [quantity]" style="font-family:monospace;font-size:12px">
-            <label class="wf-inspector-label" style="margin-top:6px">Output Field Name</label>
-            <input class="wf-inspector-input" data-cfg="outputField" value="${this.config.outputField}" placeholder="result">
-            <p style="color:var(--text-muted);font-size:11px;margin-top:4px">
-                Use [FieldName] for field values. Supports: + - * / % ( ) and numbers.<br>
-                Example: [price] * [qty] * (1 + [tax_rate] / 100)
-            </p>`;
-
-        container.querySelectorAll('.wf-field-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-                const inp = container.querySelector('[data-cfg="expression"]');
-                if (!inp) return;
-                const pos = inp.selectionStart ?? inp.value.length;
-                const insertion = `[${chip.dataset.field}]`;
-                inp.value = inp.value.slice(0, pos) + insertion + inp.value.slice(pos);
-                inp.focus();
-                inp.selectionStart = inp.selectionEnd = pos + insertion.length;
-                inp.dispatchEvent(new Event('input', { bubbles: true }));
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.expression = container.querySelector('[data-cfg="expression"]')?.value || '';
-        this.config.outputField = container.querySelector('[data-cfg="outputField"]')?.value?.trim() || 'result';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
     }
 
     validate() {
@@ -1278,77 +759,6 @@ export class ConditionalValueNode extends NodeBase {
         };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        for (const r of this.config.rules) { if (r.field && !fields.includes(r.field)) fields.push(r.field); }
-        const ops = [
-            { v: 'equals', l: '=' }, { v: 'not_equals', l: '≠' },
-            { v: 'contains', l: 'contains' }, { v: 'greater_than', l: '>' },
-            { v: 'less_than', l: '<' }, { v: 'gte', l: '≥' }, { v: 'lte', l: '≤' },
-            { v: 'is_null', l: 'is empty' }, { v: 'is_not_null', l: 'is not empty' }
-        ];
-
-        const rulesHtml = this.config.rules.map((r, i) => `
-            <div class="wf-cond-rule" data-idx="${i}" style="border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:4px">
-                <div style="display:flex;gap:4px;align-items:center">
-                    <span style="color:var(--text-muted);font-size:11px;width:18px">IF</span>
-                    <select class="wf-inspector-select wf-cond-field" data-idx="${i}" style="flex:1;font-size:11px">
-                        <option value="">Field…</option>
-                        ${fields.map(f => `<option value="${f}" ${f === r.field ? 'selected' : ''}>${f}</option>`).join('')}
-                    </select>
-                    <select class="wf-inspector-select wf-cond-op" data-idx="${i}" style="width:70px;font-size:11px">
-                        ${ops.map(o => `<option value="${o.v}" ${o.v === r.operator ? 'selected' : ''}>${o.l}</option>`).join('')}
-                    </select>
-                    <input class="wf-inspector-input wf-cond-val" data-idx="${i}" value="${r.value ?? ''}" placeholder="Value" style="flex:1;font-size:11px">
-                    <button class="wf-btn-icon wf-cond-rm" data-idx="${i}" title="Remove">&times;</button>
-                </div>
-                <div style="display:flex;gap:4px;align-items:center;margin-top:4px">
-                    <span style="color:var(--text-muted);font-size:11px;width:18px">→</span>
-                    <input class="wf-inspector-input wf-cond-result" data-idx="${i}" value="${r.result ?? ''}" placeholder="Set value to…" style="flex:1;font-size:11px">
-                </div>
-            </div>`).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Output Field Name</label>
-            <input class="wf-inspector-input" data-cfg="outputField" value="${this.config.outputField}" placeholder="category">
-            <label class="wf-inspector-label" style="margin-top:8px">Rules (first match wins)</label>
-            <div id="wf-cond-rules">${rulesHtml}</div>
-            <button class="wf-btn-sm" id="wf-add-cond" style="margin-top:4px">+ Add Rule</button>
-            <label class="wf-inspector-label" style="margin-top:8px">Default Value (if no rules match)</label>
-            <input class="wf-inspector-input" data-cfg="defaultValue" value="${this.config.defaultValue}" placeholder="Other">`;
-
-        container.querySelector('#wf-add-cond').addEventListener('click', () => {
-            this.config.rules.push({ field: '', operator: 'equals', value: '', result: '' });
-            this.renderInspector(container, context);
-        });
-        container.querySelectorAll('.wf-cond-rm').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (this.config.rules.length > 1) {
-                    this.config.rules.splice(parseInt(btn.dataset.idx), 1);
-                    this.renderInspector(container, context);
-                }
-            });
-        });
-    }
-
-    readInspector(container) {
-        this.config.outputField = container.querySelector('[data-cfg="outputField"]')?.value?.trim() || 'category';
-        this.config.defaultValue = container.querySelector('[data-cfg="defaultValue"]')?.value ?? '';
-        container.querySelectorAll('.wf-cond-rule').forEach((el, i) => {
-            if (!this.config.rules[i]) return;
-            this.config.rules[i].field = el.querySelector('.wf-cond-field')?.value || '';
-            this.config.rules[i].operator = el.querySelector('.wf-cond-op')?.value || 'equals';
-            this.config.rules[i].value = el.querySelector('.wf-cond-val')?.value ?? '';
-            this.config.rules[i].result = el.querySelector('.wf-cond-result')?.value ?? '';
-        });
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (!this.config.outputField) return { valid: false, message: 'Output field name required' };
         const active = this.config.rules.filter(r => r.field);
@@ -1431,95 +841,6 @@ export class CoordConvertNode extends NodeBase {
         };
     }
 
-    renderInspector(container, context) {
-        const fields = this._getFields(context);
-        if (this.config.latField && !fields.includes(this.config.latField)) fields.push(this.config.latField);
-        if (this.config.lonField && !fields.includes(this.config.lonField)) fields.push(this.config.lonField);
-        const upstream = context.getUpstreamOutput?.(this.id);
-        const isSpatial = upstream?.type === 'spatial';
-
-        const fmtOpts = [
-            { id: 'dd', label: 'Decimal Degrees (DD)' },
-            { id: 'dms', label: 'Degrees Minutes Seconds (DMS)' },
-            { id: 'ddm', label: 'Degrees Decimal Minutes (DDM)' },
-            { id: 'utm', label: 'UTM' }
-        ].map(f => `<option value="${f.id}" ${f.id === this.config.toFormat ? 'selected' : ''}>${f.label}</option>`).join('');
-
-        const fromFmtOpts = [
-            { id: 'dd', label: 'Decimal Degrees (DD)' },
-            { id: 'dms', label: 'Degrees Minutes Seconds (DMS)' },
-            { id: 'ddm', label: 'Degrees Decimal Minutes (DDM)' }
-        ].map(f => `<option value="${f.id}" ${f.id === this.config.fromFormat ? 'selected' : ''}>${f.label}</option>`).join('');
-
-        const fieldOpts = fields.map(f =>
-            `<option value="${f}">${f}</option>`
-        ).join('');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Coordinate Source</label>
-            <select class="wf-inspector-select" data-cfg="source">
-                ${isSpatial ? '<option value="geometry" ' + (this.config.source === 'geometry' ? 'selected' : '') + '>Feature Geometry</option>' : ''}
-                <option value="fields" ${this.config.source === 'fields' ? 'selected' : ''}>Attribute Fields</option>
-            </select>
-
-            <div id="wf-coord-fields" style="${this.config.source === 'geometry' ? 'display:none' : ''}">
-                <label class="wf-inspector-label" style="margin-top:8px">Source Format</label>
-                <select class="wf-inspector-select" data-cfg="fromFormat">${fromFmtOpts}</select>
-                <label class="wf-inspector-label" style="margin-top:6px">Latitude / Y Field</label>
-                <select class="wf-inspector-select" data-cfg="latField">
-                    <option value="">— Select —</option>
-                    ${fieldOpts}
-                </select>
-                <label class="wf-inspector-label" style="margin-top:6px">Longitude / X Field</label>
-                <select class="wf-inspector-select" data-cfg="lonField">
-                    <option value="">— Select —</option>
-                    ${fieldOpts}
-                </select>
-            </div>
-
-            <label class="wf-inspector-label" style="margin-top:8px">Convert To</label>
-            <select class="wf-inspector-select" data-cfg="toFormat">${fmtOpts}</select>
-
-            <label class="wf-inspector-label" style="margin-top:6px">Output Field Prefix</label>
-            <input class="wf-inspector-input" data-cfg="outputPrefix" value="${this.config.outputPrefix}" placeholder="Auto (e.g. DMS, UTM)">
-
-            <p style="color:var(--text-muted);font-size:11px;margin-top:6px">
-                Adds new attribute fields with the converted coordinates.<br>
-                Examples: DMS_lat, DMS_lon, UTM_zone, UTM_easting, UTM_northing
-            </p>`;
-
-        // Auto-select lat/lon fields
-        if (fields.length > 0 && !this.config.latField) {
-            const latSel = container.querySelector('[data-cfg="latField"]');
-            const lonSel = container.querySelector('[data-cfg="lonField"]');
-            const latGuess = fields.find(f => /^(lat|latitude|y)$/i.test(f));
-            const lonGuess = fields.find(f => /^(lon|lng|longitude|long|x)$/i.test(f));
-            if (latGuess && latSel) latSel.value = latGuess;
-            if (lonGuess && lonSel) lonSel.value = lonGuess;
-        }
-
-        // Show/hide fields section based on source
-        container.querySelector('[data-cfg="source"]').addEventListener('change', (e) => {
-            const fieldsDiv = container.querySelector('#wf-coord-fields');
-            fieldsDiv.style.display = e.target.value === 'geometry' ? 'none' : '';
-        });
-    }
-
-    readInspector(container) {
-        this.config.source = container.querySelector('[data-cfg="source"]')?.value || 'geometry';
-        this.config.fromFormat = container.querySelector('[data-cfg="fromFormat"]')?.value || 'dd';
-        this.config.toFormat = container.querySelector('[data-cfg="toFormat"]')?.value || 'dms';
-        this.config.latField = container.querySelector('[data-cfg="latField"]')?.value || '';
-        this.config.lonField = container.querySelector('[data-cfg="lonField"]')?.value || '';
-        this.config.outputPrefix = container.querySelector('[data-cfg="outputPrefix"]')?.value?.trim() || '';
-    }
-
-    _getFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
     validate() {
         if (!this.config.toFormat) return { valid: false, message: 'Select a target format' };
         if (this.config.source === 'fields') {
@@ -1580,7 +901,7 @@ export class CoordConvertNode extends NodeBase {
 
 /** Conversion tables: every value is the factor to convert TO the base unit of that category.
  *  To convert A → B: value_in_B = value_in_A * (FACTOR_A / FACTOR_B)  */
-const UNIT_CATEGORIES = {
+export const UNIT_CATEGORIES = {
     'Length / Distance': {
         _base: 'meters',
         millimeters: 0.001, centimeters: 0.01, meters: 1, kilometers: 1000,
@@ -1700,76 +1021,6 @@ export class UnitConvertNode extends NodeBase {
         };
     }
 
-    _getAvailableFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
-    renderInspector(container, context) {
-        const fields = this._getAvailableFields(context);
-        if (this.config.sourceField && !fields.includes(this.config.sourceField)) fields.push(this.config.sourceField);
-        const categories = Object.keys(UNIT_CATEGORIES);
-        const currentCat = UNIT_CATEGORIES[this.config.category] || {};
-        const units = Object.keys(currentCat).filter(k => k !== '_base');
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Source Field</label>
-            <select class="wf-inspector-select" data-cfg="sourceField">
-                <option value="">— Select field —</option>
-                ${fields.map(f => `<option value="${f}" ${f === this.config.sourceField ? 'selected' : ''}>${f}</option>`).join('')}
-            </select>
-
-            <label class="wf-inspector-label" style="margin-top:8px">Unit Category</label>
-            <select class="wf-inspector-select" data-cfg="category">
-                ${categories.map(c => `<option value="${c}" ${c === this.config.category ? 'selected' : ''}>${c}</option>`).join('')}
-            </select>
-
-            <div style="display:flex;gap:8px;margin-top:8px">
-                <div style="flex:1">
-                    <label class="wf-inspector-label">From</label>
-                    <select class="wf-inspector-select" data-cfg="fromUnit">
-                        ${units.map(u => `<option value="${u}" ${u === this.config.fromUnit ? 'selected' : ''}>${u}</option>`).join('')}
-                    </select>
-                </div>
-                <div style="display:flex;align-items:flex-end;padding-bottom:4px;font-size:18px;color:var(--text-muted)">→</div>
-                <div style="flex:1">
-                    <label class="wf-inspector-label">To</label>
-                    <select class="wf-inspector-select" data-cfg="toUnit">
-                        ${units.map(u => `<option value="${u}" ${u === this.config.toUnit ? 'selected' : ''}>${u}</option>`).join('')}
-                    </select>
-                </div>
-            </div>
-
-            <label class="wf-inspector-label" style="margin-top:8px">Output Field Name</label>
-            <input class="wf-inspector-input" data-cfg="outputField" value="${this.config.outputField}"
-                   placeholder="Leave blank to overwrite source">
-
-            <label class="wf-inspector-label" style="margin-top:8px">Decimal Precision</label>
-            <input class="wf-inspector-input" type="number" data-cfg="precision"
-                   value="${this.config.precision}" min="0" max="15" step="1">`;
-
-        // When category changes, reset from/to options and re-render
-        const catSelect = container.querySelector('[data-cfg="category"]');
-        catSelect.addEventListener('change', () => {
-            this.readInspector(container);
-            const newCat = UNIT_CATEGORIES[this.config.category] || {};
-            const newUnits = Object.keys(newCat).filter(k => k !== '_base');
-            this.config.fromUnit = newUnits[0] || '';
-            this.config.toUnit = newUnits[1] || newUnits[0] || '';
-            this.renderInspector(container, context);
-        });
-    }
-
-    readInspector(container) {
-        this.config.sourceField = container.querySelector('[data-cfg="sourceField"]')?.value || '';
-        this.config.category = container.querySelector('[data-cfg="category"]')?.value || 'Length / Distance';
-        this.config.fromUnit = container.querySelector('[data-cfg="fromUnit"]')?.value || '';
-        this.config.toUnit = container.querySelector('[data-cfg="toUnit"]')?.value || '';
-        this.config.outputField = container.querySelector('[data-cfg="outputField"]')?.value?.trim() || '';
-        this.config.precision = parseInt(container.querySelector('[data-cfg="precision"]')?.value) || 4;
-    }
-
     validate() {
         if (!this.config.sourceField) return { valid: false, message: 'Select a source field' };
         if (!this.config.fromUnit || !this.config.toUnit) return { valid: false, message: 'Select from and to units' };
@@ -1844,57 +1095,6 @@ export class AddFieldNode extends NodeBase {
         this.inputPorts = [{ id: 'in', label: 'Data', dataType: 'dataset' }];
         this.outputPorts = [{ id: 'out', label: 'With Field', dataType: 'dataset' }];
         this.config = { fieldName: '', fieldType: 'string', defaultValue: '' };
-    }
-
-    _getExistingFields(context) {
-        const upstream = context.getUpstreamOutput?.(this.id);
-        if (upstream?.schema?.fields) return upstream.schema.fields.map(f => f.name);
-        return [];
-    }
-
-    renderInspector(container, context) {
-        const existing = this._getExistingFields(context);
-        const existingNote = existing.length
-            ? `<p style="color:var(--text-muted);font-size:11px;margin-top:2px">Existing: ${existing.join(', ')}</p>`
-            : '';
-
-        const isAttachment = this.config.fieldType === 'attachment';
-
-        container.innerHTML = `
-            <label class="wf-inspector-label">Field Name</label>
-            <input class="wf-inspector-input" data-cfg="fieldName" value="${this.config.fieldName}" placeholder="new_field">
-            ${existingNote}
-
-            <label class="wf-inspector-label" style="margin-top:8px">Field Type</label>
-            <select class="wf-inspector-select" data-cfg="fieldType">
-                <option value="string" ${this.config.fieldType === 'string' ? 'selected' : ''}>Text (string)</option>
-                <option value="number" ${this.config.fieldType === 'number' ? 'selected' : ''}>Number</option>
-                <option value="boolean" ${this.config.fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
-                <option value="date" ${this.config.fieldType === 'date' ? 'selected' : ''}>Date</option>
-                <option value="attachment" ${this.config.fieldType === 'attachment' ? 'selected' : ''}>Attach Photo (KML/KMZ export only)</option>
-            </select>
-
-            <div id="wf-af-default-group" style="margin-top:8px;${isAttachment ? 'display:none' : ''}">
-                <label class="wf-inspector-label">Default Value <span style="color:var(--text-muted);font-size:11px">(optional)</span></label>
-                <input class="wf-inspector-input" data-cfg="defaultValue" value="${this.config.defaultValue}" placeholder="Leave blank for empty">
-            </div>
-
-            <div id="wf-af-error" style="color:var(--error);font-size:11px;min-height:16px;margin-top:4px"></div>`;
-
-        // Toggle default value visibility when type changes
-        const typeSelect = container.querySelector('[data-cfg="fieldType"]');
-        const defaultGroup = container.querySelector('#wf-af-default-group');
-        typeSelect.addEventListener('change', () => {
-            const isAtt = typeSelect.value === 'attachment';
-            defaultGroup.style.display = isAtt ? 'none' : '';
-            if (isAtt) container.querySelector('[data-cfg="defaultValue"]').value = '';
-        });
-    }
-
-    readInspector(container) {
-        this.config.fieldName = container.querySelector('[data-cfg="fieldName"]')?.value?.trim() || '';
-        this.config.fieldType = container.querySelector('[data-cfg="fieldType"]')?.value || 'string';
-        this.config.defaultValue = container.querySelector('[data-cfg="defaultValue"]')?.value || '';
     }
 
     validate() {

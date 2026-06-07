@@ -355,10 +355,7 @@ function PipelineEditorCanvas({ engine }) {
     );
 }
 
-/**
- * Feature-flagged React Flow editor that mirrors engine state.
- * Legacy overlay modules still own persistence/run/import/export during migration.
- */
+/** React Flow editor that mirrors workflow engine state. */
 export function PipelineEditor(props) {
     return (
         <ReactFlowProvider>

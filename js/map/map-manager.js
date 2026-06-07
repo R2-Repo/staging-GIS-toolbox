@@ -5,6 +5,25 @@
 import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
 import { flattenFeatureGeometryCollections } from '../core/data-model.js';
+
+const POINT_CLUSTER_THRESHOLD = 10000;
+
+function _tagFeaturesForMap(dataset) {
+    const taggedFeatures = [];
+    const skipFlatten = dataset._geometryExploded === true;
+    for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
+        const f = dataset.geojson.features[origIndex];
+        if (!f.geometry) continue;
+        const parts = skipFlatten ? [f] : flattenFeatureGeometryCollections(f);
+        for (const part of parts) {
+            taggedFeatures.push({
+                ...part,
+                properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+            });
+        }
+    }
+    return taggedFeatures;
+}
 import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled } from './map-interaction-utils.js';
 import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
 import { buildSymbolLayerLayout } from './style-symbols.js';
@@ -365,17 +384,7 @@ class MapManager {
         const styPoint = compilePaint(layerStyle, 'point');
         const styFlat = getBaseFlatStyle(layerStyle, 'polygon');
 
-        const taggedFeatures = [];
-        for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
-            const f = dataset.geojson.features[origIndex];
-            if (!f.geometry) continue;
-            for (const part of flattenFeatureGeometryCollections(f)) {
-                taggedFeatures.push({
-                    ...part,
-                    properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
-                });
-            }
-        }
+        const taggedFeatures = _tagFeaturesForMap(dataset);
 
         if (taggedFeatures.length === 0) {
             const sourceId = `src-${dataset.id}`;
@@ -398,7 +407,21 @@ class MapManager {
         const hasLines = taggedFeatures.some(f => f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString');
         const hasPolygons = taggedFeatures.some(f => f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
 
-        this.map.addSource(sourceId, { type: 'geojson', data: geojson });
+        const pointCount = taggedFeatures.filter(
+            (f) => f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint'
+        ).length;
+        const useCluster = hasPoints && !hasLines && !hasPolygons
+            && pointCount >= POINT_CLUSTER_THRESHOLD
+            && (layerStyle.pointSymbol || 'circle') === 'circle';
+
+        this.map.addSource(sourceId, {
+            type: 'geojson',
+            data: geojson,
+            ...(useCluster ? { cluster: true, clusterMaxZoom: 14, clusterRadius: 50 } : {})
+        });
+        if (useCluster) {
+            this.clusterGroups.set(dataset.id, true);
+        }
 
         const layerIds = [];
 
@@ -448,11 +471,31 @@ class MapManager {
                     this._ensureSymbolImage(shape, color, fillColor, size, opacity))
                 : null;
 
+            if (useCluster) {
+                const clusterId = `${dataset.id}-clusters`;
+                this.map.addLayer({
+                    id: clusterId,
+                    type: 'circle',
+                    source: sourceId,
+                    filter: ['has', 'point_count'],
+                    paint: {
+                        'circle-color': styPoint.fillColor,
+                        'circle-radius': ['step', ['get', 'point_count'], 12, 100, 16, 750, 20],
+                        'circle-stroke-color': styPoint.strokeColor,
+                        'circle-stroke-width': 1,
+                        'circle-opacity': fo
+                    }
+                });
+                layerIds.push(clusterId);
+            }
+
             if (symbolLayout) {
                 const ptId = `${dataset.id}-point`;
                 this.map.addLayer({
                     id: ptId, type: 'symbol', source: sourceId,
-                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
+                    filter: useCluster
+                        ? ['all', _geomTypesFilter(['Point', 'MultiPoint']), ['!', ['has', 'point_count']]]
+                        : _geomTypesFilter(['Point', 'MultiPoint']),
                     layout: symbolLayout.layout
                 });
                 layerIds.push(ptId);
@@ -460,7 +503,9 @@ class MapManager {
                 const ptId = `${dataset.id}-point`;
                 this.map.addLayer({
                     id: ptId, type: 'circle', source: sourceId,
-                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
+                    filter: useCluster
+                        ? ['all', _geomTypesFilter(['Point', 'MultiPoint']), ['!', ['has', 'point_count']]]
+                        : _geomTypesFilter(['Point', 'MultiPoint']),
                     paint: {
                         'circle-radius': styPoint.circleRadius,
                         'circle-color': styPoint.fillColor,
@@ -620,17 +665,7 @@ class MapManager {
         const source = this.map?.getSource(entry.sourceId);
         if (!source) return;
 
-        const taggedFeatures = [];
-        for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
-            const f = dataset.geojson.features[origIndex];
-            if (!f.geometry) continue;
-            for (const part of flattenFeatureGeometryCollections(f)) {
-                taggedFeatures.push({
-                    ...part,
-                    properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
-                });
-            }
-        }
+        const taggedFeatures = _tagFeaturesForMap(dataset);
         const geojson = { type: 'FeatureCollection', features: taggedFeatures };
         source.setData(geojson);
         entry.geojson = geojson;

@@ -18,7 +18,7 @@ function parseCoordValue(val) {
     return n;
 }
 
-export async function importExcel(file, task) {
+export async function importExcel(file, task, options = {}) {
     task.updateProgress(20, 'Loading SheetJS...');
 
     const xlsx = await loadXLSX();
@@ -27,7 +27,7 @@ export async function importExcel(file, task) {
     }
 
     task.updateProgress(30, 'Reading Excel file...');
-    const buffer = await file.arrayBuffer();
+    const buffer = options.buffer ?? await file.arrayBuffer();
 
     task.updateProgress(50, 'Parsing workbook...');
     let workbook;

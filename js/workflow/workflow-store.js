@@ -34,6 +34,11 @@ async function _saveNodeData(engine) {
         store.clear();
         for (const node of engine.nodes.values()) {
             if (node._cachedResult) {
+                const size = JSON.stringify(node._cachedResult).length;
+                if (size > 25 * 1024 * 1024) {
+                    console.warn('[WorkflowStore] Large node cache skipped', { nodeId: node.id, size });
+                    continue;
+                }
                 store.put(node._cachedResult, node.id);
             }
         }

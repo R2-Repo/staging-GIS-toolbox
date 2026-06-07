@@ -11,14 +11,17 @@ import {
 } from '../core/state.js';
 import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema } from '../core/data-model.js';
 import { importFile, importFiles } from '../import/importer.js';
+import { cancelWorkerParse } from '../import/import-parse-service.js';
 import {
     finalizeImportedDatasets,
     applyImportLayerStyles,
     applyImportMetadata,
-    revokeKmzBlobUrls
+    revokeKmzBlobUrls,
+    normalizeImporterResult
 } from '../import/post-import.js';
 import { getLayerDefaultColor } from '../map/layer-palette.js';
 import { getActiveTask } from '../core/task-runner.js';
+import { buildImportSummary, formatImportSummaryToast } from '../import/import-summary.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from '../export/exporter.js';
 import mapService from '../map/map-service.js';
 import { isSmartStyleActive } from '../map/style-engine.js';
@@ -74,6 +77,9 @@ export async function restoreSessionIfAvailable() {
             'Restore Previous Session?',
             `You have ${info.layerCount} layer${info.layerCount > 1 ? 's' : ''} saved from ${ago}. Would you like to restore them?`
         );
+        // #region agent log
+        fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'tool-handlers.js:restoreSession',message:'confirm resolved',data:{ok,layerCount:info.layerCount},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+        // #endregion
 
         if (ok) {
             const session = await sessionStore.loadSession();
@@ -436,56 +442,114 @@ async function runWithTaskProgress(title, operation) {
     }
 }
 
+function _rollbackImportedLayers(layerIds) {
+    for (const id of layerIds) {
+        const layer = getLayers().find((l) => l.id === id);
+        if (layer) revokeKmzBlobUrls(layer);
+        mapService.removeLayer(id);
+        removeLayer(id);
+    }
+}
+
+function _addImportedDatasets(datasets) {
+    const ids = [];
+    for (const ds of datasets) {
+        addLayer(ds);
+        const layerIdx = getLayers().indexOf(ds);
+        applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
+        mapService.addLayer(ds, layerIdx, { fit: false });
+        ids.push(ds.id);
+    }
+    return ids;
+}
+
 export async function handleFileImport(files, fenceBbox = null) {
     const progress = showProgressModal('Importing Files');
-    const onProgress = (data) => progress.update(data.percent, data.step);
+    const onProgress = (data) => progress.update(data.percent, data.step, {
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        fileIndex: data.fileIndex,
+        fileCount: data.fileCount
+    });
     bus.on('task:progress', onProgress);
     let userCancelled = false;
+    const batchLayerIds = [];
+    const allExpanded = [];
+    let totalFiltered = 0;
 
     progress.onCancel(() => {
         userCancelled = true;
         getActiveTask()?.cancel();
+        cancelWorkerParse();
         progress.close();
         bus.off('task:progress', onProgress);
         showToast('Import cancelled', 'warning');
     });
 
     try {
-        const { datasets, errors, cancelled } = await importFiles(files);
+        const { errors, cancelled } = await importFiles(files, {
+            onFileImported: async (_file, result) => {
+                throwIfTaskCancelled();
+                if (!result) return;
+                const normalized = normalizeImporterResult(result);
+                const { expanded, totalFiltered: tf } = await finalizeImportedDatasets(normalized, {
+                    fenceBbox,
+                    task: getActiveTask()
+                });
+                totalFiltered += tf;
+                const ids = _addImportedDatasets(expanded);
+                batchLayerIds.push(...ids);
+                allExpanded.push(...expanded);
+            }
+        });
+
         if (!userCancelled) progress.close();
         bus.off('task:progress', onProgress);
 
-        if (userCancelled || cancelled) return;
+        if (userCancelled || cancelled) {
+            _rollbackImportedLayers(batchLayerIds);
+            return;
+        }
 
         throwIfTaskCancelled();
 
-        const { expanded, totalFiltered } = finalizeImportedDatasets(datasets, { fenceBbox });
-
-        const importedLayerIds = [];
-        for (const ds of expanded) {
-            throwIfTaskCancelled();
-            addLayer(ds);
-            const layerIdx = getLayers().indexOf(ds);
-            mapService.addLayer(ds, layerIdx, { fit: false });
-            applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
-            importedLayerIds.push(ds.id);
+        if (batchLayerIds.length > 0) {
+            mapService.fitToLayers(batchLayerIds);
         }
 
-        if (importedLayerIds.length > 0) {
-            mapService.fitToLayers(importedLayerIds);
-        }
-
-        if (expanded.length > 0) {
+        if (allExpanded.length > 0) {
+            const summary = buildImportSummary({
+                expanded: allExpanded,
+                totalFiltered,
+                errors,
+                fenceBbox
+            });
             const fenceNote = fenceBbox && totalFiltered > 0 ? ` (${totalFiltered} features outside fence excluded)` : '';
-            showToast(`Imported ${expanded.length} layer(s)${fenceNote}`, 'success');
+            showToast(`${formatImportSummaryToast(summary)}${fenceNote}`, 'success');
+            if (summary.warnings.length > 0 || summary.errors.length > 0) {
+                const body = [
+                    ...summary.warnings.map((w) => `<p><strong>${w.layer}:</strong> ${w.message}</p>`),
+                    ...summary.errors.map((e) => `<p><strong>${e.file}:</strong> ${e.message}</p>`)
+                ].join('');
+                if (body) {
+                    showModal('Import Summary', body, { width: '480px' });
+                }
+            }
             refreshUI();
+        } else if (errors.length > 0) {
+            const summary = buildImportSummary({ expanded: [], totalFiltered: 0, errors, fenceBbox });
+            showModal(
+                'Import Failed',
+                summary.errors.map((e) => `<p><strong>${e.file}:</strong> ${e.message}</p>`).join(''),
+                { width: '480px' }
+            );
         }
-        for (const ds of expanded) {
+        for (const ds of allExpanded) {
             if (ds._importWarning) {
                 showToast(ds._importWarning, 'warning');
             }
         }
-        for (const ds of expanded) {
+        for (const ds of allExpanded) {
             if (ds._networkLinkHrefs?.length) {
                 await _promptNetworkLinkAfterImport(ds);
             }
@@ -499,6 +563,7 @@ export async function handleFileImport(files, fenceBbox = null) {
     } catch (e) {
         progress.close();
         bus.off('task:progress', onProgress);
+        _rollbackImportedLayers(batchLayerIds);
         if (e?.cancelled || userCancelled) return;
         const classified = handleError(e, 'Import', 'File import');
         showErrorToast(classified);

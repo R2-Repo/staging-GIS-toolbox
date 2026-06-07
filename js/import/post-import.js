@@ -6,6 +6,7 @@ import booleanIntersects from '@turf/boolean-intersects';
 import bboxPolygon from '@turf/bbox-polygon';
 import logger from '../core/logger.js';
 import { analyzeSchema, splitByGeometryType } from '../core/data-model.js';
+import { processInChunks } from '../core/task-runner.js';
 import { isSmartStyleActive } from '../map/style-engine.js';
 import { getLayerDefaultColor } from '../map/layer-palette.js';
 import { detectEmbeddedSimpleStyle, convertLayerSimpleStyleToSmart } from '../map/style-import.js';
@@ -35,6 +36,76 @@ export function expandMixedGeometryDatasets(datasets) {
     return expanded;
 }
 
+export const FENCE_CHUNK_SIZE = 200;
+export const FENCE_CHUNK_THRESHOLD = 500;
+
+function _featureBboxIntersectsFence(f, west, south, east, north) {
+    const g = f?.geometry;
+    if (!g?.coordinates) return true;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const visit = (coords) => {
+        if (typeof coords[0] === 'number') {
+            const x = coords[0];
+            const y = coords[1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+            return;
+        }
+        for (const c of coords) visit(c);
+    };
+    visit(g.coordinates);
+    if (!isFinite(minX)) return true;
+    return !(maxX < west || minX > east || maxY < south || minY > north);
+}
+
+/**
+ * @param {object} dataset
+ * @param {[number, number, number, number]|null} bbox [west, south, east, north]
+ * @param {import('../core/task-runner.js').TaskRunner|null} [task]
+ */
+export async function filterDatasetByFenceAsync(dataset, bbox, task = null) {
+    if (!bbox || dataset.type !== 'spatial' || !dataset.geojson?.features?.length) return dataset;
+
+    const [west, south, east, north] = bbox;
+    const fencePoly = bboxPolygon([west, south, east, north]);
+    const features = dataset.geojson.features;
+    const before = features.length;
+
+    const testFeature = (f) => {
+        if (!_featureBboxIntersectsFence(f, west, south, east, north)) return false;
+        try {
+            return booleanIntersects(f, fencePoly);
+        } catch {
+            return true;
+        }
+    };
+
+    let kept;
+    if (!task || features.length < FENCE_CHUNK_THRESHOLD) {
+        kept = features.filter(testFeature);
+    } else {
+        const flags = await processInChunks(
+            features,
+            FENCE_CHUNK_SIZE,
+            (f) => testFeature(f),
+            task
+        );
+        kept = features.filter((_, i) => flags[i]);
+    }
+
+    dataset.geojson.features = kept;
+    const after = kept.length;
+
+    if (before !== after) {
+        logger.info('ImportFence', `Filtered ${before} → ${after} features (${before - after} outside fence)`);
+        dataset.schema = analyzeSchema(dataset.geojson);
+    }
+
+    return dataset;
+}
+
 /**
  * @param {object} dataset
  * @param {[number, number, number, number]|null} bbox [west, south, east, north]
@@ -47,6 +118,7 @@ export function filterDatasetByFence(dataset, bbox) {
 
     const before = dataset.geojson.features.length;
     dataset.geojson.features = dataset.geojson.features.filter((f) => {
+        if (!_featureBboxIntersectsFence(f, west, south, east, north)) return false;
         try {
             return booleanIntersects(f, fencePoly);
         } catch {
@@ -168,19 +240,27 @@ export const prepareSpatialDatasetForMap = applyImportLayerStyles;
 
 /**
  * @param {object[]} datasets
- * @param {{ fenceBbox?: [number,number,number,number]|null }} [options]
- * @returns {{ expanded: object[], totalFiltered: number }}
+ * @param {{ fenceBbox?: [number,number,number,number]|null, task?: import('../core/task-runner.js').TaskRunner|null }} [options]
+ * @returns {Promise<{ expanded: object[], totalFiltered: number }>}
  */
-export function finalizeImportedDatasets(datasets, options = {}) {
-    const { fenceBbox } = options;
+export async function finalizeImportedDatasets(datasets, options = {}) {
+    const { fenceBbox, task } = options;
     const expanded = expandMixedGeometryDatasets(datasets);
     let totalFiltered = 0;
 
     for (const ds of expanded) {
+        task?.throwIfCancelled?.();
         if (fenceBbox && ds.type === 'spatial') {
             const before = ds.geojson?.features?.length || 0;
-            filterDatasetByFence(ds, fenceBbox);
+            if (task) {
+                await filterDatasetByFenceAsync(ds, fenceBbox, task);
+            } else {
+                filterDatasetByFence(ds, fenceBbox);
+            }
             totalFiltered += before - (ds.geojson?.features?.length || 0);
+        }
+        if (ds.type === 'spatial') {
+            ds._geometryExploded = true;
         }
     }
 
@@ -191,6 +271,7 @@ export default {
     normalizeImporterResult,
     expandMixedGeometryDatasets,
     filterDatasetByFence,
+    filterDatasetByFenceAsync,
     revokeKmzBlobUrls,
     extractImportMetadata,
     applyImportMetadata,

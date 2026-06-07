@@ -1,30 +1,35 @@
 /**
  * Generic JSON importer — detects GeoJSON vs plain table
- * Auto-detects lat/lon columns and creates spatial datasets when possible
  */
 import { createSpatialDataset, createTableDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
-import { importGeoJSON } from './geojson-importer.js';
+import { importGeoJSONFromParsed } from './geojson-importer.js';
 
-export async function importJSON(file, task) {
+/**
+ * @param {File} file
+ * @param {import('../core/task-runner.js').TaskRunner} task
+ * @param {{ text?: string, parsed?: object }} [options]
+ */
+export async function importJSON(file, task, options = {}) {
     task.updateProgress(20, 'Parsing JSON...');
-    const text = await file.text();
-    let data;
-    try {
-        data = JSON.parse(text);
-    } catch (e) {
-        throw new AppError('Invalid JSON', ErrorCategory.PARSE_FAILED, { file: file.name });
+
+    let data = options.parsed;
+    if (!data) {
+        const text = options.text ?? await file.text();
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            throw new AppError('Invalid JSON', ErrorCategory.PARSE_FAILED, { file: file.name });
+        }
     }
 
     task.updateProgress(50, 'Detecting format...');
 
-    // Check if it's GeoJSON
     if (data.type === 'FeatureCollection' || data.type === 'Feature' ||
         (data.type && data.coordinates)) {
-        return importGeoJSON(file, task);
+        return importGeoJSONFromParsed(data, file.name, task);
     }
 
-    // Check for ArcGIS REST-style response
     if (data.features && Array.isArray(data.features) && data.features[0]?.attributes) {
         const features = data.features.map(f => ({
             type: 'Feature',
@@ -42,7 +47,6 @@ export async function importJSON(file, task) {
         );
     }
 
-    // Array of objects → check for coordinates, else table
     if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
         task.updateProgress(70, 'Detecting coordinates...');
         const fields = Object.keys(data[0]);
@@ -60,7 +64,6 @@ export async function importJSON(file, task) {
         );
     }
 
-    // Object with a data/records/results array
     for (const key of ['data', 'records', 'results', 'rows', 'items']) {
         if (Array.isArray(data[key]) && data[key].length > 0 && typeof data[key][0] === 'object') {
             const rows = data[key];
@@ -85,9 +88,6 @@ export async function importJSON(file, task) {
     );
 }
 
-/**
- * Detect lat/lon columns from field names and data
- */
 function detectCoordinateColumns(fields, rows) {
     const lower = fields.map(f => f.toLowerCase());
     const latPatterns = ['lat', 'latitude', 'y', 'lat_dd', 'latitude_dd'];
@@ -117,9 +117,6 @@ function detectCoordinateColumns(fields, rows) {
     return null;
 }
 
-/**
- * Convert rows with coordinate columns into a spatial dataset
- */
 function rowsToSpatial(rows, coordInfo, file) {
     const features = rows.map(row => {
         const lat = parseFloat(row[coordInfo.latField]);

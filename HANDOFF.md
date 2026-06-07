@@ -1,61 +1,39 @@
 # Agent handoff
 
-Keep this file current so the next session can continue without re-discovery.
-
 ## Latest
 
 - **Date**: 2026-06-07
-- **Status**: **Import process hardening complete**
-- **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Branch**: `main` (local changes uncommitted unless user committed)
+- **Status**: **Smart Style panel fixes (plan complete)**
+- **Branch**: working tree (uncommitted)
 
 ### What was done
 
-**Shared post-import pipeline** — [`js/import/post-import.js`](js/import/post-import.js)
-- `normalizeImporterResult`, `expandMixedGeometryDatasets`, `filterDatasetByFence`
-- `applyImportLayerStyles`, `finalizeImportedDatasets`, `serializeImportedDataset`
-- `revokeKmzBlobUrls` on layer delete
-- [`handleFileImport`](js/tools/tool-handlers.js) refactored to use shared pipeline
-- Workflow `addToMap` uses `applyImportMetadata` + `applyImportLayerStyles`
-
-**KML/KMZ hardening**
-- Fixture tests: `tests/fixtures/import/`, `tests/kml-import.test.js`, `tests/post-import.test.js`, `tests/importer-zip.test.js`
-- Shapefile: `GeometryCollection` explode ([`shapefile-importer.js`](js/import/shapefile-importer.js))
-- ZIP sniff: shapefile vs KMZ ([`importer.js`](js/import/importer.js) `detectZipKind`)
-- KMZ: blob URL tracking + revoke; relative NetworkLink read from archive ([`kml-networklink.js`](js/import/kml-networklink.js), [`zip-utils.js`](js/import/zip-utils.js))
-
-**Workflow parity**
-- [`inputInspectors.jsx`](react/workflow/inspectors/inputInspectors.jsx), [`input-nodes.js`](js/workflow/nodes/input-nodes.js): multi-layer warning, `serializeImportedDataset` with `_kmlStyle` / warnings
-
-**UX**
-- [`ImportFlowDialog.jsx`](react/tools/ImportFlowDialog.jsx): supported formats + KML limits copy
-- Fixed import-related `????` encoding in tool-handlers (drop overlay, fence UI)
-- [`docs/kml-kmz-roadmap.md`](docs/kml-kmz-roadmap.md) F3 status updated
-
-**Bugfix (prior in session)**
-- `_maybeOfferSimpleStyleConvert is not defined` on every import — moved into post-import as `applyImportLayerStyles`
+**Smart Style UX & bugs**
+- Fixed dropdown visibility: `var(--surface)` → `var(--bg-surface)` + explicit `option` colors in [`css/main.css`](css/main.css)
+- New helpers in [`js/map/style-panel-helpers.js`](js/map/style-panel-helpers.js): `extractDefaultStyle`, `pickSmartField`, `suggestVariableType`, `mergeDefaultStyleForDisplay`, `applyPaletteToVariables`
+- [`react/panels/SmartStylePanel.jsx`](react/panels/SmartStylePanel.jsx): beginner-first Smart tab (field + legend upfront); Advanced `<details>` for highlight rules, palettes, default style; per-card "More options"; palette **Apply** button; friendlier labels
+- Mixed-geometry `defaultStyle` now preserves `point`/`line`/`polygon` overrides
+- Tests: [`tests/smart-style-panel.test.js`](tests/smart-style-panel.test.js) (7 cases)
 
 ### Verification
 
-- `npm test` — 32 files, 145 tests green
-- `npm run build` — green
-- `npm run build` — run after pull
-- Manual: import KML/KMZ fixtures, multi-layer shapefile ZIP, workflow file-import node
+- `npm test` — 37 files, 163 tests green
 
-### Known issues / limits
+### Manual browser checklist
 
-- Workflow file-import still previews **first layer only** from multi-layer ZIP (by design v1)
-- `_kmzLinkResolver` is not serializable — in-archive NetworkLink merge only on main import path
-- GPX / GeoPackage not in scope
+| Scenario | Expected |
+|----------|----------|
+| Smart tab dropdowns | Options readable (dark text on dark bg in list) |
+| Smart → Advanced → Default style on mixed layer | Per-geometry point size/line width persist on map |
+| Switch to Smart tab | Auto-picks same field heuristic as "+ Add styling rule" |
+| Saved palette → Apply | Updates first unique/class-break legend colors on map |
+| Layer Style header collapse | Still toggles via panel click delegation |
 
 ### Next
 
-- Optional: workflow multi-layer picker for ZIP imports
-- C1 per-feature KML StyleMap parsing
-- Browser smoke on `npm run preview` after map changes
+- Browser verify Smart tab on Windows Chrome/Edge (native select rendering)
+- Optional: toast when palette Apply disabled (no color variable)
 
----
+## Previous (2026-06-07)
 
-## NEXT AGENT PROMPT
-
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/kml-kmz-roadmap.md](docs/kml-kmz-roadmap.md). Import logic: `js/import/` + `js/import/post-import.js`. Gate: `npm test` + `npm run build`.
+**Import performance & UX optimization** — see git history for file-level detail. `npm test` was 36 files / 156 tests at that handoff.

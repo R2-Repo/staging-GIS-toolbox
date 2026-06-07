@@ -24,7 +24,7 @@ function parseCoordValue(val) {
     return n;
 }
 
-export async function importCSV(file, task) {
+export async function importCSV(file, task, options = {}) {
     task.updateProgress(20, 'Loading PapaParse...');
 
     const papa = await loadPapaParse();
@@ -33,7 +33,7 @@ export async function importCSV(file, task) {
     }
 
     task.updateProgress(30, 'Parsing CSV...');
-    const text = await file.text();
+    const text = options.text ?? await file.text();
 
     return new Promise((resolve, reject) => {
         papa.parse(text, {

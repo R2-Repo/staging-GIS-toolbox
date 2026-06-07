@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { dismissModal, triggerProgressCancel } from '../../js/ui/modals.js';
+import { formatBytes } from '../../js/import/import-preflight.js';
 
 function BasicModal({ modal }) {
     const overlayRef = useRef(null);
@@ -19,6 +20,9 @@ function BasicModal({ modal }) {
         overlay._close = close;
         overlay._resolve = () => {};
         modal.options?.onMount?.(overlay, close);
+        // #region agent log
+        fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'ModalHost.jsx:BasicModal:useEffect',message:'BasicModal mounted',data:{modalId:modal.id,title:modal.title,footerInDom:!!overlay.querySelector('.modal-footer'),cancelInDom:!!overlay.querySelector('.cancel-btn'),overlayCount:document.querySelectorAll('.modal-overlay').length},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
     }, [modal.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
@@ -48,6 +52,13 @@ function BasicModal({ modal }) {
 
 function ProgressModal({ progress }) {
     const percent = useMemo(() => Math.max(0, Math.min(100, Number(progress.percent) || 0)), [progress.percent]);
+    const fileLabel = progress.fileName
+        ? `${progress.fileName}${progress.fileSize != null ? ` (${formatBytes(progress.fileSize)})` : ''}`
+        : null;
+    const batchLabel = progress.fileCount > 1 && progress.fileIndex != null
+        ? `File ${progress.fileIndex + 1} of ${progress.fileCount}`
+        : null;
+
     return (
         <div className="modal-overlay">
             <div className="modal" style={{ width: '400px' }}>
@@ -56,6 +67,12 @@ function ProgressModal({ progress }) {
                 </div>
                 <div className="modal-body" style={{ textAlign: 'center', padding: '24px' }}>
                     <div className="spinner" style={{ margin: '0 auto 12px' }}></div>
+                    {batchLabel ? (
+                        <div className="text-xs text-muted" style={{ marginBottom: '6px' }}>{batchLabel}</div>
+                    ) : null}
+                    {fileLabel ? (
+                        <div className="text-xs" style={{ marginBottom: '8px', wordBreak: 'break-all' }}>{fileLabel}</div>
+                    ) : null}
                     <div className="progress-step" style={{ marginBottom: '12px', color: 'var(--text-muted)' }}>{progress.step || 'Starting...'}</div>
                     <div className="progress-bar-container">
                         <div className="progress-bar-fill" style={{ width: `${percent}%` }}></div>

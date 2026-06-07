@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { bus } from '../../../js/core/event-bus.js';
-import { normalizeImporterResult, serializeImportedDataset } from '../../../js/import/post-import.js';
+import { normalizeImporterResult, serializeImportedDataset, finalizeImportedDatasets } from '../../../js/import/post-import.js';
 import { showToast } from '../../../js/ui/toast.js';
 import {
     InspectorLabel,
@@ -92,19 +92,19 @@ export function FileImportInspector({ node, config, onConfigChange, importFile }
             const result = await importFile(file);
             if (!result) throw new Error('Import returned nothing');
 
-            const layers = normalizeImporterResult(result);
-            if (layers.length === 0) throw new Error('Import returned no layers');
-            if (layers.length > 1) {
-                node._multiLayerCount = layers.length;
+            const { expanded } = await finalizeImportedDatasets(normalizeImporterResult(result));
+            if (expanded.length === 0) throw new Error('Import returned no layers');
+            if (expanded.length > 1) {
+                node._multiLayerCount = expanded.length;
                 showToast(
-                    `ZIP contained ${layers.length} layers; workflow preview uses the first — use main Import for all layers.`,
+                    `ZIP contained ${expanded.length} layers; workflow preview uses the first — use main Import for all layers.`,
                     'warning'
                 );
             } else {
                 node._multiLayerCount = 1;
             }
 
-            const imported = serializeImportedDataset(layers[0]);
+            const imported = serializeImportedDataset(expanded[0]);
             node._cachedResult = imported;
             node._pendingFile = null;
             setCachedResult(imported);

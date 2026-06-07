@@ -35,8 +35,14 @@ export class TaskRunner {
         bus.emit('task:cancelled', { id: this.id, name: this.name });
     }
 
-    updateProgress(percent, step = '', current = 0, total = 0) {
-        this.progress = { percent: Math.min(100, Math.max(0, percent)), step, current, total };
+    updateProgress(percent, step = '', current = 0, total = 0, meta = {}) {
+        this.progress = {
+            percent: Math.min(100, Math.max(0, percent)),
+            step,
+            current,
+            total,
+            ...meta
+        };
         bus.emit('task:progress', { id: this.id, name: this.name, ...this.progress });
         if (this._onProgress) this._onProgress(this.progress);
     }

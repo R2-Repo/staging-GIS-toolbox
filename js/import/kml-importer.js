@@ -1,16 +1,15 @@
 /**
  * KML importer using toGeoJSON library
- * Preserves KML inline styles (stroke, fill, icon) as dataset._kmlStyle
  */
 import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
-import { loadToGeoJSON } from '../core/libs.js';
-import { collectNetworkLinkHrefs } from './kml-networklink.js';
+import { parseKmlForImport } from './import-parse-service.js';
+import { extractKmlStyleFromFeatures } from './parsers/kml-style.js';
 
 /**
- * @param {File|string} file - File or KML string (e.g. from KMZ)
+ * @param {File|string} file
  * @param {import('../core/task-runner.js').TaskRunner} task
- * @param {{ sourceFileName?: string }} [meta]
+ * @param {{ sourceFileName?: string, text?: string, byteSize?: number }} [meta]
  */
 export async function importKML(file, task, meta = {}) {
     task.updateProgress(20, 'Reading KML...');
@@ -18,48 +17,31 @@ export async function importKML(file, task, meta = {}) {
     let text;
     if (typeof file === 'string') {
         text = file;
+    } else if (meta.text) {
+        text = meta.text;
     } else {
         text = await file.text();
     }
 
     task.updateProgress(50, 'Parsing KML to GeoJSON...');
 
-    const parser = new DOMParser();
-    const kmlDoc = parser.parseFromString(text, 'text/xml');
-
-    const parseError = kmlDoc.querySelector('parsererror');
-    if (parseError) {
-        throw new AppError('Invalid KML/XML', ErrorCategory.PARSE_FAILED, {
-            detail: parseError.textContent?.slice(0, 200)
-        });
-    }
-
-    const toGeoJsonLib = await loadToGeoJSON();
-    if (!toGeoJsonLib?.kml) {
-        throw new AppError('toGeoJSON library not loaded', ErrorCategory.PARSE_FAILED);
-    }
-
+    const byteSize = meta.byteSize ?? text.length;
     let geojson;
+    let networkHrefs = [];
+
     try {
-        geojson = toGeoJsonLib.kml(kmlDoc);
+        const parsed = await parseKmlForImport(text, byteSize);
+        geojson = parsed.geojson;
+        networkHrefs = parsed.networkHrefs || [];
     } catch (e) {
-        throw new AppError('Failed to convert KML to GeoJSON: ' + e.message, ErrorCategory.PARSE_FAILED);
+        throw new AppError(e.message || 'Invalid KML/XML', ErrorCategory.PARSE_FAILED);
     }
 
-    if (!geojson || !Array.isArray(geojson.features)) {
-        geojson = { type: 'FeatureCollection', features: [] };
-    }
-
-    // KML MultiGeometry → GeoJSON GeometryCollection; explode at import so the layer
-    // schema and all map/dataprep paths see plain LineString / Polygon features.
     geojson = await explodeGeometryCollectionsInFeatureCollectionAsync(geojson, task);
 
-    const networkHrefs = collectNetworkLinkHrefs(kmlDoc);
     const featCount = geojson.features.length;
-
     task.updateProgress(80, 'Extracting styles...');
-
-    const kmlStyle = featCount > 0 ? _extractKmlStyle(geojson.features) : null;
+    const kmlStyle = featCount > 0 ? extractKmlStyleFromFeatures(geojson.features) : null;
 
     task.updateProgress(90, 'Building dataset...');
     const defaultName = typeof file === 'string'
@@ -85,42 +67,4 @@ export async function importKML(file, task, meta = {}) {
     }
 
     return dataset;
-}
-
-/**
- * Extract a unified style object from KML feature properties.
- * toGeoJSON puts KML style info into feature props: stroke, stroke-width,
- * stroke-opacity, fill, fill-opacity.
- */
-function _extractKmlStyle(features) {
-    let strokeColor = null, fillColor = null;
-    let strokeWidth = null, strokeOpacity = null, fillOpacity = null;
-
-    for (const f of features) {
-        const p = f.properties || {};
-        if (!strokeColor && p.stroke) strokeColor = p.stroke;
-        if (!fillColor && p.fill) fillColor = p.fill;
-        if (strokeWidth == null && p['stroke-width'] != null) strokeWidth = parseFloat(p['stroke-width']);
-        if (strokeOpacity == null && p['stroke-opacity'] != null) strokeOpacity = parseFloat(p['stroke-opacity']);
-        if (fillOpacity == null && p['fill-opacity'] != null) fillOpacity = parseFloat(p['fill-opacity']);
-        if (strokeColor && fillColor && strokeWidth != null && strokeOpacity != null && fillOpacity != null) break;
-    }
-
-    if (!strokeColor && !fillColor && strokeWidth == null) return null;
-
-    const style = {};
-    if (strokeColor) style.strokeColor = strokeColor;
-    if (fillColor) style.fillColor = fillColor;
-    else if (strokeColor) style.fillColor = strokeColor;
-    if (strokeWidth != null && !isNaN(strokeWidth)) {
-        // KML often carries width 0; MapLibre draws nothing visible at 0px.
-        style.strokeWidth = strokeWidth > 0 ? strokeWidth : 1;
-    }
-    // stroke-opacity 0 is common when outline is disabled in KML; keep map default visibility.
-    if (strokeOpacity != null && !isNaN(strokeOpacity) && strokeOpacity > 0) {
-        style.strokeOpacity = strokeOpacity;
-    }
-    if (fillOpacity != null && !isNaN(fillOpacity)) style.fillOpacity = fillOpacity;
-
-    return style;
 }

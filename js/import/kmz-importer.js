@@ -93,7 +93,7 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrl
     return out;
 }
 
-export async function importKMZ(file, task) {
+export async function importKMZ(file, task, options = {}) {
     task.updateProgress(10, 'Loading JSZip...');
 
     const JSZipLib = await loadJSZip();
@@ -102,7 +102,7 @@ export async function importKMZ(file, task) {
     }
 
     task.updateProgress(20, 'Extracting KMZ...');
-    const buffer = await file.arrayBuffer();
+    const buffer = options.buffer ?? await file.arrayBuffer();
     let zip;
     try {
         zip = await JSZipLib.loadAsync(buffer);

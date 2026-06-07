@@ -47,16 +47,17 @@ describe('post-import pipeline', () => {
         expect(ds.geojson.features.length).toBe(1);
     });
 
-    it('finalizeImportedDatasets expands and fences', () => {
+    it('finalizeImportedDatasets expands and fences', async () => {
         const inside = { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} };
         const outside = { type: 'Feature', geometry: { type: 'Point', coordinates: [5, 5] }, properties: {} };
         const ds = createSpatialDataset('f', { type: 'FeatureCollection', features: [inside, outside] });
-        const { expanded, totalFiltered } = finalizeImportedDatasets([ds], {
+        const { expanded, totalFiltered } = await finalizeImportedDatasets([ds], {
             fenceBbox: [-1, -1, 1, 1]
         });
         expect(expanded.length).toBe(1);
         expect(totalFiltered).toBe(1);
         expect(expanded[0].geojson.features.length).toBe(1);
+        expect(expanded[0]._geometryExploded).toBe(true);
     });
 
     it('applyImportLayerStyles converts varying simplestyle to smart', () => {

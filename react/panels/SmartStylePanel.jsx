@@ -3,7 +3,6 @@ import {
     DEFAULT_FLAT_STYLE,
     autoClassifyUnique,
     autoClassifyRange,
-    numericFieldExtent,
     normalizeStyle,
     createVisualVariable,
     VISUAL_VARIABLE_TYPES
@@ -12,6 +11,13 @@ import { RAMP_OPTIONS } from '../../js/map/color-ramps.js';
 import { FILTER_OPERATORS } from '../../js/dataprep/transforms.js';
 import { loadPaletteFavorites, addPaletteFavorite, removePaletteFavorite } from '../../js/map/palette-store.js';
 import { detectEmbeddedSimpleStyle } from '../../js/map/style-import.js';
+import {
+    pickSmartField,
+    suggestVariableType,
+    extractDefaultStyle,
+    mergeDefaultStyleForDisplay,
+    applyPaletteToVariables
+} from '../../js/map/style-panel-helpers.js';
 
 const SYMBOL_OPTIONS = ['circle', 'square', 'triangle', 'diamond', 'star', 'pin'];
 const SYMBOL_LABELS = { circle: '●', square: '■', triangle: '▲', diamond: '◆', star: '★', pin: '📍' };
@@ -25,11 +31,6 @@ function detectGeomTypes(layer) {
         else if (t === 'Polygon' || t === 'MultiPolygon') types.add('polygon');
     }
     return types;
-}
-
-function extractFlatStyle(style) {
-    const { mode, smart, point, line, polygon, ...flat } = style;
-    return flat;
 }
 
 function SimpleStyleSection({ style, geomTypes, onChange }) {
@@ -75,7 +76,7 @@ function SimpleStyleSection({ style, geomTypes, onChange }) {
                 ) : null}
                 {showStrokeOp ? (
                     <div className="style-row">
-                        <label>Str Op</label>
+                        <label>Stroke opacity</label>
                         <input type="range" className="style-range" min="0" max="1" step="0.05" value={s.strokeOpacity ?? 0.8}
                             onChange={(e) => onChangeSection(prefix, { strokeOpacity: parseFloat(e.target.value) })} />
                         <span className="style-value">{Math.round((s.strokeOpacity ?? 0.8) * 100)}%</span>
@@ -83,7 +84,7 @@ function SimpleStyleSection({ style, geomTypes, onChange }) {
                 ) : null}
                 {showFillOp ? (
                     <div className="style-row">
-                        <label>Fill Op</label>
+                        <label>Fill opacity</label>
                         <input type="range" className="style-range" min="0" max="1" step="0.05" value={s.fillOpacity ?? 0.3}
                             onChange={(e) => onChangeSection(prefix, { fillOpacity: parseFloat(e.target.value) })} />
                         <span className="style-value">{Math.round((s.fillOpacity ?? 0.3) * 100)}%</span>
@@ -135,6 +136,10 @@ function SimpleStyleSection({ style, geomTypes, onChange }) {
 function VisualVariableEditor({ vv, index, fields, features, onChange, onRemove }) {
     const fieldDef = fields.find((f) => f.name === vv.field);
     const isColorType = vv.type === 'unique' || vv.type === 'range' || vv.type === 'ramp';
+    const hasClassLegend = vv.type === 'unique' || vv.type === 'range';
+    const cardTitle = vv.field
+        ? `Color by: ${vv.field}`
+        : `Styling rule ${index + 1}`;
 
     const update = (patch) => onChange({ ...vv, ...patch });
 
@@ -152,29 +157,21 @@ function VisualVariableEditor({ vv, index, fields, features, onChange, onRemove 
         update({ classes });
     };
 
+    const handleFieldChange = (fieldName) => {
+        const fd = fields.find((f) => f.name === fieldName);
+        onChange(createVisualVariable(vv.type, fieldName, features, fd));
+    };
+
     return (
         <div className="smart-style-vv-card">
             <div className="smart-style-vv-header">
-                <span className="smart-style-vv-title">Variable {index + 1}: {VISUAL_VARIABLE_TYPES.find((t) => t.id === vv.type)?.label || vv.type}</span>
+                <span className="smart-style-vv-title">{cardTitle}</span>
                 <button type="button" className="btn-icon" title="Remove" onClick={onRemove}>✕</button>
             </div>
 
             <div className="style-row">
-                <label>Type</label>
-                <select value={vv.type} onChange={(e) => {
-                    const fd = fields.find((f) => f.name === vv.field);
-                    onChange(createVisualVariable(e.target.value, vv.field || fields[0]?.name, features, fd));
-                }}>
-                    {VISUAL_VARIABLE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                </select>
-            </div>
-
-            <div className="style-row">
                 <label>Field</label>
-                <select value={vv.field || ''} onChange={(e) => {
-                    const fd = fields.find((f) => f.name === e.target.value);
-                    onChange(createVisualVariable(vv.type, e.target.value, features, fd));
-                }}>
+                <select value={vv.field || ''} onChange={(e) => handleFieldChange(e.target.value)}>
                     <option value="">Select…</option>
                     {fields.filter((f) => f.selected !== false).map((f) => (
                         <option key={f.name} value={f.name}>{f.name} ({f.type})</option>
@@ -182,90 +179,10 @@ function VisualVariableEditor({ vv, index, fields, features, onChange, onRemove 
                 </select>
             </div>
 
-            {isColorType ? (
-                <div className="style-row">
-                    <label>Color by</label>
-                    <select value={vv.channel || 'fill'} onChange={(e) => update({ channel: e.target.value })}>
-                        <option value="fill">Fill</option>
-                        <option value="stroke">Stroke</option>
-                        <option value="both">Both</option>
-                    </select>
-                </div>
-            ) : null}
-
-            {vv.type === 'range' ? (
-                <>
-                    <div className="style-row">
-                        <label>Method</label>
-                        <select value={vv.method || 'equal'} onChange={(e) => {
-                            const result = autoClassifyRange(vv.field, features, vv.classCount || 5, vv.ramp || 'ylOrRd', fieldDef, e.target.value);
-                            update({ method: e.target.value, ...result });
-                        }}>
-                            <option value="equal">Equal interval</option>
-                            <option value="quantile">Quantile</option>
-                        </select>
-                        <input type="number" className="smart-style-num-input" min="2" max="12" value={vv.classCount || 5}
-                            onChange={(e) => {
-                                const result = autoClassifyRange(vv.field, features, parseInt(e.target.value, 10), vv.ramp || 'ylOrRd', fieldDef, vv.method || 'equal');
-                                update({ classCount: parseInt(e.target.value, 10), ...result });
-                            }} title="Classes" />
-                    </div>
-                </>
-            ) : null}
-
-            {(vv.type === 'ramp' || vv.type === 'range') ? (
-                <div className="style-row">
-                    <label>Palette</label>
-                    <select value={vv.ramp || 'ylOrRd'} onChange={(e) => {
-                        if (vv.type === 'range') {
-                            const result = autoClassifyRange(vv.field, features, vv.classCount || 5, e.target.value, fieldDef, vv.method || 'equal');
-                            update({ ramp: e.target.value, ...result });
-                        } else {
-                            update({ ramp: e.target.value });
-                        }
-                    }}>
-                        {RAMP_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-                    </select>
-                </div>
-            ) : null}
-
-            {(vv.type === 'ramp' || vv.type === 'size' || vv.type === 'width' || vv.type === 'opacity') ? (
-                <div className="style-row">
-                    <label>Min</label>
-                    <input type="number" className="smart-style-num-input" value={vv.min ?? 0}
-                        onChange={(e) => update({ min: parseFloat(e.target.value) })} />
-                    <label>Max</label>
-                    <input type="number" className="smart-style-num-input" value={vv.max ?? 100}
-                        onChange={(e) => update({ max: parseFloat(e.target.value) })} />
-                </div>
-            ) : null}
-
-            {vv.type === 'size' ? (
-                <div className="style-row">
-                    <label>Size</label>
-                    <input type="number" className="smart-style-num-input" value={vv.sizeMin ?? 4} min="2" max="30"
-                        onChange={(e) => update({ sizeMin: parseFloat(e.target.value) })} />
-                    <span>–</span>
-                    <input type="number" className="smart-style-num-input" value={vv.sizeMax ?? 16} min="2" max="30"
-                        onChange={(e) => update({ sizeMax: parseFloat(e.target.value) })} />
-                </div>
-            ) : null}
-
-            {vv.type === 'width' ? (
-                <div className="style-row">
-                    <label>Width</label>
-                    <input type="number" className="smart-style-num-input" value={vv.widthMin ?? 1} min="0.5" max="20" step="0.5"
-                        onChange={(e) => update({ widthMin: parseFloat(e.target.value) })} />
-                    <span>–</span>
-                    <input type="number" className="smart-style-num-input" value={vv.widthMax ?? 6} min="0.5" max="20" step="0.5"
-                        onChange={(e) => update({ widthMax: parseFloat(e.target.value) })} />
-                </div>
-            ) : null}
-
-            {(vv.type === 'unique' || vv.type === 'range') ? (
+            {hasClassLegend ? (
                 <>
                     <button type="button" className="btn btn-sm btn-secondary w-full mb-8" onClick={refreshClasses}>
-                        Refresh classes
+                        Update from data
                     </button>
                     <div className="smart-style-legend">
                         {(vv.classes || []).map((cls, i) => (
@@ -274,7 +191,7 @@ function VisualVariableEditor({ vv, index, fields, features, onChange, onRemove 
                                     onChange={(e) => updateClass(i, { color: e.target.value })} />
                                 <span className="smart-style-legend-label">{cls.label || cls.value}</span>
                                 <details className="smart-style-class-details">
-                                    <summary>+</summary>
+                                    <summary>Style overrides</summary>
                                     <div className="style-row">
                                         <label>Width</label>
                                         <input type="number" className="smart-style-num-input" step="0.5" min="0.5" max="12"
@@ -300,6 +217,98 @@ function VisualVariableEditor({ vv, index, fields, features, onChange, onRemove 
                     ) : null}
                 </>
             ) : null}
+
+            <details className="smart-style-vv-advanced">
+                <summary className="smart-style-vv-advanced-title">More options</summary>
+
+                <div className="style-row">
+                    <label>Type</label>
+                    <select value={vv.type} onChange={(e) => {
+                        const fd = fields.find((f) => f.name === vv.field);
+                        onChange(createVisualVariable(e.target.value, vv.field || fields[0]?.name, features, fd));
+                    }}>
+                        {VISUAL_VARIABLE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                </div>
+
+                {isColorType ? (
+                    <div className="style-row">
+                        <label>Color by</label>
+                        <select value={vv.channel || 'fill'} onChange={(e) => update({ channel: e.target.value })}>
+                            <option value="fill">Fill</option>
+                            <option value="stroke">Stroke</option>
+                            <option value="both">Both</option>
+                        </select>
+                    </div>
+                ) : null}
+
+                {vv.type === 'range' ? (
+                    <div className="style-row">
+                        <label>Method</label>
+                        <select value={vv.method || 'equal'} onChange={(e) => {
+                            const result = autoClassifyRange(vv.field, features, vv.classCount || 5, vv.ramp || 'ylOrRd', fieldDef, e.target.value);
+                            update({ method: e.target.value, ...result });
+                        }}>
+                            <option value="equal">Equal interval</option>
+                            <option value="quantile">Quantile</option>
+                        </select>
+                        <input type="number" className="smart-style-num-input" min="2" max="12" value={vv.classCount || 5}
+                            onChange={(e) => {
+                                const result = autoClassifyRange(vv.field, features, parseInt(e.target.value, 10), vv.ramp || 'ylOrRd', fieldDef, vv.method || 'equal');
+                                update({ classCount: parseInt(e.target.value, 10), ...result });
+                            }} title="Classes" />
+                    </div>
+                ) : null}
+
+                {(vv.type === 'ramp' || vv.type === 'range') ? (
+                    <div className="style-row">
+                        <label>Palette</label>
+                        <select value={vv.ramp || 'ylOrRd'} onChange={(e) => {
+                            if (vv.type === 'range') {
+                                const result = autoClassifyRange(vv.field, features, vv.classCount || 5, e.target.value, fieldDef, vv.method || 'equal');
+                                update({ ramp: e.target.value, ...result });
+                            } else {
+                                update({ ramp: e.target.value });
+                            }
+                        }}>
+                            {RAMP_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                        </select>
+                    </div>
+                ) : null}
+
+                {(vv.type === 'ramp' || vv.type === 'size' || vv.type === 'width' || vv.type === 'opacity') ? (
+                    <div className="style-row">
+                        <label>Min</label>
+                        <input type="number" className="smart-style-num-input" value={vv.min ?? 0}
+                            onChange={(e) => update({ min: parseFloat(e.target.value) })} />
+                        <label>Max</label>
+                        <input type="number" className="smart-style-num-input" value={vv.max ?? 100}
+                            onChange={(e) => update({ max: parseFloat(e.target.value) })} />
+                    </div>
+                ) : null}
+
+                {vv.type === 'size' ? (
+                    <div className="style-row">
+                        <label>Size</label>
+                        <input type="number" className="smart-style-num-input" value={vv.sizeMin ?? 4} min="2" max="30"
+                            onChange={(e) => update({ sizeMin: parseFloat(e.target.value) })} />
+                        <span>–</span>
+                        <input type="number" className="smart-style-num-input" value={vv.sizeMax ?? 16} min="2" max="30"
+                            onChange={(e) => update({ sizeMax: parseFloat(e.target.value) })} />
+                    </div>
+                ) : null}
+
+                {vv.type === 'width' ? (
+                    <div className="style-row">
+                        <label>Width</label>
+                        <input type="number" className="smart-style-num-input" value={vv.widthMin ?? 1} min="0.5" max="20" step="0.5"
+                            onChange={(e) => update({ widthMin: parseFloat(e.target.value) })} />
+                        <span>–</span>
+                        <input type="number" className="smart-style-num-input" value={vv.widthMax ?? 6} min="0.5" max="20" step="0.5"
+                            onChange={(e) => update({ widthMax: parseFloat(e.target.value) })} />
+                    </div>
+                ) : null}
+            </details>
         </div>
     );
 }
@@ -320,7 +329,7 @@ function FilterRulesEditor({ rules, fields, onChange }) {
 
     return (
         <div className="smart-style-filter-section">
-            <h4 className="style-type-header">Highlight rules (visual only)</h4>
+            <h4 className="style-type-header">Highlight matching features</h4>
             <p className="text-muted text-xs mb-8">Style matching features without hiding them.</p>
             {rules.map((rule, ri) => (
                 <div className="smart-style-vv-card" key={rule.id || ri}>
@@ -366,15 +375,23 @@ function SmartStyleSection({ layer, style, onChange, onConvertEmbedded }) {
     const features = layer?.geojson?.features || [];
     const smart = style.smart || { defaultStyle: {}, visualVariables: [], filterRules: [] };
     const embedded = detectEmbeddedSimpleStyle(features);
+    const variables = smart.visualVariables || [];
+    const hasColorVariable = variables.some((v) => v.type === 'unique' || v.type === 'range');
 
     const setSmart = (patch) => onChange({ ...style, mode: 'smart', smart: { ...smart, ...patch } });
 
     const setVariables = (visualVariables) => setSmart({ visualVariables });
 
     const addVariable = () => {
-        const field = fields.find((f) => f.type === 'number') || fields[0];
+        const field = pickSmartField(fields);
         if (!field) return;
-        setVariables([...smart.visualVariables, createVisualVariable('unique', field.name, features, field)]);
+        const type = suggestVariableType(field);
+        setVariables([...variables, createVisualVariable(type, field.name, features, field)]);
+    };
+
+    const applyPalette = (palette) => {
+        const next = applyPaletteToVariables(variables, palette.colors);
+        if (next) setVariables(next);
     };
 
     const [palettes, setPalettes] = useState(() => loadPaletteFavorites());
@@ -390,56 +407,72 @@ function SmartStyleSection({ layer, style, onChange, onConvertEmbedded }) {
                 </div>
             ) : null}
 
-            <p className="text-muted text-xs mb-8">Stack multiple visual variables — color, size, width, and opacity combine on the map.</p>
+            <p className="text-muted text-xs mb-8">Choose a field to color features. Add more rules for size or width if needed.</p>
 
-            {(smart.visualVariables || []).map((vv, i) => (
+            {variables.map((vv, i) => (
                 <VisualVariableEditor
                     key={vv.id || i}
                     vv={vv}
                     index={i}
                     fields={fields}
                     features={features}
-                    onChange={(next) => setVariables(smart.visualVariables.map((v, j) => (j === i ? next : v)))}
-                    onRemove={() => setVariables(smart.visualVariables.filter((_, j) => j !== i))}
+                    onChange={(next) => setVariables(variables.map((v, j) => (j === i ? next : v)))}
+                    onRemove={() => setVariables(variables.filter((_, j) => j !== i))}
                 />
             ))}
 
-            <button type="button" className="btn btn-sm btn-secondary w-full mb-8" onClick={addVariable}>+ Add visual variable</button>
+            <button type="button" className="btn btn-sm btn-secondary w-full mb-8" onClick={addVariable}>+ Add styling rule</button>
 
-            <FilterRulesEditor
-                rules={smart.filterRules || []}
-                fields={fields}
-                onChange={(filterRules) => setSmart({ filterRules })}
-            />
+            <details className="smart-style-advanced">
+                <summary className="smart-style-advanced-title">Advanced</summary>
+                <div className="smart-style-advanced-body">
+                    <FilterRulesEditor
+                        rules={smart.filterRules || []}
+                        fields={fields}
+                        onChange={(filterRules) => setSmart({ filterRules })}
+                    />
 
-            <div className="style-type-section mt-8">
-                <h4 className="style-type-header">Saved palettes</h4>
-                {palettes.length === 0 ? <div className="text-muted text-xs mb-8">No saved palettes yet.</div> : null}
-                {palettes.map((p) => (
-                    <div className="smart-style-legend-row" key={p.id}>
-                        <span className="smart-style-legend-label">{p.name}</span>
-                        <div style={{ display: 'flex', gap: 2 }}>
-                            {p.colors.slice(0, 8).map((c, i) => (
-                                <span key={i} style={{ width: 14, height: 14, background: c, borderRadius: 2, border: '1px solid var(--border)' }} />
-                            ))}
-                        </div>
-                        <button type="button" className="btn-icon" onClick={() => setPalettes(removePaletteFavorite(p.id))}>✕</button>
+                    <div className="style-type-section mt-8">
+                        <h4 className="style-type-header">Saved palettes</h4>
+                        {palettes.length === 0 ? <div className="text-muted text-xs mb-8">No saved palettes yet.</div> : null}
+                        {palettes.map((p) => (
+                            <div className="smart-style-legend-row" key={p.id}>
+                                <span className="smart-style-legend-label">{p.name}</span>
+                                <div style={{ display: 'flex', gap: 2 }}>
+                                    {p.colors.slice(0, 8).map((c, i) => (
+                                        <span key={i} style={{ width: 14, height: 14, background: c, borderRadius: 2, border: '1px solid var(--border)' }} />
+                                    ))}
+                                </div>
+                                <div className="smart-style-palette-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-sm btn-secondary"
+                                        disabled={!hasColorVariable}
+                                        title={hasColorVariable ? 'Apply to color classes' : 'Add a unique or class-break rule first'}
+                                        onClick={() => applyPalette(p)}
+                                    >
+                                        Apply
+                                    </button>
+                                    <button type="button" className="btn-icon" onClick={() => setPalettes(removePaletteFavorite(p.id))}>✕</button>
+                                </div>
+                            </div>
+                        ))}
+                        <button type="button" className="btn btn-sm btn-secondary w-full mt-8" onClick={() => {
+                            const colors = (variables[0]?.classes || []).map((c) => c.color).filter(Boolean);
+                            if (colors.length) setPalettes(addPaletteFavorite(`Palette ${palettes.length + 1}`, colors));
+                        }}>Save current class colors</button>
                     </div>
-                ))}
-                <button type="button" className="btn btn-sm btn-secondary w-full mt-8" onClick={() => {
-                    const colors = (smart.visualVariables[0]?.classes || []).map((c) => c.color).filter(Boolean);
-                    if (colors.length) setPalettes(addPaletteFavorite(`Palette ${palettes.length + 1}`, colors));
-                }}>Save current class colors</button>
-            </div>
 
-            <div className="style-type-section mt-8">
-                <h4 className="style-type-header">Default style</h4>
-                <SimpleStyleSection
-                    style={{ ...style, ...(smart.defaultStyle || {}), mode: 'simple' }}
-                    geomTypes={detectGeomTypes(layer)}
-                    onChange={(next) => setSmart({ defaultStyle: extractFlatStyle(next) })}
-                />
-            </div>
+                    <div className="style-type-section mt-8">
+                        <h4 className="style-type-header">Default style</h4>
+                        <SimpleStyleSection
+                            style={mergeDefaultStyleForDisplay(style, smart.defaultStyle)}
+                            geomTypes={detectGeomTypes(layer)}
+                            onChange={(next) => setSmart({ defaultStyle: extractDefaultStyle(next) })}
+                        />
+                    </div>
+                </div>
+            </details>
         </div>
     );
 }
@@ -473,14 +506,15 @@ export function SmartStylePanel({ layer, style: externalStyle, defaultColor = '#
             pushStyle({ ...style, mode: 'simple' });
         } else if (!style.smart?.visualVariables?.length) {
             const fields = layer?.schema?.fields || [];
-            const field = fields.find((f) => f.type === 'string' || f.uniqueCount <= 20) || fields[0];
+            const field = pickSmartField(fields);
             const features = layer?.geojson?.features || [];
+            const type = suggestVariableType(field);
             pushStyle({
                 ...style,
                 mode: 'smart',
                 smart: {
-                    defaultStyle: extractFlatStyle(style),
-                    visualVariables: field ? [createVisualVariable('unique', field.name, features, field)] : [],
+                    defaultStyle: extractDefaultStyle(style),
+                    visualVariables: field ? [createVisualVariable(type, field.name, features, field)] : [],
                     filterRules: []
                 }
             });

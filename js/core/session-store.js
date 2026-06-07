@@ -12,6 +12,7 @@ const DEBOUNCE_MS = 2000; // auto-save 2s after last change
 let db = null;
 let _saveTimer = null;
 let _saving = false;
+let _rescheduleAfterSave = false;
 let _onSaveStatus = null; // optional callback for UI indicator
 let _pendingLayers = null;
 let _pendingLayerStyles = null;
@@ -44,7 +45,10 @@ function openDB() {
  * @param {Object|null} [layerStyles] - map of layerId -> style object
  */
 async function saveSession(layers, layerStyles = null) {
-    if (_saving) return;
+    if (_saving) {
+        _rescheduleAfterSave = true;
+        return;
+    }
     _saving = true;
     _onSaveStatus?.('saving');
     try {
@@ -81,9 +85,17 @@ async function saveSession(layers, layerStyles = null) {
         console.debug('[SessionStore] Saved', layers.length, 'layers');
     } catch (err) {
         console.error('[SessionStore] Save failed:', err);
-        _onSaveStatus?.('error');
+        if (err?.name === 'QuotaExceededError') {
+            _onSaveStatus?.('quota');
+        } else {
+            _onSaveStatus?.('error');
+        }
     } finally {
         _saving = false;
+        if (_rescheduleAfterSave) {
+            _rescheduleAfterSave = false;
+            scheduleSave(_pendingLayers, _pendingLayerStyles);
+        }
     }
 }
 

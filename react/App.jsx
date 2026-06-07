@@ -68,7 +68,7 @@ function SaveIndicator() {
             setStatus(next);
             if (next === 'saved') {
                 setTimeout(() => setStatus(null), 1500);
-            } else if (next === 'error') {
+            } else if (next === 'error' || next === 'quota') {
                 setTimeout(() => setStatus(null), 2500);
             }
         });
@@ -76,6 +76,7 @@ function SaveIndicator() {
 
     const text = status === 'saving' ? 'Saving…'
         : status === 'saved' ? 'Session saved'
+            : status === 'quota' ? 'Session too large to save'
             : status === 'error' ? 'Save failed'
                 : '';
 
@@ -363,11 +364,15 @@ export function App() {
         syncMobileClass();
         window.addEventListener('resize', syncMobileClass);
 
-        void restoreSessionIfAvailable();
-
-        if (window.innerWidth >= 768) {
-            setTimeout(() => showToolInfo(), 300);
-        }
+        void (async () => {
+            await restoreSessionIfAvailable();
+            if (window.innerWidth >= 768) {
+                // #region agent log
+                fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'App.jsx:showToolInfo',message:'showToolInfo after session restore',data:{overlayCount:document.querySelectorAll('.modal-overlay').length},timestamp:Date.now(),runId:'post-fix',hypothesisId:'H2'})}).catch(()=>{});
+                // #endregion
+                showToolInfo();
+            }
+        })();
 
         logger.info('App', 'App ready');
 
@@ -379,6 +384,9 @@ export function App() {
     useEffect(() => {
         if (!modalHostRef.current) return undefined;
         const mounted = mountModalHost(modalHostRef.current);
+        // #region agent log
+        fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'App.jsx:modalHostEffect',message:'modal host mounted',data:{},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
         return () => mounted.unmount();
     }, []);
 

@@ -2,13 +2,15 @@
 
 Evidence-backed roadmap from codebase audit (2026-05-18). Implement **one phase per PR**; test-first per `AGENTS.md`.
 
-**Constraints (verified in repo):**
+**Constraints (updated 2026-06-07):**
 
-- Shipped app: **no bundler** — ES modules from `index.html` (`AGENTS.md`).
-- CDN libs in `index.html`: MapLibre 4.7.1, PapaParse, XLSX, JSZip, toGeoJSON, Turf 7.1.0, shpjs 4.0.4.
-- **No Web Workers** today (glob `**/*worker*` → 0 files).
-- Vitest: **28 tests**, Node env (`vitest.config.js`); no import/export tests yet.
-- `processInChunks` exists in `js/core/task-runner.js` but is **not imported anywhere else**.
+- Shipped app: **Vite + React** (`npm run build` / `npm run preview`).
+- Heavy libs via npm (`js/core/libs.js`): MapLibre, PapaParse, XLSX, JSZip, toGeoJSON, shpjs, Turf.
+- **Import Web Worker** shipped: `js/workers/import-parse.worker.js` (GeoJSON/KML/KMZ/shapefile parse ≥256 KB).
+- Vitest: **156 tests** including import parsers, cancel, preflight, post-import.
+- `processInChunks` used in post-import fence, dataprep, gis-tools, spatial-analyzer, data-model explode.
+
+**Import optimization (done):** single-read payloads, batch TaskRunner, async post-import, preflight UX, worker parse pool, map clustering >10k points, session save queue.
 
 ---
 

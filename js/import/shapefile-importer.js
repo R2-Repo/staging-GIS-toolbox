@@ -1,10 +1,9 @@
 /**
  * Shapefile importer (zipped .shp+.dbf+.shx)
- * Uses shpjs library
  */
 import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
-import { loadShpjs } from '../core/libs.js';
+import { parseShapefileForImport } from './import-parse-service.js';
 
 async function _normalizeFeatureCollection(fc, task) {
     fc.features = fc.features.map(f => ({
@@ -15,41 +14,32 @@ async function _normalizeFeatureCollection(fc, task) {
     return explodeGeometryCollectionsInFeatureCollectionAsync(fc, task);
 }
 
-export async function importShapefile(file, task) {
+export async function importShapefile(file, task, options = {}) {
     task.updateProgress(10, 'Loading shapefile library...');
-
-    const shp = await loadShpjs();
-    if (typeof shp !== 'function') {
-        throw new AppError('Shapefile (shpjs) library not loaded', ErrorCategory.PARSE_FAILED);
-    }
-
     task.updateProgress(20, 'Reading ZIP...');
-    const buffer = await file.arrayBuffer();
+    const buffer = options.buffer ?? await file.arrayBuffer();
 
     task.updateProgress(40, 'Parsing shapefile...');
-    let geojson;
+    let parsed;
     try {
-        geojson = await shp(buffer);
+        parsed = await parseShapefileForImport(buffer);
     } catch (e) {
-        throw new AppError('Failed to parse shapefile: ' + e.message, ErrorCategory.PARSE_FAILED, {
+        throw new AppError(e.message, ErrorCategory.PARSE_FAILED, {
             hint: 'Ensure the ZIP contains .shp, .dbf, and .shx files'
         });
     }
 
     task.updateProgress(80, 'Normalizing...');
-
     const baseName = file.name.replace(/\.zip$/i, '');
 
-    // shpjs can return a single FeatureCollection or array of them
-    if (Array.isArray(geojson)) {
+    if (parsed.layers) {
         const datasets = [];
-        for (let i = 0; i < geojson.length; i++) {
-            const fc = geojson[i];
-            if (!fc || fc.type !== 'FeatureCollection' || !fc.features?.length) continue;
-            const normalized = await _normalizeFeatureCollection(fc, task);
-            const layerName = fc.fileName
-                ? fc.fileName.replace(/\.\w+$/, '')
-                : (geojson.length > 1 ? `${baseName}_${i + 1}` : baseName);
+        for (let i = 0; i < parsed.layers.length; i++) {
+            const layer = parsed.layers[i];
+            const normalized = await _normalizeFeatureCollection(layer.geojson, task);
+            const layerName = layer.fileName
+                ? layer.fileName.replace(/\.\w+$/, '')
+                : (parsed.layers.length > 1 ? `${baseName}_${i + 1}` : baseName);
             datasets.push(createSpatialDataset(layerName, normalized, { file: file.name, format: 'shapefile' }));
         }
         if (datasets.length === 0) {
@@ -58,15 +48,6 @@ export async function importShapefile(file, task) {
         return datasets;
     }
 
-    if (!geojson || geojson.type !== 'FeatureCollection') {
-        throw new AppError('Shapefile produced invalid GeoJSON', ErrorCategory.PARSE_FAILED);
-    }
-
-    const normalized = await _normalizeFeatureCollection(geojson, task);
-
-    return createSpatialDataset(
-        baseName,
-        normalized,
-        { file: file.name, format: 'shapefile' }
-    );
+    const normalized = await _normalizeFeatureCollection(parsed.geojson, task);
+    return createSpatialDataset(baseName, normalized, { file: file.name, format: 'shapefile' });
 }

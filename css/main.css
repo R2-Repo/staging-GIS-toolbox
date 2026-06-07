@@ -1670,7 +1670,11 @@ textarea { resize: vertical; min-height: 60px; }
     padding: 4px 6px;
     border-radius: 6px;
     border: 1px solid var(--border);
-    background: var(--surface);
+    background: var(--bg-surface);
+    color: var(--text);
+}
+.smart-style-panel select option {
+    background: var(--bg-panel);
     color: var(--text);
 }
 .smart-style-legend {
@@ -1721,9 +1725,71 @@ textarea { resize: vertical; min-height: 60px; }
     list-style: none;
 }
 .smart-style-filter-section {
+    margin-top: 4px;
+    padding-top: 4px;
+}
+.smart-style-advanced {
     margin-top: 12px;
-    padding-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+}
+.smart-style-advanced-title {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 10px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+.smart-style-advanced-title::-webkit-details-marker { display: none; }
+.smart-style-advanced-title::before {
+    content: '▸';
+    font-size: 11px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+.smart-style-advanced[open] > .smart-style-advanced-title::before {
+    transform: rotate(90deg);
+}
+.smart-style-advanced-title:hover {
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px 8px 0 0;
+}
+.smart-style-advanced-body {
+    padding: 0 10px 10px;
     border-top: 1px solid var(--border);
+}
+.smart-style-vv-advanced {
+    margin-top: 8px;
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+}
+.smart-style-vv-advanced-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+    padding: 4px 0;
+    user-select: none;
+}
+.smart-style-vv-advanced-title::-webkit-details-marker { display: none; }
+.smart-style-vv-advanced-title::before {
+    content: '▸ ';
+    font-size: 10px;
+}
+.smart-style-vv-advanced[open] > .smart-style-vv-advanced-title::before {
+    content: '▾ ';
+}
+.smart-style-palette-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 /* Merge layer picker */

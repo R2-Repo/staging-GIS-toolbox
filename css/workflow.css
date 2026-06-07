@@ -272,67 +272,6 @@
     display: none !important;
 }
 
-.wf-canvas-svg {
-    display: block;
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-/* ── Node styles (via SVG classes) ── */
-.wf-node-group {
-    cursor: move;
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-.wf-node-group.wf-selected .wf-node-rect {
-    stroke: var(--gold) !important;
-    stroke-width: 2.5;
-    filter: drop-shadow(0 0 6px rgba(212, 162, 78, 0.4));
-}
-
-.wf-node-label {
-    font-family: var(--font);
-    pointer-events: none;
-}
-
-.wf-node-badge {
-    font-family: var(--mono);
-    pointer-events: none;
-}
-
-.wf-port {
-    fill: var(--bg-surface);
-    stroke: var(--text-muted);
-    stroke-width: 1.5;
-    cursor: crosshair;
-    transition: fill 0.12s, stroke 0.12s;
-}
-
-.wf-port:hover {
-    fill: var(--gold);
-    stroke: var(--gold-light);
-    r: 8;
-}
-
-.wf-wire-path {
-    cursor: pointer;
-    transition: stroke 0.12s;
-}
-
-.wf-wire-path:hover {
-    stroke: var(--gold);
-    stroke-width: 3;
-}
-
-@keyframes wf-spin {
-    to { stroke-dashoffset: -20; }
-}
-
-.wf-spinner {
-    animation: wf-spin 0.6s linear infinite;
-}
-
 /* ── Inspector (right) ── */
 .wf-inspector {
     width: var(--wf-inspector-w);
@@ -820,17 +759,4 @@
 
 .wf-preview-table tr:hover td {
     background: rgba(255, 255, 255, 0.03);
-}
-
-/* ── Mobile overrides ── */
-@media (max-width: 768px) {
-    :root {
-        --wf-palette-w: 150px;
-        --wf-inspector-w: 200px;
-        --wf-preview-h: 160px;
-    }
-
-    .wf-topbar-title {
-        display: none;
-    }
 }

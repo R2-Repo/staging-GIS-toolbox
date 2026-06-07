@@ -32,12 +32,14 @@ js/widgets/registry.js   — SINGLE registration point
 
 Shared infrastructure:
 
-- `js/widgets/registry.js` — panel buttons, mobile menu, `APP_ACTIONS`
+- `js/widgets/registry.js` — `GIS_WIDGETS` array, `buildWidgetActions()`, `openWidget()`
+- `react/panels/WidgetPanel.jsx` — panel buttons (reads `GIS_WIDGETS`)
 - `js/widgets/widget-context.js` — `getSpatialLayerOptions()`, `createWidgetContext()`
 - `js/widgets/map-draw-helpers.js` — `createAreaDrawHandlers()` for area draw workflows
 - `js/ui/open-react-island.js` — modal + dynamic React mount boilerplate
+- `js/tools/tool-handlers.js` — merges `buildWidgetActions(getWidgetContext)` into `APP_ACTIONS`
 
-**Do not** add widget handlers inline in `app.js`. Controllers receive `WidgetContext` from `getWidgetContext()`.
+Controllers receive `WidgetContext` from `getWidgetContext()` in `tool-handlers.js`. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full app layout.
 
 ---
 
@@ -49,7 +51,7 @@ Shared infrastructure:
 | 1. Engine | `engine.js` + `tests/<widget>-engine.test.js` | `npm test` green |
 | 2. Dialog | `react/widgets/<Widget>Dialog.jsx` using shared primitives | Renders via `mountIsland` |
 | 3. Controller | `controller.js` wires context → props | Opens from registry |
-| 4. Register | Entry in `GIS_WIDGETS` array | Panel + mobile + action work |
+| 4. Register | Entry in `GIS_WIDGETS` array | Panel + `APP_ACTIONS` work |
 | 5. Smoke | Browser checklist | Full workflow end-to-end |
 
 ---
@@ -65,7 +67,7 @@ npm run new:widget -- --id my-widget --steps 3
 ### 2. Engine (`js/widgets/my-widget/engine.js`)
 
 - Export pure functions: validation, run, constants
-- No DOM, no `mapService`, no `app.js` imports
+- No DOM, no `mapService`, no UI imports
 - Add `tests/my-widget-engine.test.js`
 
 ### 3. React dialog (`react/widgets/MyWidgetDialog.jsx`)
@@ -117,13 +119,12 @@ import { openMyWidget } from './my-widget/controller.js';
     action: 'openMyWidget',
     label: 'My Widget',
     icon: '⚙️',
-    mobileLabel: '⚙️ My Widget',
     tip: 'Short description for the panel tooltip.',
     open: openMyWidget
 }
 ```
 
-That's it — panel, mobile flyout, and `APP_ACTIONS` update automatically.
+That's it — `WidgetPanel` and `APP_ACTIONS` update automatically from the registry entry.
 
 ### 7. Re-export shim (optional, for old import paths)
 
@@ -141,7 +142,7 @@ Defined in `js/widgets/widget-types.js`:
 
 - `getLayers()`, `getLayerById(id)`
 - `mapService`, `addLayer`, `createSpatialDataset`
-- `refreshUI`, `showToast`
+- `showToast`
 - `setActiveLayer`, `updateSelectionUI` (selection workflows)
 - `analyzeSchema` (schema refresh after attribute writes)
 - `turf`
@@ -161,18 +162,19 @@ Defined in `js/widgets/widget-types.js`:
 ## Smoke checklist (browser)
 
 1. Open widget from left panel **GIS Widgets** section
-2. Open same widget from mobile flyout
-3. Complete full workflow (all steps)
-4. Verify map interactions (draw, select, preview temp features)
-5. Verify output layer / attribute changes
-6. Cancel mid-flow — no stuck draw mode; map selection is always-on when idle (use `mapService.getSelectedIndices`, not local selection state)
-7. `npm test` still green
+2. Complete full workflow (all steps)
+3. Verify map interactions (draw, select, preview temp features)
+4. Verify output layer / attribute changes
+5. Cancel mid-flow — no stuck draw mode; map selection is always-on when idle (use `mapService.getSelectedIndices`, not local selection state)
+6. `npm test` still green
+
+> **Mobile:** viewports below 768px show `MobileGate` (splash only). Widget smoke is desktop/tablet only.
 
 ---
 
 ## What not to do
 
-- Do not add widget logic inline in `app.js`
+- Do not add widget logic inline in `tool-handlers.js` — use `controller.js`
 - Do not skip engine tests and go straight to UI
 - Do not build a plugin framework — one registry entry + one folder is enough
 - Do not require legacy `WidgetBase` for new widgets (React-only)

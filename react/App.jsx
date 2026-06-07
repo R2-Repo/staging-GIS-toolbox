@@ -359,7 +359,6 @@ export function App() {
             if (isMobile !== state.ui.isMobile) {
                 setUIState('isMobile', isMobile);
             }
-            document.body.classList.toggle('is-mobile', isMobile);
         };
         syncMobileClass();
         window.addEventListener('resize', syncMobileClass);

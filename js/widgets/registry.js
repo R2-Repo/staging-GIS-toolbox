@@ -35,16 +35,6 @@ export const GIS_WIDGETS = [
 ];
 
 /**
- * Render GIS Widget buttons for the left panel.
- * @returns {string}
- */
-export function renderWidgetPanelHtml() {
-    return GIS_WIDGETS.map((widget) => (
-        `<span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" data-app-action="${widget.action}">${widget.icon} ${widget.label}</button><span class="geo-tip">${widget.tip}</span></span>`
-    )).join('');
-}
-
-/**
  * Build APP_ACTIONS entries for all registered widgets.
  * @param {() => WidgetContext} getCtx
  * @returns {Record<string, () => void>}

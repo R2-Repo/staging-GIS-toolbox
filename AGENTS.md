@@ -20,7 +20,8 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `manifest.json`, `vite.config.js` | PWA manifest and `vite-plugin-pwa` service worker config |
 | `tests/` | Vitest specs (`*.test.js`) |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
-| [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | **Active plan** — finish React migration (6 phases) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Current architecture** — React UI + `js/` domain |
+| [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | React migration plan (6 phases, complete) |
 | [docs/REACT_REFACTOR_PLAN.md](docs/REACT_REFACTOR_PLAN.md) | Original incremental migration doc (historical) |
 
 ## Agent workflow

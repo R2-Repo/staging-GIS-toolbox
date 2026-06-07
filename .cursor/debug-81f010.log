@@ -74,3 +74,32 @@
 {"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":2,"title":"Remove Layer","modalCount":1},"timestamp":1780843915287,"hypothesisId":"H3"}
 {"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":2,"title":"Remove Layer","footerInDom":true,"cancelInDom":true,"overlayCount":1},"timestamp":1780843915289,"hypothesisId":"H1"}
 {"sessionId":"81f010","location":"modals.js:dismissModal","message":"dismissModal","data":{"id":2,"result":true},"timestamp":1780843916327,"hypothesisId":"H5"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843967576,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"modals.js:showModal","message":"showModal called","data":{"id":1,"title":"Restore Previous Session?","subscriberCount":1,"hasOnMount":true,"hasFooter":true},"timestamp":1780843967583,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Restore Previous Session?","modalCount":1},"timestamp":1780843967583,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"modals.js:confirm:onMount","message":"confirm onMount wiring","data":{"cancelFound":true,"confirmFound":true,"overlayModalCount":1},"timestamp":1780843967587,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Restore Previous Session?","footerInDom":true,"cancelInDom":true,"overlayCount":1},"timestamp":1780843967588,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843967764,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"App.jsx:showToolInfo","message":"showToolInfo after session restore","data":{"overlayCount":0},"timestamp":1780843967768,"runId":"post-fix","hypothesisId":"H2"}
+{"sessionId":"81f010","location":"modals.js:showModal","message":"showModal called","data":{"id":1,"title":"Guide","subscriberCount":1,"hasOnMount":true,"hasFooter":false},"timestamp":1780843967769,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Guide","modalCount":1},"timestamp":1780843967770,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Guide","footerInDom":false,"cancelInDom":false,"overlayCount":1},"timestamp":1780843967776,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843968262,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Restore Previous Session?","modalCount":1},"timestamp":1780843968265,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Restore Previous Session?","footerInDom":true,"cancelInDom":true,"overlayCount":1},"timestamp":1780843968268,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"modals.js:confirm:onMount","message":"confirm onMount wiring","data":{"cancelFound":true,"confirmFound":true,"overlayModalCount":1},"timestamp":1780843968268,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843968725,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"App.jsx:showToolInfo","message":"showToolInfo after session restore","data":{"overlayCount":0},"timestamp":1780843968729,"runId":"post-fix","hypothesisId":"H2"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Guide","modalCount":1},"timestamp":1780843968729,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Guide","footerInDom":false,"cancelInDom":false,"overlayCount":1},"timestamp":1780843968732,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843969239,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Restore Previous Session?","modalCount":1},"timestamp":1780843969241,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Restore Previous Session?","footerInDom":true,"cancelInDom":true,"overlayCount":1},"timestamp":1780843969243,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843969744,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"App.jsx:showToolInfo","message":"showToolInfo after session restore","data":{"overlayCount":0},"timestamp":1780843969752,"runId":"post-fix","hypothesisId":"H2"}
+{"sessionId":"81f010","location":"mountModalHost.jsx:showModal","message":"modal host received showModal","data":{"modalId":1,"title":"Guide","modalCount":1},"timestamp":1780843969753,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"ModalHost.jsx:BasicModal:useEffect","message":"BasicModal mounted","data":{"modalId":1,"title":"Guide","footerInDom":false,"cancelInDom":false,"overlayCount":1},"timestamp":1780843969758,"hypothesisId":"H1"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843970719,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843971720,"hypothesisId":"H3"}
+{"sessionId":"81f010","location":"App.jsx:showToolInfo","message":"showToolInfo after session restore","data":{"overlayCount":0},"timestamp":1780843971722,"runId":"post-fix","hypothesisId":"H2"}
+{"sessionId":"81f010","location":"App.jsx:modalHostEffect","message":"modal host mounted","data":{},"timestamp":1780843972541,"hypothesisId":"H3"}

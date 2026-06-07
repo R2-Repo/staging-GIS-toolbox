@@ -20,9 +20,6 @@ function BasicModal({ modal }) {
         overlay._close = close;
         overlay._resolve = () => {};
         modal.options?.onMount?.(overlay, close);
-        // #region agent log
-        fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'ModalHost.jsx:BasicModal:useEffect',message:'BasicModal mounted',data:{modalId:modal.id,title:modal.title,footerInDom:!!overlay.querySelector('.modal-footer'),cancelInDom:!!overlay.querySelector('.cancel-btn'),overlayCount:document.querySelectorAll('.modal-overlay').length},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
     }, [modal.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (

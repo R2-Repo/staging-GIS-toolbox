@@ -27,9 +27,6 @@ export function subscribeModalEvents(listener) {
 }
 
 export function dismissModal(id, result = null) {
-    // #region agent log
-    fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'modals.js:dismissModal',message:'dismissModal',data:{id,result},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
     const resolve = _modalResolvers.get(id);
     if (resolve) {
         _modalResolvers.delete(id);
@@ -52,9 +49,6 @@ export function dismissProgressModal(id) {
 
 export function showModal(title, contentHtml, options = {}) {
     const id = _nextModalId++;
-    // #region agent log
-    fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'modals.js:showModal',message:'showModal called',data:{id,title,subscriberCount:_modalSubscribers.size,hasOnMount:typeof options.onMount==='function',hasFooter:!!options.footer},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
     return new Promise((resolve) => {
         _modalResolvers.set(id, resolve);
         _emitModalEvent({
@@ -72,13 +66,8 @@ export function confirm(title, message) {
         footer: `<button class="btn btn-secondary cancel-btn">Cancel</button>
                  <button class="btn btn-primary confirm-btn">Confirm</button>`,
         onMount: (overlay, close) => {
-            const cancelBtn = overlay.querySelector('.cancel-btn');
-            const confirmBtn = overlay.querySelector('.confirm-btn');
-            // #region agent log
-            fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'modals.js:confirm:onMount',message:'confirm onMount wiring',data:{cancelFound:!!cancelBtn,confirmFound:!!confirmBtn,overlayModalCount:document.querySelectorAll('.modal-overlay').length},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-            // #endregion
-            if (cancelBtn) cancelBtn.onclick = () => close(false);
-            if (confirmBtn) confirmBtn.onclick = () => close(true);
+            overlay.querySelector('.cancel-btn').onclick = () => close(false);
+            overlay.querySelector('.confirm-btn').onclick = () => close(true);
         }
     });
 }

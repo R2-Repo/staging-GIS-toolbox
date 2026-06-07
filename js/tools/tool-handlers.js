@@ -77,9 +77,6 @@ export async function restoreSessionIfAvailable() {
             'Restore Previous Session?',
             `You have ${info.layerCount} layer${info.layerCount > 1 ? 's' : ''} saved from ${ago}. Would you like to restore them?`
         );
-        // #region agent log
-        fetch('http://127.0.0.1:7495/ingest/cb18b7af-0a6b-4209-9942-6947b4257285',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'81f010'},body:JSON.stringify({sessionId:'81f010',location:'tool-handlers.js:restoreSession',message:'confirm resolved',data:{ok,layerCount:info.layerCount},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-        // #endregion
 
         if (ok) {
             const session = await sessionStore.loadSession();

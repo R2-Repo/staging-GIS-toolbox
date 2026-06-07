@@ -30,9 +30,6 @@ export function ToolGuideDialog({ isMobile = false, showTitle = true }) {
     return (
         <div>
             {showTitle ? <ToolGuideTitle isMobile={isMobile} /> : null}
-            {isMobile ? (
-                <div className="splash-mobile-notice">📱 Mobile site still under development — for a better experience use a larger screen</div>
-            ) : null}
             <div style={{ overflowY: 'auto', flex: 1 }}>
                 {TOOL_GUIDE_SECTIONS.map((section) => {
                     if (section.title === 'How To') {

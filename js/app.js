@@ -40,10 +40,6 @@ import { arcgisImporter } from './arcgis/rest-importer.js';
 import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
-import {
-    getMobileGisToolFlyoutItems,
-    renderMobileGisToolButtonsHtml
-} from './tools/tool-catalog.js';
 import { renderDataPrepToolsHtml } from './ui/data-prep-panel-html.js';
 import { convertFeatureCoords } from './tools/coordinates.js';
 import { findFirstLineStringFeature, listLineStringFeatures } from './tools/line-geojson.js';
@@ -64,6 +60,7 @@ let _reactLeftPanelMount = null;
 let _reactRightPanelMount = null;
 let _reactToastUnmount = null;
 let _reactModalUnmount = null;
+let _reactMobileGateUnmount = null;
 let _reactHeaderUnmount = null;
 let _reactMapContextMenuUnmount = null;
 let _importInputEl = null;
@@ -71,6 +68,7 @@ let _workflowOverlay = null;
 
 async function boot() {
     logger.info('App', 'Initializing GIS Toolbox');
+    await _mountReactMobileGate();
     await _mountReactModalHost();
     await _mountReactToastHost();
     await initMap();
@@ -108,8 +106,10 @@ async function boot() {
     // Check for a saved session and offer to restore
     restoreSessionIfAvailable();
 
-    // Show tool guide splash on every app open
-    setTimeout(() => showToolInfo(), 300);
+    // Show tool guide splash on desktop app open (mobile uses MobileGate)
+    if (window.innerWidth >= 768) {
+        setTimeout(() => showToolInfo(), 300);
+    }
 }
 // Handle both: module loaded before or after DOMContentLoaded
 if (document.readyState === 'loading') {
@@ -210,6 +210,19 @@ function _timeAgo(ts) {
     if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
     const days = Math.floor(hrs / 24);
     return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+async function _mountReactMobileGate() {
+    if (_reactMobileGateUnmount) return;
+    let host = document.getElementById('mobile-gate-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'mobile-gate-host';
+        document.body.prepend(host);
+    }
+    const { mountMobileGate } = await import('../react/shell/mountMobileGate.jsx');
+    const mounted = mountMobileGate(host);
+    _reactMobileGateUnmount = mounted.unmount;
 }
 
 function _getOrCreateModalHost() {
@@ -949,14 +962,10 @@ function setupEventListeners() {
         document.getElementById('btn-import')?.addEventListener('click', openImportFlow);
     
 
-    // Mobile import
-    document.getElementById('btn-import-mobile')?.addEventListener('click', openImportFlow);
-
     // Photo Mapper
     
         document.getElementById('btn-photo-mapper')?.addEventListener('click', openPhotoMapper);
     
-    document.getElementById('btn-photo-mapper-mobile')?.addEventListener('click', openPhotoMapper);
 
     // Import Fence
     
@@ -1020,7 +1029,6 @@ function setupEventListeners() {
     
         document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
     
-    document.getElementById('btn-arcgis-mobile')?.addEventListener('click', openArcGISImporter);
 
     // Draw Layer
     
@@ -1081,68 +1089,11 @@ function setupEventListeners() {
         document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
     
 
-    // Mobile dropdown menu
-    const mobileMenuBtn = document.getElementById('btn-mobile-menu');
-    const mobileDropdown = document.getElementById('mobile-dropdown-menu');
-    if (mobileMenuBtn && mobileDropdown) {
-        const closeMobileMenu = () => {
-            mobileDropdown.classList.add('hidden');
-            const backdrop = document.getElementById('mobile-menu-backdrop');
-            if (backdrop) backdrop.remove();
-        };
-        mobileMenuBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = !mobileDropdown.classList.contains('hidden');
-            if (isOpen) { closeMobileMenu(); return; }
-            mobileDropdown.classList.remove('hidden');
-            // Add backdrop to catch taps outside
-            let backdrop = document.getElementById('mobile-menu-backdrop');
-            if (!backdrop) {
-                backdrop = document.createElement('div');
-                backdrop.id = 'mobile-menu-backdrop';
-                backdrop.className = 'mobile-dropdown-backdrop';
-                document.body.appendChild(backdrop);
-            }
-            backdrop.addEventListener('click', closeMobileMenu, { once: true });
-        });
-        mobileDropdown.addEventListener('click', (e) => {
-            const item = e.target.closest('.mobile-menu-item');
-            if (!item) return;
-            const action = item.dataset.action;
-            closeMobileMenu();
-            switch (action) {
-                case 'import': openImportFlow(); break;
-                case 'photos': openPhotoMapper(); break;
-                case 'arcgis': openArcGISImporter(); break;
-
-                case 'draw': createDrawLayer(); break;
-                case 'logs': toggleLogs(); break;
-                case 'info': showToolInfo(); break;
-            }
-        });
-    }
-
     // Undo / Redo
     
         document.getElementById('btn-undo')?.addEventListener('click', handleUndo);
         document.getElementById('btn-redo')?.addEventListener('click', handleRedo);
     
-
-    // Mobile nav tabs
-    document.querySelectorAll('.mobile-nav-item').forEach(el => {
-        el.addEventListener('click', () => {
-            const tab = el.dataset.tab;
-            setUIState('activeTab', tab);
-            document.querySelectorAll('.mobile-nav-item').forEach(n => n.classList.remove('active'));
-            el.classList.add('active');
-            showMobileContent(tab);
-        });
-    });
-
-    // ============================
-    // NEW MOBILE FLYOUT MENUS
-    // ============================
-    setupMobileFlyoutMenus();
 
     // App action delegation for HTML-rendered tool buttons (replaces inline onclick usage)
     document.addEventListener('click', (event) => {
@@ -1155,7 +1106,7 @@ function setupEventListeners() {
         invokeAppAction(appAction, appArg);
     });
 
-    // Layer list activation (desktop + mobile legacy render paths)
+    // Layer list activation
     document.addEventListener('click', (event) => {
         const layerItem = closestFromEvent(event, '.layer-item[data-layer-id]');
         if (!layerItem) return;
@@ -1179,7 +1130,7 @@ function setupEventListeners() {
         }
     });
 
-    // Field list controls (desktop + mobile legacy render paths)
+    // Field list controls
     document.addEventListener('input', (event) => {
         if (event.target.id === 'field-search') {
             filterFields(event.target.value);
@@ -1404,7 +1355,6 @@ let _refreshUITimer = null;
 function refreshUINow() {
     _renderReactLeftPanel();
     _renderReactRightPanel();
-    renderMobileContent();
     updateToolbarState();
 }
 
@@ -1500,453 +1450,6 @@ async function removeLayerWithConfirm(id) {
 // Layer Data Tools Panel (left panel section)
 // ============================
 
-
-// ============================
-// Mobile Flyout Menus (new mobile UI)
-// ============================
-function setupMobileFlyoutMenus() {
-    const fabNav = document.getElementById('mobile-fab-nav');
-    const fabAdd = document.getElementById('mobile-fab-add');
-    const flyoutNav = document.getElementById('mobile-flyout-nav');
-    const flyoutAdd = document.getElementById('mobile-flyout-add');
-
-    if (!fabNav || !fabAdd || !flyoutNav || !flyoutAdd) return;
-
-    function closeFlyouts() {
-        flyoutNav.classList.remove('open');
-        flyoutAdd.classList.remove('open');
-        fabNav.classList.remove('open');
-        fabAdd.classList.remove('open');
-        document.querySelector('.mobile-flyout-backdrop')?.remove();
-    }
-
-    function openFlyout(fab, flyout) {
-        const wasOpen = flyout.classList.contains('open');
-        closeFlyouts();
-        if (wasOpen) return;
-
-        flyout.classList.add('open');
-        fab.classList.add('open');
-
-        const backdrop = document.createElement('div');
-        backdrop.className = 'mobile-flyout-backdrop';
-        document.body.appendChild(backdrop);
-        backdrop.addEventListener('click', closeFlyouts, { once: true });
-    }
-
-    fabNav.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openFlyout(fabNav, flyoutNav);
-    });
-
-    fabAdd.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openFlyout(fabAdd, flyoutAdd);
-    });
-
-    // Nav menu (gear ??? upper right) actions
-    flyoutNav.addEventListener('click', (e) => {
-        const item = e.target.closest('.mobile-flyout-item');
-        if (!item) return;
-        const action = item.dataset.action;
-        closeFlyouts();
-        switch (action) {
-            case 'export': mobileShowExportModal(); break;
-            case 'widgets': mobileShowWidgetsModal(); break;
-            case 'tools': mobileShowToolsModal(); break;
-            case 'layers': mobileShowLayersModal(); break;
-            case 'fields': mobileShowFieldsModal(); break;
-            case 'styling': mobileShowStylingModal(); break;
-            case 'datatools': mobileShowDataToolsModal(); break;
-            case 'basemap': mobileShowBasemapModal(); break;
-            case 'guide': showToolInfo(); break;
-        }
-    });
-
-    // Add menu (plus ??? lower right) actions
-    flyoutAdd.addEventListener('click', (e) => {
-        const item = e.target.closest('.mobile-flyout-item');
-        if (!item) return;
-        const action = item.dataset.action;
-        closeFlyouts();
-        switch (action) {
-            case 'import': openImportFlow(); break;
-            case 'arcgis': openArcGISImporter(); break;
-            case 'photos': openPhotoMapper(); break;
-            case 'draw': createDrawLayer(); break;
-            case 'fence': startImportFence(); break;
-            case 'location': mobileAddCurrentLocation(); break;
-        }
-    });
-}
-
-// ============================
-// Mobile Modal Helpers
-// ============================
-function mobileShowExportModal() {
-    const layer = getActiveLayer();
-    if (!layer) {
-        showToast('Import data first to export', 'warning');
-        return;
-    }
-    const formats = getAvailableFormats(layer);
-    const agolMode = getState().agolCompatMode;
-    const html = `
-        <label class="toggle mb-8">
-            <input type="checkbox" id="agol-toggle-mob" ${agolMode ? 'checked' : ''}>
-            <span class="toggle-track"></span>
-            <span>AGOL Compatible</span>
-        </label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-            ${formats.map(f =>
-                `<button class="btn btn-primary btn-sm" style="flex:1 1 calc(50% - 4px);min-height:44px;" data-export="${f.key}">${f.label}</button>`
-            ).join('')}
-        </div>`;
-    showModal('Export ??? ' + layer.name, html, {
-        onMount: (overlay, close) => {
-            overlay.querySelector('#agol-toggle-mob')?.addEventListener('change', () => {
-                toggleAGOLCompat();
-            });
-            overlay.querySelectorAll('[data-export]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const fmt = btn.dataset.export;
-                    close(null);
-                    doExport(fmt);
-                });
-            });
-        }
-    });
-}
-
-function mobileShowWidgetsModal() {
-    const items = GIS_WIDGETS.map((widget) => ({
-        label: widget.mobileLabel || `${widget.icon} ${widget.label}`,
-        action: widget.action
-    }));
-    const html = `<div style="display:flex;flex-direction:column;gap:8px;">
-        ${items.map(i => `<button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" data-action="${i.action}">${i.label}</button>`).join('')}
-    </div>`;
-    showModal('GIS Widgets', html, {
-        onMount: (overlay, close) => {
-            overlay.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const fn = btn.dataset.action;
-                    close(null);
-                    invokeAppAction(fn);
-                });
-            });
-        }
-    });
-}
-
-function mobileShowToolsModal() {
-    const layers = getLayers();
-    const selCount = mapService.getSelectedIndices?.(getActiveLayer()?.id)?.length || 0;
-    const items = [
-        ...(layers.length >= 2 ? [{ label: '?? Merge Layers', action: 'mergeLayers', full: true }] : []),
-        ...getMobileGisToolFlyoutItems()
-    ];
-    const html = `
-    <div style="margin-bottom:10px;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-            ${selCount > 0 ? `<button class="btn btn-sm btn-secondary" data-action="clearSelection" style="min-height:38px;">Clear selection (${selCount})</button>` : ''}
-        </div>
-        <span style="font-size:10px;color:var(--text-muted);">Tap features to select ? Shift+tap multi-select ? Drag to box-select</span>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;">
-        ${items.map(i => `<button class="btn ${i.full ? 'btn-primary' : 'btn-secondary'} btn-sm" style="flex:1 1 ${i.full ? '100%' : 'calc(50% - 3px)'};min-height:44px;" data-action="${i.action}">${i.label}</button>`).join('')}
-    </div>`;
-    showModal('GIS Tools', html, {
-        onMount: (overlay, close) => {
-            overlay.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const fn = btn.dataset.action;
-                    close(null);
-                    invokeAppAction(fn);
-                });
-            });
-        }
-    });
-}
-
-function mobileShowLayersModal() {
-    const layers = getLayers();
-    const active = getActiveLayer();
-    if (layers.length === 0) {
-        showToast('No layers loaded yet', 'info');
-        return;
-    }
-
-    function buildLayerListHtml() {
-        const currentLayers = getLayers();
-        const currentActive = getActiveLayer();
-        let h = `<div style="display:flex;flex-direction:column;gap:4px;">`;
-        h += currentLayers.map((l, idx) => {
-            const isActive = l.id === currentActive?.id;
-            const icon = l.type === 'spatial' ? '?????' : '????';
-            const count = l.type === 'spatial'
-                ? `${l.geojson?.features?.length || 0} features`
-                : `${l.rows?.length || 0} rows`;
-            return `
-            <div class="layer-item ${isActive ? 'active' : ''}" style="border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:2px;" data-layer-id="${l.id}" data-layer-action="select">
-                <span class="layer-icon">${icon}</span>
-                <div class="layer-name-row">
-                    <div class="layer-name">${l.name}</div>
-                    <div class="layer-order-btns">
-                        <button title="Up" ${idx === 0 ? 'disabled' : ''} data-layer-id="${l.id}" data-layer-action="up">???</button>
-                        <button title="Down" ${idx === currentLayers.length - 1 ? 'disabled' : ''} data-layer-id="${l.id}" data-layer-action="down">???</button>
-                    </div>
-                </div>
-                <div class="layer-bottom-row">
-                    <div class="layer-meta">${count} ? ${l.schema?.fields?.length || 0} fields</div>
-                    <div class="layer-actions">
-                        <button class="btn-icon" title="Rename" data-layer-id="${l.id}" data-layer-action="rename">????</button>
-                        <button class="btn-icon" title="Toggle" data-layer-id="${l.id}" data-layer-action="toggle">
-                            ${l.visible !== false ? '?????' : '?????????????'}
-                        </button>
-                        <button class="btn-icon" title="Zoom" data-layer-id="${l.id}" data-layer-action="zoom">????</button>
-                        <button class="btn-icon" title="Remove" data-layer-id="${l.id}" data-layer-action="remove">?????</button>
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
-        h += `</div>`;
-        return h;
-    }
-
-    showModal('Layers', buildLayerListHtml(), {
-        onMount: (overlay, close) => {
-            const refreshModal = () => {
-                const body = overlay.querySelector('.modal-body');
-                if (body) body.innerHTML = buildLayerListHtml();
-            };
-
-            overlay.addEventListener('click', (e) => {
-                const target = e.target.closest('[data-layer-action]');
-                if (!target) return;
-                e.stopPropagation();
-                const id = target.dataset.layerId;
-                const action = target.dataset.layerAction;
-
-                switch (action) {
-                    case 'select':
-                        setActiveLayer(id);
-                        refreshUI();
-                        refreshModal();
-                        break;
-                    case 'up':
-                        moveLayerUp(id);
-                        refreshModal();
-                        break;
-                    case 'down':
-                        moveLayerDown(id);
-                        refreshModal();
-                        break;
-                    case 'rename': {
-                        const layer = getLayers().find(l => l.id === id);
-                        if (layer) {
-                            const newName = prompt('Rename layer:', layer.name);
-                            if (newName && newName.trim() && newName.trim() !== layer.name) {
-                                layer.name = newName.trim();
-                                _renderReactLeftPanel();
-                                _renderReactRightPanel();
-                                showToast(`Renamed to "${layer.name}"`, 'success', { duration: 2000 });
-                                refreshModal();
-                            }
-                        }
-                        break;
-                    }
-                    case 'toggle':
-                        toggleLayerVisibility(id);
-                        mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible);
-                        _renderReactLeftPanel();
-                        refreshModal();
-                        break;
-                    case 'zoom': {
-                        const mapLayer = mapService.getLayerRecord(id);
-                        if (mapLayer && mapLayer.geojson) {
-                            try { const bb = turf.bbox(mapLayer.geojson); mapService.getMap()?.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30 }); } catch(_) {}
-                        }
-                        close(null);
-                        break;
-                    }
-                    case 'remove':
-                        confirm('Remove Layer', 'Remove this layer?').then(ok => {
-                            if (ok) {
-                                removeLayer(id);
-                                mapService.removeLayer(id);
-                                refreshUI();
-                                if (getLayers().length === 0) {
-                                    close(null);
-                                    showToast('Layer removed', 'success');
-                                } else {
-                                    refreshModal();
-                                    showToast('Layer removed', 'success');
-                                }
-                            }
-                        });
-                        break;
-                }
-            });
-        }
-    });
-}
-
-function mobileShowFieldsModal() {
-    const layer = getActiveLayer();
-    if (!layer) {
-        showToast('Select a layer first', 'warning');
-        return;
-    }
-
-    const fields = layer.schema?.fields || [];
-    const fieldRows = fields.map(f => `
-        <div class="field-item" data-field="${f.name}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);">
-            <input type="checkbox" class="mob-field-chk" data-name="${f.name}" ${f.selected ? 'checked' : ''}>
-            <span class="field-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.outputName || f.name}</span>
-            <span class="field-type" style="font-size:10px;color:var(--text-muted);">${f.type}</span>
-        </div>
-    `).join('');
-
-    const html = `
-        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-secondary" id="mob-fields-all">Select All</button>
-            <button class="btn btn-sm btn-secondary" id="mob-fields-none">Select None</button>
-            <button class="btn btn-sm btn-primary" id="mob-fields-add">+ Add Field</button>
-        </div>
-        <div style="max-height:55vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
-            ${fieldRows || '<div style="padding:12px;color:var(--text-muted);font-size:13px;">No fields in this layer.</div>'}
-        </div>
-    `;
-
-    showModal('Fields ??? ' + layer.name, html, {
-        width: '400px',
-        onMount: (overlay, close) => {
-            // Checkbox toggles
-            overlay.querySelectorAll('.mob-field-chk').forEach(chk => {
-                chk.addEventListener('change', () => {
-                    toggleField(chk.dataset.name, chk.checked);
-                });
-            });
-            // Select All / None
-            overlay.querySelector('#mob-fields-all')?.addEventListener('click', () => {
-                selectAllFields(true);
-                overlay.querySelectorAll('.mob-field-chk').forEach(c => c.checked = true);
-            });
-            overlay.querySelector('#mob-fields-none')?.addEventListener('click', () => {
-                selectAllFields(false);
-                overlay.querySelectorAll('.mob-field-chk').forEach(c => c.checked = false);
-            });
-            // Add Field ??? close modal and open addField dialog
-            overlay.querySelector('#mob-fields-add')?.addEventListener('click', () => {
-                close();
-                addField();
-            });
-        }
-    });
-}
-
-function mobileShowStylingModal() {
-    const layer = getActiveLayer();
-    if (!layer) {
-        showToast('Select a layer first', 'warning');
-        return;
-    }
-    if (layer.type !== 'spatial') {
-        showToast('Layer styling is only for spatial layers', 'info');
-        return;
-    }
-    const rootId = `smart-style-modal-${Date.now()}`;
-    showModal('Layer Styling - ' + layer.name, `<div id="${rootId}"></div>`, {
-        width: '420px',
-        onMount: async (overlay) => {
-            const root = overlay.querySelector(`#${rootId}`);
-            if (!root) return;
-            const { mountSmartStylePanel } = await import('../react/panels/mountSmartStylePanel.jsx');
-            const layerIndex = getLayers().indexOf(layer);
-            const palette = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
-            const mounted = mountSmartStylePanel(root, {
-                layer,
-                style: mapService.getLayerStyle(layer.id),
-                defaultColor: palette[Math.max(0, layerIndex) % palette.length],
-                onStyleChange: (style) => mapService.restyleLayer(layer.id, layer, style)
-            });
-            const observer = new MutationObserver(() => {
-                if (!document.body.contains(overlay)) {
-                    mounted.unmount();
-                    observer.disconnect();
-                }
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-        }
-    });
-}
-
-function mobileShowDataToolsModal() {
-    const layer = getActiveLayer();
-    if (!layer) {
-        showToast('Import data first', 'warning');
-        return;
-    }
-    const items = [
-        { label: 'Split Column', action: 'openSplitColumn' },
-        { label: 'Combine', action: 'openCombineColumns' },
-        { label: 'Template', action: 'openTemplateBuilder' },
-        { label: 'Replace/Clean', action: 'openReplaceClean' },
-        { label: 'Type Convert', action: 'openTypeConvert' },
-        { label: 'Filter', action: 'openFilterBuilder' },
-        { label: 'Dedup', action: 'openDeduplicate' },
-        { label: 'Join', action: 'openJoinTool' },
-        { label: 'Validate', action: 'openValidation' },
-        { label: 'Add UID', action: 'addUID' },
-    ];
-    const html = `<div style="display:flex;flex-wrap:wrap;gap:8px;">
-        ${items.map(i => `<button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" data-action="${i.action}">${i.label}</button>`).join('')}
-    </div>`;
-    showModal('Data Tools ??? ' + layer.name, html, {
-        onMount: (overlay, close) => {
-            overlay.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const fn = btn.dataset.action;
-                    close(null);
-                    invokeAppAction(fn);
-                });
-            });
-        }
-    });
-}
-
-function mobileShowBasemapModal() {
-    const basemapOptions = [
-        { value: 'voyager', label: 'Map' },
-        { value: 'satellite', label: 'Satellite' }
-    ];
-    const currentBasemap = mapService.getCurrentBasemap() || 'voyager';
-    const html = `
-        <div style="display:flex;flex-direction:column;gap:6px;">
-            ${basemapOptions.map(o => `
-                <button class="btn ${o.value === currentBasemap ? 'btn-primary' : 'btn-secondary'}"
-                    style="min-height:48px;justify-content:flex-start;gap:12px;"
-                    data-basemap="${o.value}">
-                    ${o.value === 'voyager' ? '?????' : '?????'} ${o.label}
-                </button>
-            `).join('')}
-        </div>`;
-    showModal('Basemap', html, {
-        onMount: (overlay, close) => {
-            overlay.querySelectorAll('[data-basemap]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const val = btn.dataset.basemap;
-                    mapService.setBasemap(val);
-                    // Sync header toggle
-                    document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === val));
-                    close(null);
-                    showToast(`Basemap: ${btn.textContent.trim()}`, 'success', { duration: 1500 });
-                });
-            });
-        }
-    });
-}
 
 // ============================
 // Coordinate Search ??? add point from search marker
@@ -2056,278 +1559,6 @@ function _addSearchPointToLayer(layer, info) {
 
 function _coordSearchClear() {
     mapService.clearSearchMarker();
-}
-
-// ============================
-// Mobile: Current Location
-// ============================
-let _mobileLocationLayerId = null;
-
-function mobileAddCurrentLocation() {
-    if (!navigator.geolocation) {
-        showToast('Geolocation not supported on this device', 'error');
-        return;
-    }
-
-    showToast('Getting location???', 'info', { duration: 3000 });
-
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
-
-            // Check if we have an existing location layer
-            let layer = _mobileLocationLayerId ? getLayers().find(l => l.id === _mobileLocationLayerId) : null;
-
-            if (!layer) {
-                // Look for any existing draw layer
-                const drawLayers = getLayers().filter(l => l._isDrawLayer);
-                if (drawLayers.length > 0) {
-                    // Use the first existing draw layer
-                    layer = drawLayers[0];
-                    _mobileLocationLayerId = layer.id;
-                } else {
-                    // Create a new draw layer
-                    const newLayer = createSpatialDataset('My Locations', {
-                        type: 'FeatureCollection',
-                        features: []
-                    });
-                    newLayer._isDrawLayer = true;
-                    addLayer(newLayer);
-                    setActiveLayer(newLayer.id);
-                    _mobileLocationLayerId = newLayer.id;
-                    layer = newLayer;
-                    mapService.addLayer(newLayer, 0);
-                }
-            }
-
-            // Add point feature
-            const timestamp = new Date().toISOString();
-            const feature = {
-                type: 'Feature',
-                geometry: {
-                    type: 'Point',
-                    coordinates: [lng, lat]
-                },
-                properties: {
-                    name: `Location ${(layer.geojson?.features?.length || 0) + 1}`,
-                    timestamp: timestamp,
-                    accuracy_m: Math.round(accuracy),
-                    latitude: lat.toFixed(6),
-                    longitude: lng.toFixed(6)
-                }
-            };
-
-            saveSnapshot(layer.id, 'Add current location', layer.geojson);
-            layer.geojson.features.push(feature);
-
-            layer.schema = analyzeSchema(layer.geojson);
-            bus.emit('layer:updated', layer);
-            bus.emit('layers:changed', getLayers());
-            mapService.addLayer(layer, getLayers().indexOf(layer));
-            refreshUI();
-
-            // Pan map to location (support both legacy setView and MapLibre flyTo APIs)
-            const map = mapService.getMap();
-            const zoom = Math.max(map?.getZoom?.() ?? 15, 15);
-            if (typeof map?.setView === 'function') {
-                map.setView([lat, lng], zoom);
-            } else if (typeof map?.flyTo === 'function') {
-                map.flyTo({ center: [lng, lat], zoom });
-            }
-            showToast(`???? Location added (?${Math.round(accuracy)}m)`, 'success');
-        },
-        (error) => {
-            let msg = 'Could not get location';
-            if (error.code === 1) msg = 'Location permission denied';
-            else if (error.code === 2) msg = 'Location unavailable';
-            else if (error.code === 3) msg = 'Location request timed out';
-            showToast(msg, 'error');
-        },
-        {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0
-        }
-    );
-}
-
-// ============================
-// Mobile content switching
-// ============================
-function showMobileContent(tab) {
-    document.querySelectorAll('.mobile-content').forEach(el => el.classList.add('hidden'));
-    if (tab === 'map') {
-        // All panels hidden ??? map is visible underneath
-        // Recalculate map size in case container was obscured
-        setTimeout(() => { mapService.resize(); }, 50);
-        return;
-    }
-    const panel = document.getElementById(`mobile-${tab}`);
-    if (panel) {
-        panel.classList.remove('hidden');
-        if (tab === 'data') renderMobileDataPanel();
-        if (tab === 'prep') renderMobilePrepPanel();
-        if (tab === 'tools') renderMobileToolsPanel();
-        if (tab === 'export') renderMobileExportPanel();
-    }
-}
-
-function renderMobileContent() {
-    const tab = getState().ui.activeTab;
-    if (getState().ui.isMobile) showMobileContent(tab);
-}
-
-function renderMobileDataPanel() {
-    const el = document.getElementById('mobile-data');
-    if (!el) return;
-    const layers = getLayers();
-    const layer = getActiveLayer();
-
-    let html = `<h3>Layers</h3>`;
-    if (layers.length === 0) {
-        html += `<div class="empty-state"><p>No layers loaded</p>
-            <button class="btn btn-primary btn-sm" id="btn-import-mobile">???? Import Files</button></div>`;
-    } else {
-        html += `<div style="display:flex;flex-direction:column;gap:2px;">`;
-        html += layers.map((l, idx) => {
-            const isActive = l.id === layer?.id;
-            const icon = l.type === 'spatial' ? '?????' : '????';
-            const count = l.type === 'spatial'
-                ? `${l.geojson?.features?.length || 0} features`
-                : `${l.rows?.length || 0} rows`;
-            const geomBadge = l.schema?.geometryType
-                ? `<span class="badge badge-info">${l.schema.geometryType}</span>` : '';
-            const filterBadge = l._activeFilter
-                ? `<span class="layer-filter-badge" title="Filter active" data-app-action="openFilterBuilder" data-app-arg="${l.id}">FILTERED</span>`
-                : '';
-            return `
-                <div class="layer-item ${isActive ? 'active' : ''}" data-id="${l.id}" data-layer-id="${l.id}">
-                    <span class="layer-icon">${icon}</span>
-                    <div class="layer-name-row">
-                        <div class="layer-name" data-layer-rename-id="${l.id}">${l.name}</div>
-                        ${filterBadge}
-                        <div class="layer-order-btns">
-                            <button title="Move up" ${idx === 0 ? 'disabled' : ''} data-app-action="moveLayerUp" data-app-arg="${l.id}">???</button>
-                            <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} data-app-action="moveLayerDown" data-app-arg="${l.id}">???</button>
-                        </div>
-                    </div>
-                    <div class="layer-bottom-row">
-                        <div class="layer-meta">${count} ? ${l.schema?.fields?.length || 0} fields ${geomBadge}</div>
-                        <div class="layer-actions">
-                            <button class="btn-icon" title="Rename" data-app-action="renameLayer" data-app-arg="${l.id}">????</button>
-                            <button class="btn-icon" title="Toggle visibility" data-app-action="toggleVisibility" data-app-arg="${l.id}">
-                                ${l.visible !== false ? '?????' : '?????????????'}
-                            </button>
-                            <button class="btn-icon" title="Zoom to layer" data-app-action="zoomToLayer" data-app-arg="${l.id}">????</button>
-                            <button class="btn-icon" title="Remove" data-app-action="removeLayer" data-app-arg="${l.id}">?????</button>
-                        </div>
-                    </div>
-                </div>`;
-        }).join('');
-        html += `</div>`;
-    }
-
-    if (layer) {
-        html += `<h3 style="margin-top:10px;">Fields</h3>`;
-        html += `<div style="display:flex;flex-direction:column;gap:1px;">`;
-        html += (layer.schema?.fields || []).map(f => `
-            <div class="field-item">
-                <input type="checkbox" ${f.selected ? 'checked' : ''} data-field-toggle="${f.name}">
-                <span class="field-name">${f.name}</span>
-                <span class="field-type">${f.type}</span>
-            </div>
-        `).join('');
-        html += `</div>`;
-    }
-
-    el.innerHTML = html;
-    el.querySelector('#btn-import-mobile')?.addEventListener('click', () => {
-        document.getElementById('btn-import')?.click();
-    });
-}
-
-function renderMobilePrepPanel() {
-    const el = document.getElementById('mobile-prep');
-    if (!el) return;
-    const layer = getActiveLayer();
-    if (!layer) {
-        el.innerHTML = '<div class="empty-state"><p>Import data first</p></div>';
-        return;
-    }
-    el.innerHTML = `
-        <h3>Layer Data Tools</h3>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            <button class="btn btn-secondary btn-sm" data-app-action="openSplitColumn">Split Column</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openCombineColumns">Combine</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openTemplateBuilder">Template</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openReplaceClean">Replace/Clean</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openTypeConvert">Type Convert</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openFilterBuilder">Filter</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openDeduplicate">Dedup</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openJoinTool">Join</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openValidation">Validate</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="addUID">Add UID</button>
-        </div>`;
-}
-
-function renderMobileToolsPanel() {
-    const el = document.getElementById('mobile-tools');
-    if (!el) return;
-    const basemapOptions = [
-        { value: 'voyager', label: 'Map' },
-        { value: 'satellite', label: 'Satellite' }
-    ];
-    const currentBasemap = mapService.getCurrentBasemap() || 'voyager';
-    const layers = getLayers();
-    el.innerHTML = `
-        <h3>GIS Tools</h3>
-        <div id="selection-hint" style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">
-            Tap to select ? Shift+tap multi-select ? Drag empty area to box-select
-        </div>
-        <div id="selection-bar" class="selection-bar hidden"></div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" data-app-action="mergeLayers">?? Merge Layers</button>' : ''}
-            ${renderMobileGisToolButtonsHtml()}
-            <button class="btn btn-secondary btn-sm" data-app-action="openPhotoMapper">?? Photo Map</button>
-            <button class="btn btn-secondary btn-sm" data-app-action="openArcGISImporter">?? ArcGIS REST</button>
-        </div>
-        <h3 style="margin-top:10px;">Basemap</h3>
-        <select id="basemap-select-mobile" style="width:100%;">
-            ${basemapOptions.map(o => `<option value="${o.value}" ${o.value === currentBasemap ? 'selected' : ''}>${o.label}</option>`).join('')}
-        </select>`;
-    el.querySelector('#basemap-select-mobile')?.addEventListener('change', (e) => {
-        mapService.setBasemap(e.target.value);
-        // Sync header toggle
-        document.querySelectorAll('#basemap-toggle .header-toggle-option').forEach(b => b.classList.toggle('active', b.dataset.value === e.target.value));
-    });
-}
-
-function renderMobileExportPanel() {
-    const el = document.getElementById('mobile-export');
-    if (!el) return;
-    const layer = getActiveLayer();
-    if (!layer) {
-        el.innerHTML = '<div class="empty-state"><p>Import data first</p></div>';
-        return;
-    }
-    const formats = getAvailableFormats(layer);
-    el.innerHTML = `
-        <h3>Export</h3>
-        <label class="toggle mb-8">
-            <input type="checkbox" id="agol-toggle-mobile" ${getState().agolCompatMode ? 'checked' : ''}>
-            <span class="toggle-track"></span>
-            <span>AGOL Compatible</span>
-        </label>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
-            ${formats.map((f) =>
-                `<button class="btn btn-primary btn-sm" data-app-action="doExport" data-app-arg="${f.key}">${f.label}</button>`
-            ).join('')}
-        </div>`;
-    el.querySelector('#agol-toggle-mobile')?.addEventListener('change', () => {
-        toggleAGOLCompat();
-    });
 }
 
 // ============================
@@ -2989,35 +2220,8 @@ async function deleteSelectedFeatures() {
     showToast(`Deleted ${indices.length} feature(s)`, 'success');
 }
 
-/** @deprecated Desktop selection bar is React-owned; mobile fallback until Phase 3 */
-function updateSelectionUI() {
-    const bar = document.getElementById('selection-bar');
-    if (!bar) return;
-
-    const layer = getActiveLayer();
-    const count = layer ? mapService.getSelectionCount(layer.id) : 0;
-    const total = layer?.geojson?.features?.length || 0;
-    const layerLabel = layer?.name ? ` on <strong>${layer.name}</strong>` : '';
-
-    const hint = document.getElementById('selection-hint');
-    if (hint) {
-        hint.textContent = 'Tap to select ? Shift+tap multi-select ? Drag empty area to box-select';
-    }
-
-    if (count > 0) {
-        bar.classList.remove('hidden');
-        bar.innerHTML = `
-            <span class="sel-count">${count}</span> of ${total} selected${layerLabel}
-            <button class="sel-btn" data-app-action="selectAllFeatures">All</button>
-            <button class="sel-btn" data-app-action="invertSelection">Invert</button>
-            <button class="sel-btn" data-app-action="deleteSelectedFeatures" title="Delete selected features" style="color:var(--error);">Delete</button>
-            <button class="sel-btn sel-clear" data-app-action="clearSelection">Clear</button>
-        `;
-    } else {
-        bar.classList.add('hidden');
-        bar.innerHTML = '';
-    }
-}
+/** Selection bar UI is React-owned (SelectionBar.jsx); kept for widget context callbacks. */
+function updateSelectionUI() {}
 
 // Helper: layer dropdown options
 function layerOptions(filterType = null) {
@@ -5110,19 +4314,14 @@ function startInlineEdit(el, currentValue, onSave) {
 // Tool Info / Help Guide
 // ============================
 function showToolInfo() {
-    const isMobile = window.innerWidth < 768;
     const rootId = `tool-guide-react-${Date.now()}`;
     showModal('Guide', `<div id="${rootId}"></div>`, {
-        width: isMobile ? '99vw' : '560px',
+        width: '560px',
         onMount: async (overlay) => {
-            if (isMobile) {
-                overlay.classList.add('splash-overlay');
-                overlay.querySelector('.modal')?.classList.add('splash-modal');
-            }
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
             const { mountToolGuideDialog } = await import('../react/tools/mountToolGuideDialog.jsx');
-            const mounted = mountToolGuideDialog(root, { isMobile, showTitle: true });
+            const mounted = mountToolGuideDialog(root, { showTitle: true });
             watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });

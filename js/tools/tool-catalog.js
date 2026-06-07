@@ -135,24 +135,3 @@ export function renderMapGisToolsPanelHtml() {
 
     return categoryBlocks;
 }
-
-/**
- * Mobile GIS tool quick-action items for flyout modal.
- * @returns {{ label: string, action: string, full?: boolean }[]}
- */
-export function getMobileGisToolFlyoutItems() {
-    return getEnabledMapGisTools().map((t) => ({
-        label: t.mobileLabel || t.label,
-        action: t.action
-    }));
-}
-
-/**
- * Mobile tools panel GIS button HTML (data-app-action buttons only).
- * @returns {string}
- */
-export function renderMobileGisToolButtonsHtml() {
-    return getEnabledMapGisTools()
-        .map((t) => `<button class="btn btn-secondary btn-sm" data-app-action="${t.action}">${t.mobileLabel || t.label}</button>`)
-        .join('\n            ');
-}

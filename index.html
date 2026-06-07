@@ -78,9 +78,6 @@
             </button>
         </div>
         <div class="header-right">
-            <!-- Mobile overflow menu button (hidden on desktop) -->
-            <button class="btn btn-ghost btn-sm mobile-menu-btn" id="btn-mobile-menu" title="Menu">☰</button>
-
             <!-- Basemap toggle: Voyager / Satellite -->
             <div class="header-toggle" id="basemap-toggle">
                 <button class="header-toggle-option active" data-value="voyager">🗺️ Map</button>
@@ -100,57 +97,6 @@
 
     <!-- Auto-save status indicator -->
     <div class="save-indicator" id="save-indicator"></div>
-
-    <!-- Mobile dropdown menu (hidden on desktop — legacy, kept for compat) -->
-    <div class="mobile-dropdown-menu hidden" id="mobile-dropdown-menu">
-        <button class="mobile-menu-item" data-action="import"><span>📂</span><span>Import Data</span></button>
-        <button class="mobile-menu-item" data-action="photos"><span>📷</span><span>Photo Mapper</span></button>
-        <button class="mobile-menu-item" data-action="arcgis"><span>🌐</span><span>ArcGIS REST</span></button>
-        <button class="mobile-menu-item" data-action="draw"><span>✏️</span><span>Draw</span></button>
-        <div class="mobile-menu-sep"></div>
-        <button class="mobile-menu-item" data-action="logs"><span>📋</span><span>Logs</span></button>
-        <button class="mobile-menu-item" data-action="info"><span>ℹ️</span><span>Tool Guide</span></button>
-    </div>
-
-    <!-- ================================ -->
-    <!-- NEW MOBILE UI (hidden on desktop)-->
-    <!-- ================================ -->
-
-    <!-- Mobile title pill — upper left -->
-    <div class="mobile-title-pill" id="mobile-title-pill">
-        <span class="pill-logo"><img src="icons/favicon.png" alt="GIS-Toolbox.com" width="30" height="30"></span>
-        <span class="pill-text">GIS-Toolbox<span class="title-com">.com</span></span>
-    </div>
-
-    <!-- Mobile FABs — upper right (nav/gear) + lower right (add/plus) -->
-    <button class="mobile-fab" id="mobile-fab-nav" title="Menu" aria-label="Navigation menu"><img src="icons/MobileMenuButton.png" alt="Menu" class="fab-icon"></button>
-    <button class="mobile-fab" id="mobile-fab-add" title="Add" aria-label="Add layer"><img src="icons/MobileAddButton.png" alt="Add" class="fab-icon"></button>
-
-    <!-- Mobile nav flyout menu (gear — upper right) -->
-    <div class="mobile-flyout" id="mobile-flyout-nav">
-        <button class="mobile-flyout-item" data-action="export"><span class="flyout-icon">💾</span><span class="flyout-label">Export</span></button>
-        <button class="mobile-flyout-item" data-action="widgets"><span class="flyout-icon">📊</span><span class="flyout-label">GIS Widgets</span></button>
-        <button class="mobile-flyout-item" data-action="tools"><span class="flyout-icon">🔧</span><span class="flyout-label">GIS Tools</span></button>
-        <div class="mobile-flyout-sep"></div>
-        <button class="mobile-flyout-item" data-action="layers"><span class="flyout-icon">🗺️</span><span class="flyout-label">Layers</span></button>
-        <button class="mobile-flyout-item" data-action="fields"><span class="flyout-icon">📋</span><span class="flyout-label">Fields</span></button>
-        <button class="mobile-flyout-item" data-action="styling"><span class="flyout-icon">🎨</span><span class="flyout-label">Layer Styling</span></button>
-        <button class="mobile-flyout-item" data-action="datatools"><span class="flyout-icon">⚙️</span><span class="flyout-label">Data Tools</span></button>
-        <div class="mobile-flyout-sep"></div>
-        <button class="mobile-flyout-item" data-action="basemap"><span class="flyout-icon">🌍</span><span class="flyout-label">Basemap</span></button>
-        <button class="mobile-flyout-item" data-action="guide"><span class="flyout-icon">ℹ️</span><span class="flyout-label">Tool Guide</span></button>
-    </div>
-
-    <!-- Mobile add flyout menu (plus — lower right) -->
-    <div class="mobile-flyout" id="mobile-flyout-add">
-        <button class="mobile-flyout-item" data-action="import"><span class="flyout-icon">📂</span><span class="flyout-label">Import Layer</span></button>
-        <button class="mobile-flyout-item" data-action="arcgis"><span class="flyout-icon">🌐</span><span class="flyout-label">Add ArcGIS</span></button>
-        <button class="mobile-flyout-item" data-action="photos"><span class="flyout-icon">📷</span><span class="flyout-label">Add Photos Layer</span></button>
-        <button class="mobile-flyout-item" data-action="draw"><span class="flyout-icon">✏️</span><span class="flyout-label">Add Drawing Layer</span></button>
-        <div class="mobile-flyout-sep"></div>
-        <button class="mobile-flyout-item" data-action="fence"><span class="flyout-icon">⛶</span><span class="flyout-label">Import Fence</span></button>
-        <button class="mobile-flyout-item" data-action="location"><span class="flyout-icon">📍</span><span class="flyout-label">Current Location</span></button>
-    </div>
 
     <!-- ================================ -->
     <!-- MAIN 3-PANEL LAYOUT (Desktop)    -->
@@ -252,38 +198,6 @@
         </div>
         <div class="logs-body" id="logs-body"></div>
     </div>
-
-    <!-- ================================ -->
-    <!-- MOBILE BOTTOM NAV                -->
-    <!-- ================================ -->
-    <nav class="mobile-nav">
-        <div class="mobile-nav-item active" data-tab="map">
-            <span>🗺️</span>
-            <span>Map</span>
-        </div>
-        <div class="mobile-nav-item" data-tab="data">
-            <span>📊</span>
-            <span>Layers</span>
-        </div>
-        <div class="mobile-nav-item" data-tab="prep">
-            <span>🔧</span>
-            <span>Data</span>
-        </div>
-        <div class="mobile-nav-item" data-tab="tools">
-            <span>⚙️</span>
-            <span>GIS Tools</span>
-        </div>
-        <div class="mobile-nav-item" data-tab="export">
-            <span>💾</span>
-            <span>Export</span>
-        </div>
-    </nav>
-
-    <!-- Mobile content panels (hidden on desktop) -->
-    <div class="mobile-content hidden" id="mobile-data"></div>
-    <div class="mobile-content hidden" id="mobile-prep"></div>
-    <div class="mobile-content hidden" id="mobile-tools"></div>
-    <div class="mobile-content hidden" id="mobile-export"></div>
 
     <!-- ================================ -->
     <!-- LIBRARY SCRIPTS (CDN, NO API KEYS) -->

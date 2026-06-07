@@ -51,7 +51,6 @@ export function HeaderBar({
                 </button>
             </div>
             <div className="header-right">
-                <button className="btn btn-ghost btn-sm mobile-menu-btn" id="btn-mobile-menu" title="Menu">☰</button>
                 <div className="header-toggle" id="basemap-toggle">
                     <button className="header-toggle-option active" data-value="voyager" onClick={() => onBasemapChange?.('voyager')}>🗺️ Map</button>
                     <button className="header-toggle-option" data-value="satellite" onClick={() => onBasemapChange?.('satellite')}>🛰️ Satellite</button>

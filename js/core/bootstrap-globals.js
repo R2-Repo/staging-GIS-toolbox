@@ -1,5 +1,5 @@
 /**
- * Assign npm package exports to browser globals expected by legacy map/import code.
+ * Assign npm package exports to globalThis for domain modules that expect browser globals.
  */
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';

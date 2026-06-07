@@ -10,7 +10,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import bus from '../../js/core/event-bus.js';
-import { WorkflowPalette } from '../../js/workflow/workflow-palette.js';
+import { findNodeDef } from '../../js/workflow/node-catalog.js';
 
 const PORT_GAP = 20;
 
@@ -155,7 +155,7 @@ function PipelineEditorCanvas({ engine }) {
                 });
             }),
             bus.on('workflow:add-node-request', ({ type, clientX, clientY }) => {
-                const def = WorkflowPalette.findDef(type);
+                const def = findNodeDef(type);
                 if (!def) return;
 
                 const node = def.create();

@@ -23,7 +23,7 @@ The user’s mental model is “the **same map** on a second monitor.” Technic
 
 | User description | Code / DOM |
 |------------------|------------|
-| **Section 1** — default view: map center, left/right panels | **`app-layout`**: `panel-left`, **`panel-center`** (`#map-container`), `panel-right`. Boot: `js/app.js` → `initMap()` → `mapManager.init('map-container')`. |
+| **Section 1** — default view: map center, left/right panels | **`app-layout`**: `panel-left`, **`panel-center`** (`#map-container`), `panel-right`. Boot: `react/App.jsx` → `MapView` → `mapService.init('map-container')`. |
 | **Section 2** — Data Pipeline Editor | **`WorkflowOverlay`** (`js/workflow/workflow-overlay.js`), DOM **`#wf-overlay`**, title **“Data Pipeline Editor”**. Open: header **`#btn-workflow`**; back: **`#wf-back`** (“← Back to Map”). Events: `workflow:opened` / `workflow:closed`. |
 
 Section 2 is a **full-screen overlay** on the same page, not a separate route.
@@ -91,7 +91,7 @@ Open only from a **direct click** (`window.open`); store `Window` reference; if 
 ```mermaid
 flowchart TB
   subgraph primary [Primary window - index.html]
-    App[app.js + panels / WorkflowOverlay]
+    App[App.jsx + panels / WorkflowOverlay]
     State[state.js - source of truth]
     Coord[DualScreenCoordinator]
     Decorator[mapService decorator when dual ON]
@@ -118,7 +118,7 @@ flowchart TB
 1. **Dual off:** today’s code path only — no regression.
 2. **Dual on:** **one live MapLibre** instance (secondary only); primary **destroys** embedded map (`mapManager.destroy()`).
 3. **Primary** owns `state.js`, `sessionStore`, import, workflow, modals.
-4. **Secondary** does **not** run full `app.js` or session restore.
+4. **Secondary** does **not** run the full React app or session restore.
 5. **`mapService` decorator** on primary: when dual active, layer/viewport operations **sync** instead of rendering locally.
 
 ### Why not two full apps?
@@ -188,7 +188,7 @@ Loading `index.html` twice duplicates state, breaks session save, and strands to
 | `css/map-window.css` | Fullscreen map + minimal header |
 | `js/map-window.js` | Secondary bootstrap |
 | `js/map/map-manager.js` | `destroy()` for primary teardown |
-| `js/app.js` | Dual Screen button, hooks, decorator install |
+| `react/App.jsx`, `js/tools/tool-handlers.js` | Dual Screen button, hooks, decorator install |
 | `index.html` | `#btn-dual-screen` |
 | `css/main.css` | `.dual-screen-active` layout |
 | `js/workflow/workflow-overlay.js` | Workflow top bar button (Phase 3) |
@@ -269,7 +269,7 @@ When `coordinator.isActive`:
 
 When dual off: pass through to regular `mapService` methods.
 
-Install from `app.js` after imports: `installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator)`.
+Install from `react/App.jsx` on boot: `installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator)`.
 
 ---
 

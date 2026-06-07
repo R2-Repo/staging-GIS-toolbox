@@ -36,7 +36,7 @@ Shared infrastructure:
 - `react/panels/WidgetPanel.jsx` — panel buttons (reads `GIS_WIDGETS`)
 - `js/widgets/widget-context.js` — `getSpatialLayerOptions()`, `createWidgetContext()`
 - `js/widgets/map-draw-helpers.js` — `createAreaDrawHandlers()` for area draw workflows
-- `js/ui/open-react-island.js` — modal + dynamic React mount boilerplate
+- `js/ui/open-react-island.js` — modal host + dynamic React dialog mount
 - `js/tools/tool-handlers.js` — merges `buildWidgetActions(getWidgetContext)` into `APP_ACTIONS`
 
 Controllers receive `WidgetContext` from `getWidgetContext()` in `tool-handlers.js`. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full app layout.
@@ -49,7 +49,7 @@ Controllers receive `WidgetContext` from `getWidgetContext()` in `tool-handlers.
 |-------|--------|------|
 | 0. Spec | Inputs, steps, map interactions, output layer | Widget vs Tool decision |
 | 1. Engine | `engine.js` + `tests/<widget>-engine.test.js` | `npm test` green |
-| 2. Dialog | `react/widgets/<Widget>Dialog.jsx` using shared primitives | Renders via `mountIsland` |
+| 2. Dialog | `react/widgets/<Widget>Dialog.jsx` using shared primitives | Renders in modal via `mountIsland` |
 | 3. Controller | `controller.js` wires context → props | Opens from registry |
 | 4. Register | Entry in `GIS_WIDGETS` array | Panel + `APP_ACTIONS` work |
 | 5. Smoke | Browser checklist | Full workflow end-to-end |

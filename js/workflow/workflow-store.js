@@ -3,7 +3,7 @@
  * Node cached data (e.g. imported file results) stored in IndexedDB
  */
 import { resetNodeIdCounter } from './nodes/node-base.js';
-import { WorkflowPalette } from './workflow-palette.js';
+import { findNodeDef } from './node-catalog.js';
 
 const STORAGE_KEY = 'gis-toolbox-workflow';
 const IDB_NAME = 'gis-toolbox-workflow-cache';
@@ -119,7 +119,7 @@ export class WorkflowStore {
 
             // Recreate nodes from definitions
             for (const nd of data.nodes) {
-                const def = WorkflowPalette.findDef(nd.type);
+                const def = findNodeDef(nd.type);
                 if (!def) continue;
                 const node = def.create();
                 // Restore saved state

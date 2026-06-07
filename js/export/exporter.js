@@ -12,7 +12,7 @@ import { exportKMZ, exportMultiLayerKMZ } from './kmz-exporter.js';
 import { exportJSON } from './json-exporter.js';
 import { exportShapefile } from './shapefile-exporter.js';
 
-// Optional map API adapter for style lookup (mapService or legacy map-manager).
+// Optional map API adapter for style lookup (mapService).
 let _mapApi = null;
 export function setExportMapManager(mm) { _mapApi = mm; }
 

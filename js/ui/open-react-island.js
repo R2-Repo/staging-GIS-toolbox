@@ -14,7 +14,7 @@ function watchOverlayUnmount(overlay, onUnmount) {
 }
 
 /**
- * Open a modal hosting a dynamically imported React island.
+ * Open a modal hosting a dynamically imported React dialog.
  * @param {object} options
  * @param {string} options.title
  * @param {string} [options.width]
@@ -23,7 +23,7 @@ function watchOverlayUnmount(overlay, onUnmount) {
  * @param {(close: () => void) => object | Promise<object>} options.getProps
  */
 export async function openReactIsland({ title, width, mountPath, mountExport, getProps }) {
-    const rootId = `react-island-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const rootId = `react-dialog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     showModal(title, `<div id="${rootId}"></div>`, {
         width,

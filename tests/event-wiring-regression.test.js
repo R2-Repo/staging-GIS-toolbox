@@ -6,7 +6,7 @@ const indexSource = readFileSync(new URL('../index.html', import.meta.url), 'utf
 const mapManagerSource = readFileSync(new URL('../js/map/map-manager.js', import.meta.url), 'utf8');
 
 describe('event wiring regression guards', () => {
-    it('keeps legacy modal handlers off property assignments', () => {
+    it('keeps modal handler wiring off property assignments', () => {
         expect(handlersSource).not.toMatch(/\.on(?:click|change|input|dblclick)\s*=/);
     });
 

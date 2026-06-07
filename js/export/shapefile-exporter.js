@@ -1,7 +1,7 @@
 /**
  * Shapefile exporter — generates .shp, .shx, .dbf, .prj in a ZIP
  * Supports Point, PolyLine (LineString/MultiLineString), Polygon (MultiPolygon)
- * Uses JSZip (already loaded via CDN)
+ * Uses JSZip (via bootstrapGlobals / npm)
  */
 import { loadJSZip } from '../core/libs.js';
 

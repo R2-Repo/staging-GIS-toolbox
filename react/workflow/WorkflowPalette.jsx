@@ -1,19 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import bus from '../../js/core/event-bus.js';
-import { INPUT_NODES } from '../../js/workflow/nodes/input-nodes.js';
-import { TRANSFORM_NODES } from '../../js/workflow/nodes/transform-nodes.js';
-import { SPATIAL_NODES } from '../../js/workflow/nodes/spatial-nodes.js';
-import { ENRICHMENT_NODES } from '../../js/workflow/nodes/enrichment-nodes.js';
-import { OUTPUT_NODES } from '../../js/workflow/nodes/output-nodes.js';
+import { NODE_CATEGORIES } from '../../js/workflow/node-catalog.js';
 import { isPipelineNodeEnabled } from '../../js/tools/tool-catalog.js';
-
-const CATEGORIES = [
-    { key: 'input', label: 'Inputs', color: '#d97706', nodes: INPUT_NODES },
-    { key: 'transform', label: 'Transforms', color: '#2563eb', nodes: TRANSFORM_NODES },
-    { key: 'spatial', label: 'Spatial', color: '#059669', nodes: SPATIAL_NODES },
-    { key: 'enrichment', label: 'Enrichment', color: '#0891b2', nodes: ENRICHMENT_NODES },
-    { key: 'output', label: 'Outputs', color: '#7c3aed', nodes: OUTPUT_NODES }
-];
 
 function PaletteItem({ def, categoryKey }) {
     const onDragStart = useCallback((e) => {
@@ -45,7 +33,7 @@ export function WorkflowPalette() {
     const [collapsed, setCollapsed] = useState({});
 
     const visibleCategories = useMemo(() => {
-        return CATEGORIES.map((cat) => ({
+        return NODE_CATEGORIES.map((cat) => ({
             ...cat,
             visibleNodes: cat.nodes.filter((def) => isPipelineNodeEnabled(def.type))
         })).filter((cat) => cat.visibleNodes.length > 0);

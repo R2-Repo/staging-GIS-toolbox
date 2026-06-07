@@ -6,7 +6,7 @@
 /** When true, only V1 tools appear in the map GIS Tools panel and pipeline palette. */
 export const GIS_TOOL_V1_MODE = true;
 
-/** @typedef {{ id: string, action: string, category: string, label: string, tip: string, mobileLabel?: string }} MapGisToolDef */
+/** @typedef {{ id: string, action: string, category: string, label: string, tip: string }} MapGisToolDef */
 
 /** @type {MapGisToolDef[]} */
 export const MAP_GIS_TOOLS = [
@@ -40,7 +40,6 @@ export const MAP_GIS_TOOLS = [
         action: 'openPointsWithinPolygon',
         category: 'combine-analyze',
         label: '📍🔷 Points in Poly (filter)',
-        mobileLabel: '📍🔷 Pts in Poly',
         tip: 'Filter to points inside polygons — creates a new layer. (Pipeline Spatial Join copies polygon attributes onto points instead.)'
     },
     { id: 'nearest-point', action: 'openNearestPoint', category: 'combine-analyze', label: '🎯 Nearest Pt', tip: 'Click the map to find the closest feature in a point layer.' },

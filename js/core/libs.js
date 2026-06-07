@@ -1,8 +1,6 @@
 /**
  * External library loader boundary.
- * Migration path:
- *  - Legacy path uses CDN globals from index.html.
- *  - React/Vite path can load npm modules.
+ * Prefers globalThis (set by bootstrapGlobals); falls back to dynamic npm import.
  */
 
 function createLoader(globalKey, importPath) {

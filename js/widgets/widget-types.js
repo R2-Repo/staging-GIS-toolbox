@@ -8,7 +8,6 @@
  * @property {() => void} refreshUI
  * @property {(message: string, type?: string) => void} showToast
  * @property {(id: string) => void} [setActiveLayer]
- * @property {() => void} [updateSelectionUI]
  * @property {(geojson: object) => object} [analyzeSchema]
  * @property {typeof globalThis.turf} [turf]
  */

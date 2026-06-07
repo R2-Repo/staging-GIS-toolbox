@@ -8,22 +8,26 @@ alwaysApply: true
 
 ## Stack
 
-- Static site: `index.html` loads ES module entry `js/app.js` — **no bundler** for shipping the app unless explicitly requested.
-- **Tests**: minimal Node tooling only — `npm test` (Vitest). Do not add a bundler or runtime dependency for the browser app unless asked.
-- Map: MapLibre (CDN in HTML). GIS workflows, import/export, and a visual pipeline editor live under `js/`.
+- **Vite + React app**: `index.html` → `#root` → `react/main.jsx` → `react/App.jsx`.
+- **Build/preview**: `npm run dev`, `npm run build`, `npm run preview`. Browser checks via preview (`npm run smoke:preview`), not a static file server.
+- **Tests**: `npm test` (Vitest). Map/UI changes still need manual browser verification.
+- **Map**: MapLibre bundled via npm (`bootstrapGlobals`). Imperative map service in `js/map/` — not in the React render tree.
+- **Domain logic**: `js/` — import/export, transforms, GIS tools, workflow engine, widgets.
 
 ## Where to change what
 
-- App bootstrap and global UI wiring: `js/app.js` (large file — search for feature-specific handlers before adding sprawling logic).
-- Shared state and layers: `js/core/state.js`, `js/core/data-model.js`.
-- New import/export formats: `js/import/` or `js/export/` plus registration in the importer/exporter entry modules.
-- Pipeline nodes: `js/workflow/nodes/` and related palette/engine files.
-- **GIS Widgets** (multi-step wizards): read `docs/WIDGET_AUTHORING.md` first; register in `js/widgets/registry.js`; put logic in `js/widgets/<id>/` (engine + controller) and UI in `react/widgets/`. Do not add widget handlers inline in `app.js`.
-- GIS Tools (single-shot modals): `js/tools/gis-tools.js` + `react/tools/`.
-- Styling: `css/`; mobile behavior also uses `css/mobile.css` and responsive patterns in JS.
+- **UI shell**: `react/App.jsx`, `react/panels/`, `react/tools/`, `react/workflow/`.
+- **Handlers & wiring**: `js/tools/tool-handlers.js` — `APP_ACTIONS`, bus wiring, drag/drop, session restore.
+- **State**: `js/core/state.js`, `react/providers/AppStore.jsx` (Zustand bridge).
+- **New import/export formats**: `js/import/` or `js/export/` plus registration in importer/exporter entry modules.
+- **Pipeline nodes**: `js/workflow/nodes/`, `js/workflow/node-catalog.js`, `react/workflow/inspectors/`.
+- **GIS Widgets** (multi-step wizards): read `docs/WIDGET_AUTHORING.md`; register in `js/widgets/registry.js`; engine in `js/widgets/<id>/`, UI in `react/widgets/`.
+- **GIS Tools** (single-shot dialogs): `js/tools/gis-tools.js` + `react/tools/`.
+- **Styling**: `css/`; mobile gate in `react/shell/MobileGate.jsx` + `css/mobile.css`.
 
 ## Quality bar
 
 - Preserve existing error handling (`handleError`, toasts, logger).
 - Match surrounding code style (semicolons, quote style, comment density).
-- After behavior changes, run `npm test`; after map or import/export changes, also sanity-check in a browser (`python3 -m http.server` from repo root).
+- After behavior changes, run `npm test`; after map or UI changes, also sanity-check in a browser (`npm run preview`).
+- Read `docs/ARCHITECTURE.md` before structural changes.

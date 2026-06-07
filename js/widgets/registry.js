@@ -10,7 +10,6 @@ export const GIS_WIDGETS = [
         action: 'openSpatialAnalyzer',
         label: 'Find Features in Area',
         icon: '🔎',
-        mobileLabel: '📊 Spatial Analyzer',
         tip: 'Search for features from one layer that fall inside a drawn area or polygon layer.',
         open: openSpatialAnalyzer
     },
@@ -19,7 +18,6 @@ export const GIS_WIDGETS = [
         action: 'openBulkUpdate',
         label: 'Bulk Update',
         icon: '✏️',
-        mobileLabel: '✏️ Bulk Update',
         tip: 'Select multiple features and update their attribute fields in bulk.',
         open: openBulkUpdate
     },
@@ -28,7 +26,6 @@ export const GIS_WIDGETS = [
         action: 'openProximityJoin',
         label: 'Proximity Join',
         icon: '↔️',
-        mobileLabel: '📍 Proximity Join',
         tip: 'Copy attributes from the nearest feature in a target layer to each source feature.',
         open: openProximityJoin
     }

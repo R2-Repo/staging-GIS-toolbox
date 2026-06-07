@@ -5,7 +5,7 @@
 import { bus } from '../core/event-bus.js';
 import { showToast } from '../ui/toast.js';
 import { WorkflowEngine } from './workflow-engine.js';
-import { WorkflowPalette } from './workflow-palette.js';
+import { findNodeDef } from './node-catalog.js';
 import { WorkflowStore } from './workflow-store.js';
 import { resetNodeIdCounter } from './nodes/node-base.js';
 
@@ -55,7 +55,7 @@ export function createWorkflowController(deps) {
         resetNodeIdCounter(maxId);
 
         for (const nd of pipeline.nodes) {
-            const def = WorkflowPalette.findDef(nd.type);
+            const def = findNodeDef(nd.type);
             if (!def) {
                 showToast(`Unknown node type "${nd.type}" — skipped.`, 'warn');
                 continue;

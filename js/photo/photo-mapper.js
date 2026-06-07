@@ -1,6 +1,6 @@
 /**
  * Photo Mapper — EXIF extraction, mapping, export
- * Uses exifr for EXIF parsing (loaded via CDN)
+ * Uses exifr for EXIF parsing (via bootstrapGlobals / npm)
  */
 import logger from '../core/logger.js';
 import { createSpatialDataset } from '../core/data-model.js';

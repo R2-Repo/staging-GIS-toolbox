@@ -789,7 +789,6 @@ export function setupAppWiring() {
     bus.on('layer:active', (layer) => {
         mapService.setActiveLayerId?.(layer?.id ?? getActiveLayer()?.id ?? null);
         refreshUI();
-        updateSelectionUI();
     });
     bus.on('map:ready', () => {
         const layer = getActiveLayer();
@@ -804,9 +803,6 @@ export function setupAppWiring() {
         mapService.closePopup();
         openFeatureEditor(hit.layerId, hit.featureIndex);
     });
-
-    bus.on('selection:changed', () => updateSelectionUI());
-    bus.on('selection:modeChanged', () => updateSelectionUI());
 
     initSelectionShortcuts({
         clearSelection,
@@ -950,35 +946,22 @@ function applyDualScreenLayout(active) {
 }
 
 // ============================
-// UI Refresh ??? rebuilds panels
+// UI refresh — emit ui:refresh for React store
 // ============================
 const REFRESH_UI_DEBOUNCE_MS = 150;
 let _refreshUITimer = null;
 
 function refreshUINow() {
     bus.emit('ui:refresh');
-    updateToolbarState();
 }
 
-/** Debounced panel refresh ??? coalesces bursts during import / multi-layer updates. */
+/** Debounced ui:refresh — coalesces bursts during import / multi-layer updates. */
 export function refreshUI() {
     clearTimeout(_refreshUITimer);
     _refreshUITimer = setTimeout(() => {
         _refreshUITimer = null;
         refreshUINow();
     }, REFRESH_UI_DEBOUNCE_MS);
-}
-
-export function updateToolbarState() {
-    const layers = getLayers();
-    const hasLayers = layers.length > 0;
-    document.getElementById('btn-merge')?.classList.toggle('hidden', layers.length < 2);
-
-    const hs = getHistoryState();
-    const undoBtn = document.getElementById('btn-undo');
-    const redoBtn = document.getElementById('btn-redo');
-    if (undoBtn) undoBtn.disabled = !hs.canUndo;
-    if (redoBtn) redoBtn.disabled = !hs.canRedo;
 }
 
 // ============================
@@ -1783,21 +1766,18 @@ export function toggleSelectionMode() {
 
 export function clearSelection() {
     mapService.clearSelection();
-    updateSelectionUI();
 }
 
 export function selectAllFeatures() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     mapService.selectAll(layer.id, layer.geojson);
-    updateSelectionUI();
 }
 
 export function invertSelection() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     mapService.invertSelection(layer.id, layer.geojson);
-    updateSelectionUI();
 }
 
 export async function deleteSelectedFeatures() {
@@ -1820,17 +1800,6 @@ export async function deleteSelectedFeatures() {
     mapService.addLayer(layer, getLayers().indexOf(layer));
     refreshUI();
     showToast(`Deleted ${indices.length} feature(s)`, 'success');
-}
-
-/** Selection bar UI is React-owned (SelectionBar.jsx); kept for widget context callbacks. */
-function updateSelectionUI() {}
-
-// Helper: layer dropdown options
-function layerOptions(filterType = null) {
-    return getLayers()
-        .filter(l => l.type === 'spatial' && (!filterType || l.geojson.features.some(f => f.geometry && (Array.isArray(filterType) ? filterType.includes(f.geometry.type) : f.geometry.type === filterType))))
-        .map(l => `<option value="${l.id}">${l.name} (${l.geojson.features.length})</option>`)
-        .join('');
 }
 
 function addResultLayer(dataset) {
@@ -3001,7 +2970,6 @@ export function getWidgetContext() {
         refreshUI,
         showToast,
         setActiveLayer: setActiveLayerAndRefresh,
-        updateSelectionUI,
         analyzeSchema,
         turf: globalThis.turf
     });

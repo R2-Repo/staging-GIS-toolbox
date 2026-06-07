@@ -1,6 +1,6 @@
 # Agent instructions — GIS Toolbox
 
-This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). The app now ships through the **Vite build/preview pipeline** (`npm run build`, `npm run preview`), with React islands integrated into the main shell.
+This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app (MapLibre, import/export, workflow editor, ArcGIS REST helpers). The UI is a **React-owned Vite app** (`react/main.jsx` → `App.jsx`); domain logic lives in `js/`. Ship via `npm run build` / `npm run preview`.
 
 ## Layout (quick map)
 
@@ -21,8 +21,9 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `tests/` | Vitest specs (`*.test.js`) |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Current architecture** — React UI + `js/` domain |
-| [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | React migration plan (6 phases, complete) |
-| [docs/REACT_REFACTOR_PLAN.md](docs/REACT_REFACTOR_PLAN.md) | Original incremental migration doc (historical) |
+| [docs/WIDGET_AUTHORING.md](docs/WIDGET_AUTHORING.md) | Widget authoring checklist |
+| [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | Migration completion summary (historical) |
+| [docs/REACT_REFACTOR_PLAN.md](docs/REACT_REFACTOR_PLAN.md) | Original migration plan (historical) |
 
 ## Agent workflow
 
@@ -33,7 +34,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 
 - Prefer **small, focused changes**; match existing patterns in nearby files (imports, naming, error handling via `handleError` / toasts).
 - Use **ES modules** (`import`/`export`); keep paths explicit (e.g. `./core/logger.js`).
-- **Do not** add a bundler or any Node-only requirement **for loading/running the shipped site** unless agreed; dev-only tooling (e.g. Vitest) is fine.
+- The shipped site is built with Vite; dev-only tooling (Vitest) is fine.
 - Avoid committing **secrets** (API keys, tokens). Use environment-specific config or user-supplied values, not hardcoded credentials.
 - Remove stray **`.bak`** files rather than committing them.
 

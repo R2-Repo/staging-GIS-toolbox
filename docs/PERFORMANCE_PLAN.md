@@ -16,7 +16,7 @@ Evidence-backed roadmap from codebase audit (2026-05-18). Implement **one phase 
 
 | Gap | Evidence |
 |-----|----------|
-| Import Cancel is cosmetic | `app.js` `currentTask` never assigned (only lines 280, 287); `importFile` creates internal `TaskRunner` in `importer.js` ~81 |
+| Import Cancel is cosmetic | `tool-handlers.js` `currentTask` never assigned; `importFile` creates internal `TaskRunner` in `importer.js` ~81 |
 | Monolithic Turf (no mid-op cancel) | `simplifyFeatures`, `dissolveFeatures`, `polygonSmoothFeatures` — single `turf.*` on full FC |
 | `processInChunks` unused | Only defined in `task-runner.js` |
 | nearestJoin O(n×m) | `HANDOFF.md`, `gis-tools.js` 648+; bbox sort threshold 64 in `spatial-bbox.js` |
@@ -64,7 +64,7 @@ Evidence-backed roadmap from codebase audit (2026-05-18). Implement **one phase 
 
 - Use `processInChunks` / Proximity Join rAF pattern in: KML explode batches, spatial-analyzer loops, dataprep maps, PJ cancel checks.
 - Chunk or per-feature simplify/dissolve/smooth where possible.
-- Debounce `refreshUI` in `app.js` (~100–250 ms).
+- Debounce `refreshUI` in `tool-handlers.js` (~150 ms; emits `ui:refresh` for React store).
 - Single `fitBounds` after multi-layer import split, not per layer.
 
 **Tests:** `process-in-chunks.test.js`, `data-model-explode.test.js`, extend `gis-tools` if simplify chunked.

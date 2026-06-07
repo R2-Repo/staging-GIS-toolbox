@@ -104,7 +104,7 @@ function _featuresFromKmlText(kmlText, toGeoJsonLib) {
  * @param {import('../core/task-runner.js').TaskRunner} [task]
  */
 export async function mergeNetworkLinksIntoDataset(dataset, hrefs, task) {
-    // Ensure toGeoJSON is available in both legacy (CDN global) and bundler paths.
+    // Ensure toGeoJSON is available via bootstrapGlobals or dynamic import.
     const toGeoJsonLib = await loadToGeoJSON();
 
     const initialLen = dataset.geojson?.features?.length || 0;

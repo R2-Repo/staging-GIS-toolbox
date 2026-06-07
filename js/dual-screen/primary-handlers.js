@@ -6,7 +6,7 @@ import { MessageType } from './protocol.js';
 
 /**
  * Wire coordinator callbacks to app-level handlers.
- * @param {object} deps — functions from app.js
+ * @param {object} deps — functions from tool-handlers.js
  */
 export function installDualScreenPrimaryHandlers(deps) {
     dualScreenCoordinator.setHandlers({

@@ -79,7 +79,7 @@ export function minBBoxSeparationMeters(boxA, boxB) {
 }
 
 /**
- * Target index entries for bbox pre-filter (same shape as legacy Proximity Join).
+ * Target index entries for bbox pre-filter (used by proximity join and spatial tools).
  * @param {GeoJSON.Feature[]} features
  * @returns {{ minX: number, minY: number, maxX: number, maxY: number, idx: number }[]}
  */

@@ -11,10 +11,7 @@ export async function openBulkUpdate(ctx) {
         mountExport: 'mountBulkUpdateDialog',
         getProps: (close) => ({
             layers: getSpatialLayerOptions(ctx, { includeFields: true }),
-            onCancel: () => {
-                ctx.updateSelectionUI?.();
-                close();
-            },
+            onCancel: close,
             onLayerFocus: (layerId) => {
                 if (!layerId) return;
                 ctx.setActiveLayer?.(layerId);
@@ -25,17 +22,14 @@ export async function openBulkUpdate(ctx) {
                 const layer = ctx.getLayers().find((entry) => entry.id === layerId);
                 if (!layer) return;
                 ctx.mapService.selectAll(layer.id, layer.geojson);
-                ctx.updateSelectionUI?.();
             },
             onInvertSelection: (layerId) => {
                 const layer = ctx.getLayers().find((entry) => entry.id === layerId);
                 if (!layer) return;
                 ctx.mapService.invertSelection(layer.id, layer.geojson);
-                ctx.updateSelectionUI?.();
             },
             onClearSelection: (layerId) => {
                 ctx.mapService.clearSelection(layerId || null);
-                ctx.updateSelectionUI?.();
             },
             onSubscribeSelection: (layerId, callback) => {
                 const refresh = () => callback(ctx.mapService.getSelectionCount(layerId) || 0);
@@ -64,7 +58,6 @@ export async function openBulkUpdate(ctx) {
 
                 ctx.mapService.refreshLayerData(layer);
                 ctx.mapService.clearSelection(layer.id);
-                ctx.updateSelectionUI?.();
                 ctx.refreshUI();
 
                 ctx.showToast(

@@ -43,6 +43,9 @@ function _guessMimeFromPath(p) {
     return 'application/octet-stream';
 }
 
+/** Max embedded asset size when rewriting KMZ hrefs (bytes). */
+export const KMZ_EMBEDDED_ASSET_MAX_BYTES = 5 * 1024 * 1024;
+
 /**
  * Rewrite relative <href> targets inside KML to blob: URLs for files found in the KMZ.
  * @param {string[]} [blobUrls] - collects created blob URLs for later revoke
@@ -69,9 +72,15 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrl
 
     let out = kmlText;
     let n = 0;
+    let skippedLarge = 0;
     for (const { raw, resolved } of targets) {
         const entry = pathMap.get(resolved.toLowerCase());
         if (!entry) continue;
+        const uncompressed = entry._data?.uncompressedSize ?? 0;
+        if (uncompressed > KMZ_EMBEDDED_ASSET_MAX_BYTES) {
+            skippedLarge++;
+            continue;
+        }
         try {
             const buf = await entry.async('arraybuffer');
             const blob = new Blob([buf], { type: _guessMimeFromPath(resolved) });
@@ -90,7 +99,7 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrl
     if (n > 0) {
         logger.info('Importer', 'KMZ embedded hrefs rewritten', { count: n, mainKmlPath });
     }
-    return out;
+    return { kmlText: out, skippedLarge };
 }
 
 export async function importKMZ(file, task, options = {}) {
@@ -127,13 +136,18 @@ export async function importKMZ(file, task, options = {}) {
 
     const blobUrls = [];
     let kmlContent = await mainKml.async('string');
-    kmlContent = await _rewriteKmzEmbeddedHrefs(kmlContent, zip, mainKml.name, task, blobUrls);
+    const hrefResult = await _rewriteKmzEmbeddedHrefs(kmlContent, zip, mainKml.name, task, blobUrls);
+    kmlContent = hrefResult.kmlText;
 
     task.updateProgress(70, 'Parsing KML...');
     const dataset = await importKML(kmlContent, task, { sourceFileName: file.name });
     dataset.name = file.name.replace(/\.kmz$/i, '');
     dataset.source.file = file.name;
     dataset.source.format = 'kmz';
+
+    if (hrefResult.skippedLarge > 0) {
+        dataset._importWarning = `${hrefResult.skippedLarge} embedded asset(s) over ${Math.round(KMZ_EMBEDDED_ASSET_MAX_BYTES / (1024 * 1024))} MB were skipped to save memory.`;
+    }
 
     if (blobUrls.length > 0) {
         dataset._blobUrls = blobUrls;

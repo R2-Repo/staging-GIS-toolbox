@@ -4,8 +4,11 @@
  */
 import logger from '../core/logger.js';
 import { createSpatialDataset, createTableDataset } from '../core/data-model.js';
-import { TaskRunner } from '../core/task-runner.js';
+import { TaskRunner, yieldToUI } from '../core/task-runner.js';
 import { handleError, AppError, ErrorCategory } from '../core/error-handler.js';
+
+/** Maximum features to download without explicit user override. */
+export const ARCGIS_MAX_FEATURES = 250_000;
 
 export class ArcGISRestImporter {
     constructor() {
@@ -126,7 +129,8 @@ export class ArcGISRestImporter {
             outFields = '*',
             where = '1=1',
             returnGeometry = true,
-            spatialFilter = null
+            spatialFilter = null,
+            allowLargeDownload = false
         } = queryOptions;
 
         const url = this.metadata.url;
@@ -136,6 +140,14 @@ export class ArcGISRestImporter {
         let page = 0;
         let done = false;
         const totalExpected = this.metadata.totalCount;
+
+        if (totalExpected != null && totalExpected > ARCGIS_MAX_FEATURES && !allowLargeDownload) {
+            throw new AppError(
+                `This layer has ${totalExpected.toLocaleString()} features — exceeds the ${ARCGIS_MAX_FEATURES.toLocaleString()} feature limit. Apply a filter or use a smaller layer.`,
+                ErrorCategory.OUT_OF_MEMORY,
+                { totalCount: totalExpected, max: ARCGIS_MAX_FEATURES }
+            );
+        }
 
         logger.info('ArcGIS', 'Starting download', { where, outFields, maxRec, totalExpected });
 
@@ -213,11 +225,20 @@ export class ArcGISRestImporter {
                 allFeatures.push(...features);
                 logger.debug('ArcGIS', `Page ${page}`, { fetched: features.length, total: allFeatures.length });
 
+                if (allFeatures.length > ARCGIS_MAX_FEATURES && !allowLargeDownload) {
+                    throw new AppError(
+                        `Download exceeded ${ARCGIS_MAX_FEATURES.toLocaleString()} features. Narrow your query or filter.`,
+                        ErrorCategory.OUT_OF_MEMORY,
+                        { fetched: allFeatures.length }
+                    );
+                }
+
                 if (features.length < maxRec || !data.exceededTransferLimit) {
                     done = true;
                 }
 
                 offset += features.length;
+                await yieldToUI();
             }
 
             runner.updateProgress(95, 'Normalizing features...');

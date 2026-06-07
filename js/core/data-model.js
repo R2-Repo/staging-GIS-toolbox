@@ -8,6 +8,14 @@ import { processInChunks } from './task-runner.js';
 export const EXPLODE_CHUNK_THRESHOLD = 100;
 export const EXPLODE_CHUNK_SIZE = 50;
 
+/** Schema analysis sampling — avoids retaining every property value in memory. */
+export const SCHEMA_SAMPLE_VALUES = 100;
+export const SCHEMA_UI_SAMPLES = 5;
+export const SCHEMA_ASYNC_THRESHOLD = 500;
+export const SCHEMA_CHUNK_SIZE = 200;
+
+const UNIQUE_CAP = 10000;
+
 /**
  * @typedef {Object} FieldMeta
  * @property {string} name
@@ -109,31 +117,95 @@ export function analyzeSchema(geojson) {
         const props = f.properties || {};
         for (const [key, val] of Object.entries(props)) {
             if (!fieldMap.has(key)) {
-                fieldMap.set(key, { values: [], nulls: 0 });
+                fieldMap.set(key, _newFieldAccumulator());
             }
-            const fm = fieldMap.get(key);
-            if (val == null || val === '') {
-                fm.nulls++;
-            } else {
-                fm.values.push(val);
-            }
+            _accumulateFieldValue(fieldMap.get(key), val);
         }
     }
 
+    return _buildSchemaFromFieldMap(fieldMap, geomTypes, features.length);
+}
+
+/**
+ * Chunked schema analysis for large feature collections.
+ * @param {object} geojson
+ * @param {import('./task-runner.js').TaskRunner|null} [task]
+ */
+export async function analyzeSchemaAsync(geojson, task = null) {
+    const features = geojson?.features || [];
+    if (!task || features.length < SCHEMA_ASYNC_THRESHOLD) {
+        return analyzeSchema(geojson);
+    }
+
+    const fieldMap = new Map();
+    const geomTypes = new Set();
+
+    await processInChunks(
+        features,
+        SCHEMA_CHUNK_SIZE,
+        (f) => {
+            if (f.geometry?.type) geomTypes.add(f.geometry.type);
+            const props = f.properties || {};
+            for (const [key, val] of Object.entries(props)) {
+                if (!fieldMap.has(key)) {
+                    fieldMap.set(key, _newFieldAccumulator());
+                }
+                _accumulateFieldValue(fieldMap.get(key), val);
+            }
+            return null;
+        },
+        task
+    );
+
+    return _buildSchemaFromFieldMap(fieldMap, geomTypes, features.length);
+}
+
+function _newFieldAccumulator() {
+    return {
+        values: [],
+        nulls: 0,
+        uniques: new Set(),
+        numMin: Infinity,
+        numMax: -Infinity,
+        numCount: 0
+    };
+}
+
+function _accumulateFieldValue(fm, val) {
+    if (val == null || val === '') {
+        fm.nulls++;
+        return;
+    }
+    if (fm.values.length < SCHEMA_SAMPLE_VALUES) {
+        fm.values.push(val);
+    }
+    if (fm.uniques.size < UNIQUE_CAP) {
+        fm.uniques.add(String(val));
+    }
+    const n = typeof val === 'number' ? val : Number(val);
+    if (typeof val === 'number' || (typeof val === 'string' && val !== '' && !isNaN(n))) {
+        if (isFinite(n)) {
+            fm.numCount++;
+            if (n < fm.numMin) fm.numMin = n;
+            if (n > fm.numMax) fm.numMax = n;
+        }
+    }
+}
+
+function _buildSchemaFromFieldMap(fieldMap, geomTypes, featureCount) {
     const fields = [];
     let order = 0;
     for (const [name, data] of fieldMap) {
-        const uniques = new Set(data.values.map(v => String(v)));
         const type = inferType(data.values);
-        const numVals = type === 'number' ? data.values.map(Number).filter(n => !isNaN(n)) : [];
+        const isNumeric = type === 'number' && data.numCount > 0;
         fields.push({
             name,
             type,
             nullCount: data.nulls,
-            uniqueCount: uniques.size,
-            sampleValues: data.values.slice(0, 5),
-            min: numVals.length ? Math.min(...numVals) : null,
-            max: numVals.length ? Math.max(...numVals) : null,
+            uniqueCount: data.uniques.size >= UNIQUE_CAP ? UNIQUE_CAP : data.uniques.size,
+            sampleValues: data.values.slice(0, SCHEMA_UI_SAMPLES),
+            min: isNumeric ? data.numMin : null,
+            max: isNumeric ? data.numMax : null,
             selected: true,
             outputName: name,
             order: order++
@@ -146,7 +218,7 @@ export function analyzeSchema(geojson) {
     return {
         fields,
         geometryType,
-        featureCount: features.length,
+        featureCount,
         crs: 'EPSG:4326'
     };
 }
@@ -156,19 +228,20 @@ export function analyzeSchema(geojson) {
  */
 export function analyzeTableSchema(rows, fieldNames) {
     const fields = fieldNames.map((name, order) => {
-        const values = rows.map(r => r[name]).filter(v => v != null && v !== '');
-        const nullCount = rows.length - values.length;
-        const uniques = new Set(values.map(String));
-        const type = inferType(values);
-        const numVals = type === 'number' ? values.map(Number).filter(n => !isNaN(n)) : [];
+        const acc = _newFieldAccumulator();
+        for (const row of rows) {
+            _accumulateFieldValue(acc, row[name]);
+        }
+        const type = inferType(acc.values);
+        const isNumeric = type === 'number' && acc.numCount > 0;
         return {
             name,
             type,
-            nullCount,
-            uniqueCount: uniques.size,
-            sampleValues: values.slice(0, 5),
-            min: numVals.length ? Math.min(...numVals) : null,
-            max: numVals.length ? Math.max(...numVals) : null,
+            nullCount: acc.nulls,
+            uniqueCount: acc.uniques.size >= UNIQUE_CAP ? UNIQUE_CAP : acc.uniques.size,
+            sampleValues: acc.values.slice(0, SCHEMA_UI_SAMPLES),
+            min: isNumeric ? acc.numMin : null,
+            max: isNumeric ? acc.numMax : null,
             selected: true,
             outputName: name,
             order
@@ -352,7 +425,7 @@ export function splitByGeometryType(dataset) {
 
 export default {
     createSpatialDataset, createTableDataset, tableToSpatial, spatialToTable,
-    analyzeSchema, analyzeTableSchema, getSelectedFields, applyFieldSelection,
+    analyzeSchema, analyzeSchemaAsync, analyzeTableSchema, getSelectedFields, applyFieldSelection,
     mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections,
     explodeGeometryCollectionsInFeatureCollection,
     explodeGeometryCollectionsInFeatureCollectionAsync

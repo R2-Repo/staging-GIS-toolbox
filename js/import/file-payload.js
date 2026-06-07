@@ -1,6 +1,7 @@
 /**
  * Single-read file payloads for import — avoids duplicate file.text() / arrayBuffer().
  */
+import { assertFileReadable, assertTextPayloadSize } from './import-memory-budget.js';
 
 const TEXT_FORMATS = new Set(['geojson', 'json', 'csv', 'tsv', 'txt', 'kml', 'xml']);
 const BUFFER_FORMATS = new Set(['zip', 'kmz', 'xlsx', 'xls']);
@@ -11,8 +12,12 @@ const BUFFER_FORMATS = new Set(['zip', 'kmz', 'xlsx', 'xls']);
  * @returns {Promise<{ kind: 'text', data: string } | { kind: 'buffer', data: ArrayBuffer } | null>}
  */
 export async function readFilePayload(file, format) {
+    assertFileReadable(file, format);
+
     if (TEXT_FORMATS.has(format)) {
-        return { kind: 'text', data: await file.text() };
+        const data = await file.text();
+        assertTextPayloadSize(data, file.name);
+        return { kind: 'text', data };
     }
     if (BUFFER_FORMATS.has(format)) {
         return { kind: 'buffer', data: await file.arrayBuffer() };

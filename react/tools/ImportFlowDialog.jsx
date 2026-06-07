@@ -39,7 +39,7 @@ export function ImportFlowDialog({
         }
         try {
             setError('');
-            await onImportFiles?.(files);
+            await onImportFiles?.(files, { preflightConfirmed: true });
         } catch (err) {
             setError(err?.message || 'Unable to start import.');
         }

@@ -16,6 +16,7 @@ let _rescheduleAfterSave = false;
 let _onSaveStatus = null; // optional callback for UI indicator
 let _pendingLayers = null;
 let _pendingLayerStyles = null;
+let _savePaused = false;
 
 // ——————— IndexedDB Setup ———————
 
@@ -192,10 +193,28 @@ function scheduleSave(layers, layerStyles = null) {
     if (layerStyles !== null && layerStyles !== undefined) {
         _pendingLayerStyles = layerStyles;
     }
+    if (_savePaused) return;
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
         saveSession(_pendingLayers, _pendingLayerStyles);
     }, DEBOUNCE_MS);
+}
+
+/** Pause auto-save during heavy import to reduce memory spikes. */
+function pauseSessionSave() {
+    _savePaused = true;
+    if (_saveTimer) {
+        clearTimeout(_saveTimer);
+        _saveTimer = null;
+    }
+}
+
+/** Resume auto-save; optionally flush pending layers immediately. */
+function resumeSessionSave(flush = true) {
+    _savePaused = false;
+    if (flush && _pendingLayers) {
+        scheduleSave(_pendingLayers, _pendingLayerStyles);
+    }
 }
 
 // ——————— Status callback ———————
@@ -236,5 +255,7 @@ export default {
     hasSession,
     clearSession,
     scheduleSave,
+    pauseSessionSave,
+    resumeSessionSave,
     onSaveStatus
 };

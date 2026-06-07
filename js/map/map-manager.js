@@ -9,12 +9,25 @@ import { flattenFeatureGeometryCollections } from '../core/data-model.js';
 const POINT_CLUSTER_THRESHOLD = 10000;
 
 function _tagFeaturesForMap(dataset) {
-    const taggedFeatures = [];
     const skipFlatten = dataset._geometryExploded === true;
+    const taggedFeatures = [];
+
     for (let origIndex = 0; origIndex < dataset.geojson.features.length; origIndex++) {
         const f = dataset.geojson.features[origIndex];
         if (!f.geometry) continue;
-        const parts = skipFlatten ? [f] : flattenFeatureGeometryCollections(f);
+
+        if (skipFlatten) {
+            if (!f.properties) f.properties = {};
+            else if (!Object.prototype.hasOwnProperty.call(f.properties, '_featureIndex')) {
+                f.properties = { ...f.properties };
+            }
+            f.properties._featureIndex = origIndex;
+            f.properties._datasetId = dataset.id;
+            taggedFeatures.push(f);
+            continue;
+        }
+
+        const parts = flattenFeatureGeometryCollections(f);
         for (const part of parts) {
             taggedFeatures.push({
                 ...part,
@@ -573,7 +586,11 @@ class MapManager {
             });
         }
 
-        this.dataLayers.set(dataset.id, { sourceId, layerIds, geojson });
+        this.dataLayers.set(dataset.id, {
+            sourceId,
+            layerIds,
+            geojson: dataset._geometryExploded === true ? dataset.geojson : geojson
+        });
         this._layerNames.set(dataset.id, dataset.name);
 
         if (dataset.geojson.features.length > 10000) {
@@ -597,6 +614,93 @@ class MapManager {
             renderParts: taggedFeatures.length
         });
         bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
+    }
+
+    /** Append tagged features to an existing map layer source (incremental import). */
+    appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex) {
+        const entry = this.dataLayers.get(layerId);
+        if (!entry || !this.map || !rawFeatures?.length) return;
+
+        const skipFlatten = dataset._geometryExploded === true;
+        const tagged = [];
+        for (let i = 0; i < rawFeatures.length; i++) {
+            const origIndex = startIndex + i;
+            const f = rawFeatures[i];
+            if (!f?.geometry) continue;
+
+            if (skipFlatten) {
+                if (!f.properties) f.properties = {};
+                else if (!Object.prototype.hasOwnProperty.call(f.properties, '_featureIndex')) {
+                    f.properties = { ...f.properties };
+                }
+                f.properties._featureIndex = origIndex;
+                f.properties._datasetId = dataset.id;
+                tagged.push(f);
+                continue;
+            }
+
+            const parts = flattenFeatureGeometryCollections(f);
+            for (const part of parts) {
+                tagged.push({
+                    ...part,
+                    properties: { ...(part.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+                });
+            }
+        }
+        if (tagged.length === 0) return;
+
+        entry.geojson.features.push(...tagged);
+        const source = this.map.getSource(entry.sourceId);
+        if (source) {
+            source.setData(entry.geojson);
+        }
+    }
+
+    /**
+     * Add a large layer in batches to avoid blocking the main thread.
+     * @param {object} dataset
+     * @param {number} colorIndex
+     * @param {{ fit?: boolean, batchSize?: number }} [options]
+     */
+    async addLayerIncremental(dataset, colorIndex = 0, { fit = false, batchSize = 5000 } = {}) {
+        const allFeatures = dataset.geojson?.features || [];
+        if (allFeatures.length <= batchSize) {
+            this.addLayer(dataset, colorIndex, { fit });
+            return;
+        }
+
+        const savedFeatures = allFeatures;
+        dataset.geojson = { type: 'FeatureCollection', features: savedFeatures.slice(0, batchSize) };
+        this.addLayer(dataset, colorIndex, { fit: false });
+        dataset.geojson = { type: 'FeatureCollection', features: savedFeatures };
+
+        let loaded = batchSize;
+        while (loaded < savedFeatures.length) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const end = Math.min(loaded + batchSize, savedFeatures.length);
+            this.appendFeaturesToLayer(dataset.id, dataset, savedFeatures.slice(loaded, end), loaded);
+            loaded = end;
+        }
+
+        if (fit) {
+            const entry = this.dataLayers.get(dataset.id);
+            if (entry?.geojson?.features?.length) {
+                try {
+                    const turf = await import('@turf/turf');
+                    const bbox = turf.bbox(entry.geojson);
+                    if (bbox && isFinite(bbox[0])) {
+                        this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
+                    }
+                } catch (e) {
+                    logger.warn('Map', 'Could not fit bounds after incremental load', { error: e.message });
+                }
+            }
+        }
+
+        logger.info('Map', 'Layer added incrementally', {
+            name: dataset.name,
+            featureCount: savedFeatures.length
+        });
     }
 
     _ensureSymbolImage(shape, color, fillColor, size, opacity) {

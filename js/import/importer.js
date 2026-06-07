@@ -13,6 +13,35 @@ import { importShapefile } from './shapefile-importer.js';
 import { importJSON } from './json-importer.js';
 import { loadJSZip } from '../core/libs.js';
 import { readFilePayload } from './file-payload.js';
+import { MAX_IMPORT_FEATURES } from './import-preflight.js';
+import { guardFilesBeforeImport } from './import-guard.js';
+import { assertFileReadable } from './import-memory-budget.js';
+
+function _enforceFeatureCap(result, fileName) {
+    const datasets = Array.isArray(result) ? result : [result];
+    for (const ds of datasets) {
+        if (!ds) continue;
+        if (ds.type === 'spatial') {
+            const n = ds.geojson?.features?.length || 0;
+            if (n > MAX_IMPORT_FEATURES) {
+                throw new AppError(
+                    `"${fileName}" has ${n.toLocaleString()} features — exceeds the ${MAX_IMPORT_FEATURES.toLocaleString()} feature limit. Split or simplify the file externally.`,
+                    ErrorCategory.OUT_OF_MEMORY,
+                    { fileName, featureCount: n }
+                );
+            }
+        } else if (ds.type === 'table') {
+            const n = ds.rows?.length || 0;
+            if (n > MAX_IMPORT_FEATURES) {
+                throw new AppError(
+                    `"${fileName}" has ${n.toLocaleString()} rows — exceeds the ${MAX_IMPORT_FEATURES.toLocaleString()} row limit. Split or simplify the file externally.`,
+                    ErrorCategory.OUT_OF_MEMORY,
+                    { fileName, rowCount: n }
+                );
+            }
+        }
+    }
+}
 
 function _xmlTextLooksLikeKml(text) {
     const head = text.trim().slice(0, 12000);
@@ -165,6 +194,8 @@ export async function importFileCore(file, task, options = {}) {
     );
     logger.info('Importer', 'Starting import', { file: file.name, format, size: file.size });
 
+    assertFileReadable(file, format);
+
     const payload = options.payload ?? await readFilePayload(file, format);
     const payloadOpts = _payloadOptionsForImporter(format, payload);
 
@@ -198,6 +229,11 @@ export async function importFileCore(file, task, options = {}) {
         result = await importer(file, task, payloadOpts);
     }
 
+    if (payload?.kind === 'text') payload.data = null;
+    if (payload?.kind === 'buffer') payload.data = null;
+
+    _enforceFeatureCap(result, file.name);
+
     if (Array.isArray(result)) {
         logger.info('Importer', 'Import complete (multi-layer)', {
             file: file.name, format, layers: result.length,
@@ -216,6 +252,14 @@ export async function importFileCore(file, task, options = {}) {
 }
 
 export async function importFile(file, options = {}) {
+    if (!options.skipGuard && !options._batchMode) {
+        const guard = await guardFilesBeforeImport([file], {
+            source: options.source || 'importFile',
+            getLayers: options.getLayers
+        });
+        if (guard.cancelled) return null;
+    }
+
     if (options.task && options._batchMode) {
         return importFileCore(file, options.task, options);
     }

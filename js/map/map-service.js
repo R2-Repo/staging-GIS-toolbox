@@ -26,6 +26,12 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         addLayer(dataset, colorIndex = 0, options = {}) {
             return mapAdapter.addLayer(dataset, colorIndex, options);
         },
+        addLayerIncremental(dataset, colorIndex = 0, options = {}) {
+            return mapAdapter.addLayerIncremental(dataset, colorIndex, options);
+        },
+        appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex) {
+            return mapAdapter.appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex);
+        },
         removeLayer(layerId) {
             return mapAdapter.removeLayer(layerId);
         },

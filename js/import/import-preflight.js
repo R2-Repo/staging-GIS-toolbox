@@ -1,10 +1,41 @@
 /**
- * Pre-import checks — file size warnings before heavy parse work.
+ * Pre-import checks — format-aware file size warnings before heavy parse work.
  */
 
-export const PREFLIGHT_SOFT_BYTES = 25 * 1024 * 1024;
-export const PREFLIGHT_STRONG_BYTES = 100 * 1024 * 1024;
-export const PREFLIGHT_HARD_BYTES = 250 * 1024 * 1024;
+function _detectFormatFromName(fileName) {
+    const name = (fileName || '').toLowerCase();
+    const ext = name.split('.').pop();
+    if (ext === 'geojson') return 'geojson';
+    if (ext === 'json') return 'json';
+    if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return 'csv';
+    if (ext === 'xlsx' || ext === 'xls') return 'xlsx';
+    if (ext === 'kml') return 'kml';
+    if (ext === 'kmz') return 'kmz';
+    if (ext === 'zip') return 'zip';
+    if (ext === 'xml') return 'xml';
+    return null;
+}
+
+/** Text formats: geojson, json, csv, kml, xml */
+export const TEXT_SOFT_BYTES = 2 * 1024 * 1024;
+export const TEXT_STRONG_BYTES = 4 * 1024 * 1024;
+export const TEXT_HARD_BYTES = 6 * 1024 * 1024;
+
+/** Binary/archive: zip, kmz, xlsx, xls */
+export const BINARY_SOFT_BYTES = 3 * 1024 * 1024;
+export const BINARY_STRONG_BYTES = 5 * 1024 * 1024;
+export const BINARY_HARD_BYTES = 8 * 1024 * 1024;
+
+/** @deprecated use TEXT_SOFT_BYTES */
+export const PREFLIGHT_SOFT_BYTES = TEXT_SOFT_BYTES;
+/** @deprecated use TEXT_HARD_BYTES */
+export const PREFLIGHT_HARD_BYTES = TEXT_HARD_BYTES;
+/** @deprecated use TEXT_STRONG_BYTES */
+export const PREFLIGHT_STRONG_BYTES = TEXT_STRONG_BYTES;
+
+export const MAX_IMPORT_FEATURES = 250_000;
+
+const BINARY_FORMATS = new Set(['zip', 'kmz', 'xlsx', 'xls']);
 
 export const PREFLIGHT_LEVEL = {
     OK: 'ok',
@@ -14,38 +45,70 @@ export const PREFLIGHT_LEVEL = {
 };
 
 /**
- * @param {File} file
- * @returns {{ level: string, message?: string, sizeBytes: number }}
+ * @param {string|null} format
+ * @returns {{ soft: number, strong: number, hard: number, binary: boolean }}
  */
-export function preflightFile(file) {
+export function getPreflightLimits(format) {
+    const binary = format != null && BINARY_FORMATS.has(format);
+    if (binary) {
+        return {
+            soft: BINARY_SOFT_BYTES,
+            strong: BINARY_STRONG_BYTES,
+            hard: BINARY_HARD_BYTES,
+            binary: true
+        };
+    }
+    return {
+        soft: TEXT_SOFT_BYTES,
+        strong: TEXT_STRONG_BYTES,
+        hard: TEXT_HARD_BYTES,
+        binary: false
+    };
+}
+
+/**
+ * @param {File} file
+ * @param {{ format?: string|null }} [options]
+ * @returns {{ level: string, message?: string, sizeBytes: number, format?: string|null }}
+ */
+export function preflightFile(file, options = {}) {
+    const format = options.format !== undefined ? options.format : _detectFormatFromName(file.name);
     const sizeBytes = file.size ?? 0;
-    if (sizeBytes >= PREFLIGHT_HARD_BYTES) {
+    const { soft, strong, hard, binary } = getPreflightLimits(format);
+
+    if (sizeBytes >= hard) {
+        const hint = binary
+            ? ' Archives and spreadsheets expand heavily in memory when unpacked.'
+            : ' Try a smaller export, or simplify/split the data in QGIS, GDAL, or similar.';
         return {
             level: PREFLIGHT_LEVEL.REJECT,
             sizeBytes,
-            message: `"${file.name}" is ${formatBytes(sizeBytes)} — exceeds the ${formatBytes(PREFLIGHT_HARD_BYTES)} browser limit. Try a smaller file or simplify the data externally.`
+            format,
+            message: `"${file.name}" is ${formatBytes(sizeBytes)} — exceeds the ${formatBytes(hard)} limit for ${binary ? 'archives/spreadsheets' : 'text'} imports.${hint}`
         };
     }
-    if (sizeBytes >= PREFLIGHT_STRONG_BYTES) {
+    if (sizeBytes >= strong) {
         return {
-            level: PREFLIGHT_LEVEL.STRONG,
+            level: PREFLIGHT_LEVEL.REJECT,
             sizeBytes,
-            message: `"${file.name}" is ${formatBytes(sizeBytes)}. Import may be very slow or cause the browser tab to run out of memory.`
+            format,
+            message: `"${file.name}" is ${formatBytes(sizeBytes)} — too large to import safely in the browser (limit ~${formatBytes(strong)}). Split or simplify externally.`
         };
     }
-    if (sizeBytes >= PREFLIGHT_SOFT_BYTES) {
+    if (sizeBytes >= soft) {
         return {
             level: PREFLIGHT_LEVEL.SOFT,
             sizeBytes,
+            format,
             message: `"${file.name}" is ${formatBytes(sizeBytes)}. Import may take a while.`
         };
     }
-    return { level: PREFLIGHT_LEVEL.OK, sizeBytes };
+    return { level: PREFLIGHT_LEVEL.OK, sizeBytes, format };
 }
 
 /**
  * @param {File[]} files
- * @returns {{ level: string, messages: string[], reject: boolean, files: Array<{ name: string, sizeBytes: number, level: string }> }}
+ * @returns {{ level: string, messages: string[], reject: boolean, files: Array<{ name: string, sizeBytes: number, level: string, format?: string|null }> }}
  */
 export function preflightFiles(files) {
     const results = files.map((f) => ({ file: f, ...preflightFile(f) }));
@@ -66,7 +129,8 @@ export function preflightFiles(files) {
         files: results.map((r) => ({
             name: r.file.name,
             sizeBytes: r.sizeBytes,
-            level: r.level
+            level: r.level,
+            format: r.format
         }))
     };
 }
@@ -77,4 +141,11 @@ export function formatBytes(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default { preflightFile, preflightFiles, formatBytes, PREFLIGHT_LEVEL };
+export default {
+    preflightFile,
+    preflightFiles,
+    formatBytes,
+    getPreflightLimits,
+    PREFLIGHT_LEVEL,
+    MAX_IMPORT_FEATURES
+};

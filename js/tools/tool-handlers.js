@@ -22,6 +22,8 @@ import {
 import { getLayerDefaultColor } from '../map/layer-palette.js';
 import { getActiveTask } from '../core/task-runner.js';
 import { buildImportSummary, formatImportSummaryToast } from '../import/import-summary.js';
+import { guardFilesBeforeImport } from '../import/import-guard.js';
+import { ErrorCategory } from '../core/error-handler.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from '../export/exporter.js';
 import mapService from '../map/map-service.js';
 import { isSmartStyleActive } from '../map/style-engine.js';
@@ -448,42 +450,61 @@ function _rollbackImportedLayers(layerIds) {
     }
 }
 
-function _addImportedDatasets(datasets) {
+async function _addImportedDatasets(datasets) {
     const ids = [];
+    const INCREMENTAL_THRESHOLD = 10000;
     for (const ds of datasets) {
         addLayer(ds);
         const layerIdx = getLayers().indexOf(ds);
         applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
-        mapService.addLayer(ds, layerIdx, { fit: false });
+        const featureCount = ds.type === 'spatial' ? (ds.geojson?.features?.length || 0) : 0;
+        if (featureCount > INCREMENTAL_THRESHOLD) {
+            await mapService.addLayerIncremental(ds, layerIdx, { fit: false });
+        } else {
+            mapService.addLayer(ds, layerIdx, { fit: false });
+        }
         ids.push(ds.id);
     }
     return ids;
 }
 
-export async function handleFileImport(files, fenceBbox = null) {
-    const progress = showProgressModal('Importing Files');
-    const onProgress = (data) => progress.update(data.percent, data.step, {
-        fileName: data.fileName,
-        fileSize: data.fileSize,
-        fileIndex: data.fileIndex,
-        fileCount: data.fileCount
-    });
-    bus.on('task:progress', onProgress);
+export async function handleFileImport(files, fenceBbox = null, options = {}) {
+    let progress = null;
     let userCancelled = false;
     const batchLayerIds = [];
-    const allExpanded = [];
-    let totalFiltered = 0;
-
-    progress.onCancel(() => {
-        userCancelled = true;
-        getActiveTask()?.cancel();
-        cancelWorkerParse();
-        progress.close();
-        bus.off('task:progress', onProgress);
-        showToast('Import cancelled', 'warning');
-    });
+    let onProgress = null;
 
     try {
+        if (!options.preflightConfirmed) {
+            const guard = await guardFilesBeforeImport(files, {
+                source: 'handleFileImport',
+                getLayers
+            });
+            if (guard.cancelled) return;
+        }
+
+        progress = showProgressModal('Importing Files');
+        onProgress = (data) => progress.update(data.percent, data.step, {
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            fileIndex: data.fileIndex,
+            fileCount: data.fileCount
+        });
+        bus.on('task:progress', onProgress);
+
+        progress.onCancel(() => {
+            userCancelled = true;
+            getActiveTask()?.cancel();
+            cancelWorkerParse();
+            progress.close();
+            bus.off('task:progress', onProgress);
+            showToast('Import cancelled', 'warning');
+        });
+
+        let allExpanded = [];
+        let totalFiltered = 0;
+
+        sessionStore.pauseSessionSave();
         const { errors, cancelled } = await importFiles(files, {
             onFileImported: async (_file, result) => {
                 throwIfTaskCancelled();
@@ -494,7 +515,7 @@ export async function handleFileImport(files, fenceBbox = null) {
                     task: getActiveTask()
                 });
                 totalFiltered += tf;
-                const ids = _addImportedDatasets(expanded);
+                const ids = await _addImportedDatasets(expanded);
                 batchLayerIds.push(...ids);
                 allExpanded.push(...expanded);
             }
@@ -558,12 +579,22 @@ export async function handleFileImport(files, fenceBbox = null) {
             }
         }
     } catch (e) {
-        progress.close();
-        bus.off('task:progress', onProgress);
+        if (progress) progress.close();
+        if (onProgress) bus.off('task:progress', onProgress);
         _rollbackImportedLayers(batchLayerIds);
         if (e?.cancelled || userCancelled) return;
         const classified = handleError(e, 'Import', 'File import');
-        showErrorToast(classified);
+        if (classified.category === ErrorCategory.OUT_OF_MEMORY) {
+            showModal(
+                'Import Failed — File Too Large',
+                `<p>${classified.message || e.message}</p>${classified.guidance ? `<p class="text-xs text-muted">${classified.guidance}</p>` : ''}<p class="text-xs text-muted">Import guard ${e?.details?.guardVersion || 'active'}</p>`,
+                { width: '480px' }
+            );
+        } else {
+            showErrorToast(classified);
+        }
+    } finally {
+        sessionStore.resumeSessionSave(true);
     }
 }
 
@@ -577,10 +608,14 @@ export function openImportFlow() {
                 const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
                 const mounted = mountImportFlowDialog(root, {
                     onCancel: () => close(),
-                    onImportFiles: async (files) => {
+                    onImportFiles: async (files, importOpts = {}) => {
                         close();
-                        await handleFileImport(files, _fenceBbox);
+                        await handleFileImport(files, _fenceBbox, {
+                            allowStrong: importOpts.allowStrong,
+                            preflightConfirmed: importOpts.preflightConfirmed
+                        });
                     },
+                    onConfirmStrongImport: (message) => confirm('Large file import', `${message.replace(/\n/g, '<br>')}<br><br>The browser may run out of memory. Continue anyway?`),
                     onOpenArcGIS: () => {
                         close();
                         openArcGISImporter();

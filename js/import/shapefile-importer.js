@@ -2,9 +2,18 @@
  * Shapefile importer (zipped .shp+.dbf+.shx)
  * Uses shpjs library
  */
-import { createSpatialDataset } from '../core/data-model.js';
+import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadShpjs } from '../core/libs.js';
+
+async function _normalizeFeatureCollection(fc, task) {
+    fc.features = fc.features.map(f => ({
+        type: 'Feature',
+        geometry: f.geometry || null,
+        properties: f.properties || {}
+    }));
+    return explodeGeometryCollectionsInFeatureCollectionAsync(fc, task);
+}
 
 export async function importShapefile(file, task) {
     task.updateProgress(10, 'Loading shapefile library...');
@@ -33,39 +42,31 @@ export async function importShapefile(file, task) {
 
     // shpjs can return a single FeatureCollection or array of them
     if (Array.isArray(geojson)) {
-        // Multiple layers in one zip — return ALL as separate datasets
-        const datasets = geojson.filter(fc => fc && fc.type === 'FeatureCollection' && fc.features?.length > 0)
-            .map((fc, i) => {
-                fc.features = fc.features.map(f => ({
-                    type: 'Feature',
-                    geometry: f.geometry || null,
-                    properties: f.properties || {}
-                }));
-                const layerName = fc.fileName
-                    ? fc.fileName.replace(/\.\w+$/, '')
-                    : (geojson.length > 1 ? `${baseName}_${i + 1}` : baseName);
-                return createSpatialDataset(layerName, fc, { file: file.name, format: 'shapefile' });
-            });
+        const datasets = [];
+        for (let i = 0; i < geojson.length; i++) {
+            const fc = geojson[i];
+            if (!fc || fc.type !== 'FeatureCollection' || !fc.features?.length) continue;
+            const normalized = await _normalizeFeatureCollection(fc, task);
+            const layerName = fc.fileName
+                ? fc.fileName.replace(/\.\w+$/, '')
+                : (geojson.length > 1 ? `${baseName}_${i + 1}` : baseName);
+            datasets.push(createSpatialDataset(layerName, normalized, { file: file.name, format: 'shapefile' }));
+        }
         if (datasets.length === 0) {
             throw new AppError('Shapefile ZIP contained no valid layers', ErrorCategory.PARSE_FAILED);
         }
-        return datasets; // array of datasets
+        return datasets;
     }
 
     if (!geojson || geojson.type !== 'FeatureCollection') {
         throw new AppError('Shapefile produced invalid GeoJSON', ErrorCategory.PARSE_FAILED);
     }
 
-    // Ensure properties exist
-    geojson.features = geojson.features.map(f => ({
-        type: 'Feature',
-        geometry: f.geometry || null,
-        properties: f.properties || {}
-    }));
+    const normalized = await _normalizeFeatureCollection(geojson, task);
 
     return createSpatialDataset(
         baseName,
-        geojson,
+        normalized,
         { file: file.name, format: 'shapefile' }
     );
 }

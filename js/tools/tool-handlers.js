@@ -9,13 +9,19 @@ import {
     getState, getLayers, getActiveLayer, addLayer, removeLayer, updateLayer,
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from '../core/state.js';
-import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from '../core/data-model.js';
+import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema } from '../core/data-model.js';
 import { importFile, importFiles } from '../import/importer.js';
+import {
+    finalizeImportedDatasets,
+    applyImportLayerStyles,
+    applyImportMetadata,
+    revokeKmzBlobUrls
+} from '../import/post-import.js';
+import { getLayerDefaultColor } from '../map/layer-palette.js';
 import { getActiveTask } from '../core/task-runner.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from '../export/exporter.js';
 import mapService from '../map/map-service.js';
 import { isSmartStyleActive } from '../map/style-engine.js';
-import { detectEmbeddedSimpleStyle, convertLayerSimpleStyleToSmart } from '../map/style-import.js';
 import dualScreenCoordinator from '../dual-screen/coordinator.js';
 import { installDualScreenPrimaryHandlers } from '../dual-screen/primary-handlers.js';
 import {
@@ -307,7 +313,6 @@ export function getRightPanelSnapshot() {
 
     const agolMode = !!getState().agolCompatMode;
     const layerIndex = getLayers().indexOf(layer);
-    const palette = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
     return {
         layer,
         selectedFields: getSelectedFields(layer.schema),
@@ -315,7 +320,7 @@ export function getRightPanelSnapshot() {
         agolMode,
         agolCheck: agolMode ? checkAGOLCompatibility(layer) : null,
         layerStyle: layer.type === 'spatial' ? mapService.getLayerStyle(layer.id) : null,
-        styleDefaultColor: palette[Math.max(0, layerIndex) % palette.length]
+        styleDefaultColor: getLayerDefaultColor(layerIndex)
     };
 }
 
@@ -334,7 +339,7 @@ export function setupDragDrop() {
     // Create full-screen drop overlay
     const overlay = document.createElement('div');
     overlay.id = 'global-drop-overlay';
-    overlay.innerHTML = '<div class="drop-overlay-content">????<br>Drop files to import</div>';
+    overlay.innerHTML = '<div class="drop-overlay-content">📂<br>Drop files to import</div>';
     document.body.appendChild(overlay);
 
     // Prevent default browser behavior for all drag events on the document
@@ -454,34 +459,15 @@ export async function handleFileImport(files, fenceBbox = null) {
 
         throwIfTaskCancelled();
 
-        // Auto-split mixed-geometry datasets into separate layers
-        const expanded = [];
-        for (const ds of datasets) {
-            throwIfTaskCancelled();
-            if (ds.type === 'spatial' && ds.schema?.geometryType === 'Mixed') {
-                expanded.push(...splitByGeometryType(ds));
-            } else {
-                expanded.push(ds);
-            }
-        }
+        const { expanded, totalFiltered } = finalizeImportedDatasets(datasets, { fenceBbox });
 
-        let totalFiltered = 0;
         const importedLayerIds = [];
         for (const ds of expanded) {
             throwIfTaskCancelled();
-            if (fenceBbox) {
-                const before = ds.type === 'spatial' ? ds.geojson?.features?.length : 0;
-                filterDatasetByFence(ds, fenceBbox);
-                const after = ds.type === 'spatial' ? ds.geojson?.features?.length : 0;
-                totalFiltered += (before - after);
-            }
-            // Apply KML-extracted style before first render
-            if (ds._kmlStyle && !mapService.getLayerStyle(ds.id)) {
-                mapService.setLayerStyle(ds.id, { ...ds._kmlStyle });
-            }
             addLayer(ds);
-            mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
-            _maybeOfferSimpleStyleConvert(ds);
+            const layerIdx = getLayers().indexOf(ds);
+            mapService.addLayer(ds, layerIdx, { fit: false });
+            applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
             importedLayerIds.push(ds.id);
         }
 
@@ -646,20 +632,26 @@ export function setupAppWiring() {
                     showToast(`Table "${name}" added from workflow`, 'success');
                     return dataset.id;
                 }
-                // Check if a workflow layer with this name already exists ??? update in place
+                // Check if a workflow layer with this name already exists — update in place
                 const existing = getLayers().find(l => l.name === name && l.source?.format === 'workflow');
                 if (existing) {
                     updateLayer(existing.id, { geojson: data.geojson });
+                    applyImportMetadata(existing, data);
                     mapService.removeLayer(existing.id);
-                    mapService.addLayer(existing, getLayers().indexOf(existing), { fit: !opts.workflow });
+                    const idx = getLayers().indexOf(existing);
+                    mapService.addLayer(existing, idx, { fit: !opts.workflow });
+                    applyImportLayerStyles(existing, { mapService, getLayers, layerIndex: idx });
                     refreshUI();
                     showToast(`Layer "${name}" updated`, 'success');
                     return existing.id;
                 }
                 // New layer
                 const dataset = createSpatialDataset(name, data.geojson, { format: 'workflow' });
+                applyImportMetadata(dataset, data);
                 addLayer(dataset);
-                mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: !opts.workflow });
+                const layerIdx = getLayers().indexOf(dataset);
+                mapService.addLayer(dataset, layerIdx, { fit: !opts.workflow });
+                applyImportLayerStyles(dataset, { mapService, getLayers, layerIndex: layerIdx });
                 refreshUI();
                 if (!opts.workflow) showToast(`Layer "${name}" added from workflow`, 'success');
                 return dataset.id;
@@ -673,6 +665,8 @@ export function setupAppWiring() {
                 refreshUI();
             },
             removeFromMap: (layerId) => {
+                const layer = getLayers().find(l => l.id === layerId);
+                if (layer) revokeKmzBlobUrls(layer);
                 mapService.removeLayer(layerId);
                 removeLayer(layerId);
                 refreshUI();
@@ -854,7 +848,7 @@ function setupDualScreenMode() {
             _fenceBbox = bbox;
             dualScreenCoordinator.setFenceBbox(bbox);
             updateFenceButtonState();
-            showToast('Import fence placed ??? all imports will be filtered to this area', 'success');
+            showToast('Import fence placed — all imports will be filtered to this area', 'success');
         },
         clearFence: () => {
             _fenceBbox = null;
@@ -1005,6 +999,8 @@ export function zoomToLayer(id) {
 export async function removeLayerWithConfirm(id) {
     const ok = await confirm('Remove Layer', 'Remove this layer?');
     if (ok) {
+        const layer = getLayers().find(l => l.id === id);
+        if (layer) revokeKmzBlobUrls(layer);
         removeLayer(id);
         mapService.removeLayer(id);
         refreshUI();
@@ -3062,7 +3058,7 @@ async function drawNewFence() {
     }
     _fenceBbox = bbox;
     updateFenceButtonState();
-    showToast('Import fence placed ??? all imports will be filtered to this area', 'success');
+    showToast('Import fence placed — all imports will be filtered to this area', 'success');
 }
 
 export function updateFenceButtonState() {
@@ -3071,38 +3067,12 @@ export function updateFenceButtonState() {
     if (hasActiveImportFence()) {
         btn.classList.remove('btn-secondary');
         btn.classList.add('btn-primary');
-        btn.innerHTML = '<span class="btn-icon-text">???</span><span>Import Fence ???</span>';
+        btn.innerHTML = '<span class="btn-icon-text">⛶</span><span>Import Fence (active)</span>';
     } else {
         btn.classList.remove('btn-primary');
         btn.classList.add('btn-secondary');
-        btn.innerHTML = '<span class="btn-icon-text">???</span><span>Import Fence</span>';
+        btn.innerHTML = '<span class="btn-icon-text">⛶</span><span>Import Fence</span>';
     }
-}
-
-/** Filter a spatial dataset's features to only those intersecting a bbox */
-function filterDatasetByFence(dataset, bbox) {
-    if (!bbox || dataset.type !== 'spatial' || !dataset.geojson?.features?.length) return dataset;
-
-    const [west, south, east, north] = bbox;
-    const fencePoly = turf.bboxPolygon([west, south, east, north]);
-
-    const before = dataset.geojson.features.length;
-    dataset.geojson.features = dataset.geojson.features.filter(f => {
-        try {
-            return turf.booleanIntersects(f, fencePoly);
-        } catch (_) {
-            return true; // keep features that fail the check
-        }
-    });
-    const after = dataset.geojson.features.length;
-
-    if (before !== after) {
-        logger.info('ImportFence', `Filtered ${before} ??? ${after} features (${before - after} outside fence)`);
-        // Re-analyze schema since feature count changed
-        dataset.schema = analyzeSchema(dataset.geojson);
-    }
-
-    return dataset;
 }
 
 // ============================
@@ -3110,7 +3080,7 @@ function filterDatasetByFence(dataset, bbox) {
 // ============================
 export async function openArcGISImporter() {
     const spatialFilter = mapService.getImportFenceEsriEnvelope();
-    const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">??? <strong>Import Fence active</strong> ??? only features inside the fence will be downloaded from the server.</div>' : '';
+    const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">⛶ <strong>Import Fence active</strong> — only features inside the fence will be downloaded from the server.</div>' : '';
 
     
         const rootId = `arcgis-import-react-${Date.now()}`;

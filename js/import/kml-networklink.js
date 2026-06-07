@@ -111,22 +111,45 @@ export async function mergeNetworkLinksIntoDataset(dataset, hrefs, task) {
     const merged = [...(dataset.geojson?.features || [])];
     const failures = [];
     const skippedRelative = [];
-    const absoluteHrefs = hrefs.filter(h => {
+    const absoluteHrefs = [];
+    const relativeHrefs = [];
+
+    for (const h of hrefs) {
         const t = h.trim();
-        if (/^https?:\/\//i.test(t)) return true;
-        skippedRelative.push(t);
-        return false;
-    });
+        if (/^https?:\/\//i.test(t)) absoluteHrefs.push(t);
+        else relativeHrefs.push(t);
+    }
+
+    const kmzResolver = dataset._kmzLinkResolver;
+    const allHrefs = [
+        ...relativeHrefs.map((href) => ({ href, source: 'relative' })),
+        ...absoluteHrefs.map((href) => ({ href, source: 'remote' }))
+    ];
 
     let idx = 0;
-    for (const href of absoluteHrefs) {
+    for (const { href, source } of allHrefs) {
         idx++;
         task?.updateProgress(
-            10 + Math.round((idx / Math.max(absoluteHrefs.length, 1)) * 80),
-            `Fetching network link ${idx}/${absoluteHrefs.length}…`
+            10 + Math.round((idx / Math.max(allHrefs.length, 1)) * 80),
+            source === 'relative'
+                ? `Reading in-archive link ${idx}/${allHrefs.length}…`
+                : `Fetching network link ${idx}/${allHrefs.length}…`
         );
         try {
-            const text = await fetchKmlWithLimits(href);
+            let text;
+            if (source === 'relative') {
+                if (!kmzResolver) {
+                    skippedRelative.push(href);
+                    continue;
+                }
+                text = await kmzResolver(href);
+                if (!text) {
+                    skippedRelative.push(href);
+                    continue;
+                }
+            } else {
+                text = await fetchKmlWithLimits(href);
+            }
             const feats = _featuresFromKmlText(text, toGeoJsonLib);
             for (const f of feats) {
                 const props = { ...(f.properties || {}), _networkLinkHref: href };

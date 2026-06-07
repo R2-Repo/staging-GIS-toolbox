@@ -183,7 +183,9 @@ Tracked against milestones **M1–M5** (partial where noted):
 | **M4** | **B1** v1: relative `<href>` inside KMZ resolved to `blob:` URLs when the file exists in the archive. **B4** Main KML choice: root `doc.kml`, nested `doc.kml`, then shallow-path / largest-entry heuristic with log line. |
 | **M5 (partial)** | **B3** `.xml` import sniffs for KML before parse. **D2** `_hexToKmlColor` accepts 3-digit hex and invalid fallback. **D3** KMZ attachment URL replacement scoped to `src="…"` and `<href>…</href>`. **D4** KMZ exporter uses `AppError` when JSZip missing. **F2** KML/KMZ description cells stringify plain objects safely. Exporter grouping accounts for `GeometryCollection` when choosing geometry folders. |
 
-**Deferred / not in this pass:** C1 richer KML Style/StyleMap; explicit C2 workflow-cache style carry (datasets already retain `_kmlStyle` when cached); NetworkLink recursion depth; **F3** fixtures; **G**; optional backend proxy **E5c**.
+**Import hardening (2026-06-07):** Shared post-import pipeline (`js/import/post-import.js`); workflow file-import metadata parity; shapefile GeometryCollection explode; ZIP sniff (shapefile vs KMZ); KMZ blob URL revoke on layer remove; in-archive relative NetworkLink resolution via `_kmzLinkResolver`; **F3** fixture tests under `tests/fixtures/import/` + `tests/kml-import.test.js`, `tests/post-import.test.js`, `tests/importer-zip.test.js`.
+
+**Deferred / not in this pass:** C1 richer KML Style/StyleMap; NetworkLink recursion depth; **G** (gx extensions, GroundOverlay, 3D); optional backend proxy **E5c**; GPX / GeoPackage importers.
 
 ---
 

@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { bus } from '../../../js/core/event-bus.js';
+import { normalizeImporterResult, serializeImportedDataset } from '../../../js/import/post-import.js';
+import { showToast } from '../../../js/ui/toast.js';
 import {
     InspectorLabel,
     InspectorSelect,
@@ -50,6 +52,9 @@ export function FileImportInspector({ node, config, onConfigChange, importFile }
     const hasFile = node._pendingFile || cachedResult;
     const needsReselect = config.fileName && !hasFile;
     const isMixed = cachedResult?.schema?.geometryType === 'Mixed';
+    const multiLayerNote = node._multiLayerCount > 1
+        ? `ZIP had ${node._multiLayerCount} layers; preview uses the first. Use main Import for all layers.`
+        : null;
 
     const statusText = useMemo(() => {
         if (importError) {
@@ -87,20 +92,19 @@ export function FileImportInspector({ node, config, onConfigChange, importFile }
             const result = await importFile(file);
             if (!result) throw new Error('Import returned nothing');
 
-            const dataset = Array.isArray(result) ? result[0] : result;
-            const imported = dataset.type === 'spatial'
-                ? {
-                    type: 'spatial',
-                    geojson: dataset.geojson,
-                    schema: dataset.schema,
-                    name: dataset.name
-                }
-                : {
-                    type: 'table',
-                    rows: dataset.rows,
-                    schema: dataset.schema,
-                    name: dataset.name
-                };
+            const layers = normalizeImporterResult(result);
+            if (layers.length === 0) throw new Error('Import returned no layers');
+            if (layers.length > 1) {
+                node._multiLayerCount = layers.length;
+                showToast(
+                    `ZIP contained ${layers.length} layers; workflow preview uses the first — use main Import for all layers.`,
+                    'warning'
+                );
+            } else {
+                node._multiLayerCount = 1;
+            }
+
+            const imported = serializeImportedDataset(layers[0]);
             node._cachedResult = imported;
             node._pendingFile = null;
             setCachedResult(imported);
@@ -160,6 +164,9 @@ export function FileImportInspector({ node, config, onConfigChange, importFile }
                 />
             </label>
             {isMixed && <MixedGeometryWarning />}
+            {multiLayerNote ? (
+                <p className="text-xs text-muted" style={{ marginTop: 8 }}>{multiLayerNote}</p>
+            ) : null}
         </>
     );
 }

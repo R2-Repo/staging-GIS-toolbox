@@ -26,4 +26,10 @@ describe('event wiring regression guards', () => {
         expect(indexSource).toContain('/react/main.jsx');
         expect(indexSource).not.toContain('js/app.js');
     });
+
+    it('routes handleFileImport through shared post-import pipeline', () => {
+        expect(handlersSource).toContain('finalizeImportedDatasets');
+        expect(handlersSource).toContain('applyImportLayerStyles');
+        expect(handlersSource).not.toMatch(/function _maybeOfferSimpleStyleConvert\s*\(/);
+    });
 });

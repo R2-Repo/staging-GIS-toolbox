@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <NetworkLink>
+      <name>Remote layer</name>
+      <Link><href>https://example.com/data.kml</href></Link>
+    </NetworkLink>
+  </Document>
+</kml>

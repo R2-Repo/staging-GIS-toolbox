@@ -11,6 +11,7 @@ import { importKML } from './kml-importer.js';
 import { importKMZ } from './kmz-importer.js';
 import { importShapefile } from './shapefile-importer.js';
 import { importJSON } from './json-importer.js';
+import { loadJSZip } from '../core/libs.js';
 
 function _xmlTextLooksLikeKml(text) {
     const head = text.trim().slice(0, 12000);
@@ -32,6 +33,51 @@ async function importXML(file, task) {
     return importKML(text, task, { sourceFileName: file.name });
 }
 
+/**
+ * Sniff a .zip archive: shapefile vs KMZ-style (contains .kml).
+ * @returns {'shapefile'|'kmz'|null}
+ */
+export async function detectZipKind(file) {
+    const JSZipLib = await loadJSZip();
+    if (!JSZipLib?.loadAsync) return null;
+
+    const buffer = await file.arrayBuffer();
+    let zip;
+    try {
+        zip = await JSZipLib.loadAsync(buffer);
+    } catch {
+        return null;
+    }
+
+    let hasKml = false;
+    let hasShp = false;
+    zip.forEach((path, entry) => {
+        if (entry.dir) return;
+        const low = path.toLowerCase();
+        if (low.endsWith('.kml')) hasKml = true;
+        if (low.endsWith('.shp')) hasShp = true;
+    });
+
+    if (hasShp) return 'shapefile';
+    if (hasKml) return 'kmz';
+    return null;
+}
+
+async function importZip(file, task) {
+    const kind = await detectZipKind(file);
+    if (kind === 'kmz') {
+        return importKMZ(file, task);
+    }
+    if (kind === 'shapefile') {
+        return importShapefile(file, task);
+    }
+    throw new AppError(
+        'This ZIP is neither a shapefile (.shp/.dbf/.shx) nor a KMZ archive (.kml inside ZIP).',
+        ErrorCategory.UNSUPPORTED_FORMAT,
+        { fileName: file.name }
+    );
+}
+
 const FORMAT_MAP = {
     'geojson': importGeoJSON,
     'json': importJSON,
@@ -42,7 +88,7 @@ const FORMAT_MAP = {
     'xls': importExcel,
     'kml': importKML,
     'kmz': importKMZ,
-    'zip': importShapefile, // Assume zipped shapefile
+    'zip': importZip,
     'xml': importXML
 };
 

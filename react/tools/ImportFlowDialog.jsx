@@ -30,7 +30,13 @@ export function ImportFlowDialog({
             ) : null}
 
             <p className="text-xs text-muted mb-8">
-                Import GeoJSON, CSV, Excel, KML/KMZ, Shapefile ZIP and related formats.
+                Supported: GeoJSON, JSON, CSV/TSV, Excel, KML, KMZ, Shapefile ZIP (.shp inside),
+                and KML-style XML. ZIP files are auto-detected as shapefile or KMZ.
+            </p>
+            <p className="text-xs text-muted mb-8">
+                KML/KMZ: points, lines, polygons, and MultiGeometry import correctly.
+                Network links may be blocked by browser CORS; GroundOverlay and 3D models are not supported.
+                See <code>docs/kml-kmz-roadmap.md</code> for limits.
             </p>
 
             <div

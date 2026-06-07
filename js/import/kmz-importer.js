@@ -5,10 +5,7 @@ import { importKML } from './kml-importer.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadJSZip } from '../core/libs.js';
 import logger from '../core/logger.js';
-
-function _normalizeZipPath(p) {
-    return p.replace(/\\/g, '/');
-}
+import { createKmzLinkResolver, normalizeZipPath, resolveZipInternalHref } from './zip-utils.js';
 
 /**
  * Pick the primary KML entry inside a KMZ (doc.kml at root, then nested doc.kml, then heuristic).
@@ -18,7 +15,7 @@ function _chooseMainKmlEntry(kmlEntries) {
     if (kmlEntries.length === 1) {
         return { entry: kmlEntries[0], reason: 'only-kml' };
     }
-    const norm = e => _normalizeZipPath(e.name);
+    const norm = e => normalizeZipPath(e.name);
     const rootDoc = kmlEntries.find(e => norm(e).toLowerCase() === 'doc.kml');
     if (rootDoc) return { entry: rootDoc, reason: 'root-doc.kml' };
     const nestedDoc = kmlEntries.find(e => norm(e).toLowerCase().endsWith('/doc.kml'));
@@ -35,26 +32,6 @@ function _chooseMainKmlEntry(kmlEntries) {
     return { entry: sorted[0], reason: 'heuristic-shallow-largest' };
 }
 
-function _dirnameInZip(p) {
-    const n = _normalizeZipPath(p);
-    const i = n.lastIndexOf('/');
-    return i <= 0 ? '' : n.slice(0, i + 1);
-}
-
-function _resolveZipInternalHref(mainKmlPath, href) {
-    const h = href.trim();
-    if (!h || /^(https?:|data:|blob:|\/\/)/i.test(h) || h.startsWith('#')) return null;
-    const dir = _dirnameInZip(mainKmlPath);
-    const combined = dir + h.replace(/^\.\//, '');
-    const parts = combined.split('/').filter(Boolean);
-    const stack = [];
-    for (const part of parts) {
-        if (part === '..') stack.pop();
-        else if (part !== '.') stack.push(part);
-    }
-    return stack.join('/');
-}
-
 function _guessMimeFromPath(p) {
     const low = p.toLowerCase();
     if (low.endsWith('.png')) return 'image/png';
@@ -68,12 +45,13 @@ function _guessMimeFromPath(p) {
 
 /**
  * Rewrite relative <href> targets inside KML to blob: URLs for files found in the KMZ.
+ * @param {string[]} [blobUrls] - collects created blob URLs for later revoke
  */
-async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task) {
+async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrls = []) {
     const pathMap = new Map();
     zip.forEach((relPath, entry) => {
         if (entry.dir) return;
-        pathMap.set(_normalizeZipPath(relPath).toLowerCase(), entry);
+        pathMap.set(normalizeZipPath(relPath).toLowerCase(), entry);
     });
 
     const re = /<href>\s*([^<]+?)\s*<\/href>/gi;
@@ -85,7 +63,7 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task) {
         if (/^(https?:|data:|blob:)/i.test(raw) || raw.startsWith('#')) continue;
         if (seenRaw.has(raw)) continue;
         seenRaw.add(raw);
-        const resolved = _resolveZipInternalHref(mainKmlPath, raw);
+        const resolved = resolveZipInternalHref(mainKmlPath, raw);
         if (resolved) targets.push({ raw, resolved });
     }
 
@@ -98,6 +76,7 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task) {
             const buf = await entry.async('arraybuffer');
             const blob = new Blob([buf], { type: _guessMimeFromPath(resolved) });
             const url = URL.createObjectURL(blob);
+            blobUrls.push(url);
             const escRaw = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             out = out.replace(new RegExp(`<href>\\s*${escRaw}\\s*</href>`, 'gi'), `<href>${url}</href>`);
             n++;
@@ -146,14 +125,20 @@ export async function importKMZ(file, task) {
     const { entry: mainKml, reason } = _chooseMainKmlEntry(kmlFiles);
     logger.info('Importer', 'KMZ main KML chosen', { entry: mainKml.name, reason });
 
+    const blobUrls = [];
     let kmlContent = await mainKml.async('string');
-    kmlContent = await _rewriteKmzEmbeddedHrefs(kmlContent, zip, mainKml.name, task);
+    kmlContent = await _rewriteKmzEmbeddedHrefs(kmlContent, zip, mainKml.name, task, blobUrls);
 
     task.updateProgress(70, 'Parsing KML...');
     const dataset = await importKML(kmlContent, task, { sourceFileName: file.name });
     dataset.name = file.name.replace(/\.kmz$/i, '');
     dataset.source.file = file.name;
     dataset.source.format = 'kmz';
+
+    if (blobUrls.length > 0) {
+        dataset._blobUrls = blobUrls;
+    }
+    dataset._kmzLinkResolver = createKmzLinkResolver(zip, mainKml.name);
 
     return dataset;
 }

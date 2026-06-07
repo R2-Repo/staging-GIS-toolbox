@@ -1,0 +1,7 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "A", "stroke": "#ff0000" }, "geometry": { "type": "Point", "coordinates": [-122.4, 37.8] } },
+    { "type": "Feature", "properties": { "name": "B", "stroke": "#00ff00" }, "geometry": { "type": "Point", "coordinates": [-122.3, 37.9] } }
+  ]
+}

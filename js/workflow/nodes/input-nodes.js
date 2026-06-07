@@ -2,6 +2,7 @@
  * Input nodes — data sources that start a pipeline
  */
 import { NodeBase } from './node-base.js';
+import { normalizeImporterResult, serializeImportedDataset } from '../../import/post-import.js';
 
 // ==============================
 // Layer Input — pick an existing layer
@@ -80,10 +81,10 @@ export class FileImportNode extends NodeBase {
         if (!this._pendingFile) throw new Error('No file imported — select a file first');
         const result = await context.importFile(this._pendingFile);
         if (!result) throw new Error('Import failed');
-        const dataset = Array.isArray(result) ? result[0] : result;
-        const out = dataset.type === 'spatial'
-            ? { type: 'spatial', geojson: dataset.geojson, schema: dataset.schema, name: dataset.name }
-            : { type: 'table', rows: dataset.rows, schema: dataset.schema, name: dataset.name };
+        const layers = normalizeImporterResult(result);
+        if (layers.length === 0) throw new Error('Import returned no layers');
+        this._multiLayerCount = layers.length;
+        const out = serializeImportedDataset(layers[0]);
         this._cachedResult = out;
         this._pendingFile = null;
         return JSON.parse(JSON.stringify(out));

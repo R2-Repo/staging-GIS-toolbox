@@ -5,43 +5,57 @@ import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsyn
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { parseKmlForImport } from './import-parse-service.js';
 import { extractKmlStyleFromFeatures } from './parsers/kml-style.js';
+import { stripKmlPresentationFromGeoJSON } from './parsers/kml-strip.js';
 
 /**
  * @param {File|string} file
  * @param {import('../core/task-runner.js').TaskRunner} task
- * @param {{ sourceFileName?: string, text?: string, byteSize?: number }} [meta]
+ * @param {{ sourceFileName?: string, text?: string, byteSize?: number, importMode?: 'gis'|'preserve', geojson?: object, networkHrefs?: string[] }} [meta]
  */
 export async function importKML(file, task, meta = {}) {
-    task.updateProgress(20, 'Reading KML...');
+    const importMode = meta.importMode ?? 'gis';
 
-    let text;
-    if (typeof file === 'string') {
-        text = file;
-    } else if (meta.text) {
-        text = meta.text;
+    let geojson;
+    let networkHrefs = meta.networkHrefs || [];
+
+    if (meta.geojson) {
+        geojson = meta.geojson;
     } else {
-        text = await file.text();
+        task.updateProgress(20, 'Reading KML...');
+
+        let text;
+        if (typeof file === 'string') {
+            text = file;
+        } else if (meta.text) {
+            text = meta.text;
+        } else {
+            text = await file.text();
+        }
+
+        task.updateProgress(50, 'Parsing KML to GeoJSON...');
+
+        const byteSize = meta.byteSize ?? text.length;
+        try {
+            const parsed = await parseKmlForImport(text, byteSize);
+            geojson = parsed.geojson;
+            networkHrefs = parsed.networkHrefs || [];
+        } catch (e) {
+            throw new AppError(e.message || 'Invalid KML/XML', ErrorCategory.PARSE_FAILED);
+        }
     }
 
-    task.updateProgress(50, 'Parsing KML to GeoJSON...');
-
-    const byteSize = meta.byteSize ?? text.length;
-    let geojson;
-    let networkHrefs = [];
-
-    try {
-        const parsed = await parseKmlForImport(text, byteSize);
-        geojson = parsed.geojson;
-        networkHrefs = parsed.networkHrefs || [];
-    } catch (e) {
-        throw new AppError(e.message || 'Invalid KML/XML', ErrorCategory.PARSE_FAILED);
+    if (importMode === 'gis') {
+        geojson = stripKmlPresentationFromGeoJSON(geojson);
     }
 
     geojson = await explodeGeometryCollectionsInFeatureCollectionAsync(geojson, task);
 
     const featCount = geojson.features.length;
-    task.updateProgress(80, 'Extracting styles...');
-    const kmlStyle = featCount > 0 ? extractKmlStyleFromFeatures(geojson.features) : null;
+    let kmlStyle = null;
+    if (importMode === 'preserve' && featCount > 0) {
+        task.updateProgress(80, 'Extracting styles...');
+        kmlStyle = extractKmlStyleFromFeatures(geojson.features);
+    }
 
     task.updateProgress(90, 'Building dataset...');
     const defaultName = typeof file === 'string'
@@ -53,7 +67,8 @@ export async function importKML(file, task, meta = {}) {
 
     const dataset = createSpatialDataset(defaultName, geojson, {
         file: sourceFile,
-        format: 'kml'
+        format: 'kml',
+        importMode
     });
 
     if (kmlStyle) dataset._kmlStyle = kmlStyle;

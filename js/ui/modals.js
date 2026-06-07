@@ -1,6 +1,7 @@
 /**
  * Modal + Bottom Sheet helpers
  */
+import { buildArcgisLargeLayerNotice } from '../import/import-size-notices.js';
 
 const _modalSubscribers = new Set();
 const _modalResolvers = new Map();
@@ -73,6 +74,104 @@ export function confirm(title, message) {
 }
 
 /**
+ * Large ArcGIS import: warning + Continue/Cancel, then progress bar in the same modal.
+ * @param {number} featureCount
+ * @param {string} progressTitle
+ * @returns {Promise<{ proceed: boolean, update?: (percent: number, step?: string) => void, close?: () => void, onCancel?: (fn: () => void) => void }>}
+ */
+export function confirmArcgisLargeImport(featureCount, progressTitle) {
+    const notice = buildArcgisLargeLayerNotice(featureCount);
+    const bulletsHtml = notice.bullets.map((b) => `<li>${b}</li>`).join('');
+    const contentHtml = `
+        <div class="arcgis-import-confirm-body">
+            <p><strong>${notice.heading}</strong></p>
+            <p>${notice.intro}</p>
+            ${notice.planIntro ? `<p>${notice.planIntro}</p>` : ''}
+            ${bulletsHtml ? `<ul style="margin:8px 0;padding-left:20px;line-height:1.45">${bulletsHtml}</ul>` : ''}
+            ${notice.footer ? `<p class="text-xs text-muted" style="margin-top:8px">${notice.footer}</p>` : ''}
+        </div>
+        <div class="arcgis-import-progress-body" style="display:none;text-align:center;padding-top:8px">
+            <div class="spinner" style="margin:0 auto 12px"></div>
+            <div class="arcgis-import-progress-step progress-step" style="margin-bottom:12px;color:var(--text-muted)">Starting download...</div>
+            <div class="progress-bar-container">
+                <div class="arcgis-import-progress-fill progress-bar-fill" style="width:0%"></div>
+                <div class="arcgis-import-progress-pct progress-bar-text">0%</div>
+            </div>
+        </div>`;
+    const footer = `
+        <button class="btn btn-secondary arcgis-import-cancel-btn">Cancel</button>
+        <button class="btn btn-primary arcgis-import-continue-btn">Continue</button>
+        <button class="btn btn-secondary arcgis-import-progress-cancel-btn" style="display:none">Cancel</button>`;
+
+    return new Promise((resolve) => {
+        let settled = false;
+        let cancelHandler = null;
+
+        const settle = (result) => {
+            if (settled) return;
+            settled = true;
+            resolve(result);
+        };
+
+        showModal('Large ArcGIS layer', contentHtml, {
+            footer,
+            onMount: (overlay, close) => {
+                const confirmBody = overlay.querySelector('.arcgis-import-confirm-body');
+                const progressBody = overlay.querySelector('.arcgis-import-progress-body');
+                const continueBtn = overlay.querySelector('.arcgis-import-continue-btn');
+                const cancelBtn = overlay.querySelector('.arcgis-import-cancel-btn');
+                const progressCancelBtn = overlay.querySelector('.arcgis-import-progress-cancel-btn');
+                const stepEl = overlay.querySelector('.arcgis-import-progress-step');
+                const fillEl = overlay.querySelector('.arcgis-import-progress-fill');
+                const pctEl = overlay.querySelector('.arcgis-import-progress-pct');
+                const header = overlay.querySelector('.modal-header span');
+
+                const finish = (proceeded) => {
+                    close(proceeded);
+                };
+
+                cancelBtn.onclick = () => {
+                    settle({ proceed: false });
+                    finish(false);
+                };
+
+                progressCancelBtn.onclick = () => {
+                    cancelHandler?.();
+                    finish(false);
+                };
+
+                continueBtn.onclick = () => {
+                    confirmBody.style.display = 'none';
+                    progressBody.style.display = 'block';
+                    continueBtn.style.display = 'none';
+                    cancelBtn.style.display = 'none';
+                    progressCancelBtn.style.display = 'inline-block';
+                    if (header) header.textContent = progressTitle;
+
+                    settle({
+                        proceed: true,
+                        update(percent, step) {
+                            const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+                            fillEl.style.width = `${pct}%`;
+                            pctEl.textContent = `${Math.round(pct)}%`;
+                            if (step) stepEl.textContent = step;
+                        },
+                        close() {
+                            finish(true);
+                        },
+                        onCancel(fn) {
+                            cancelHandler = fn;
+                        }
+                    });
+                };
+            }
+        }).catch(() => {
+            if (!settled) settle({ proceed: false });
+        });
+    });
+}
+
+/**
  * Show progress modal for long operations
  */
 export function showProgressModal(title) {
@@ -101,4 +200,4 @@ export function showProgressModal(title) {
     };
 }
 
-export default { showModal, confirm, showProgressModal };
+export default { showModal, confirm, confirmArcgisLargeImport, showProgressModal };

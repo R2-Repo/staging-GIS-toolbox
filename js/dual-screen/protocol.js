@@ -72,7 +72,10 @@ export function serializeLayerForSync(layer, index) {
         geojson: layer.geojson ? JSON.parse(JSON.stringify(layer.geojson)) : null,
         style: layer._mapStyle || null,
         colorIndex: index,
-        source: layer.source
+        source: layer.source,
+        scaleRangeEnabled: !!layer.scaleRangeEnabled,
+        minScale: layer.minScale ?? null,
+        maxScale: layer.maxScale ?? null
     };
 }
 

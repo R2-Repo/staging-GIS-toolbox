@@ -30,7 +30,8 @@ const EXPORTERS = {
  * Get available export formats for a dataset
  */
 export function getAvailableFormats(dataset) {
-    const isSpatial = dataset.type === 'spatial' && dataset.schema?.geometryType;
+    const isSpatial = (dataset.type === 'spatial' || dataset.type === 'spatial-chunked' || dataset.storage === 'workspace')
+        && dataset.schema?.geometryType;
     const formats = [];
 
     for (const [key, exp] of Object.entries(EXPORTERS)) {

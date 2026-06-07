@@ -110,7 +110,12 @@ function _serializeLayer(layer) {
         visible: layer.visible,
         created: layer.created
     };
-    if (layer.type === 'spatial' && layer.geojson) {
+    if (layer.type === 'spatial-chunked' || layer.storage === 'workspace') {
+        out.type = 'spatial-chunked';
+        out.storage = 'workspace';
+        out.workspaceLayerId = layer.workspaceLayerId || layer.id;
+        out.schema = layer.schema;
+    } else if (layer.type === 'spatial' && layer.geojson) {
         out.geojson = layer.geojson;
     }
     if (layer.type === 'table' && layer.rows) {
@@ -118,6 +123,9 @@ function _serializeLayer(layer) {
     }
     // Preserve filters if present
     if (layer.filters) out.filters = layer.filters;
+    if (layer.scaleRangeEnabled) out.scaleRangeEnabled = true;
+    if (layer.minScale != null && layer.minScale > 0) out.minScale = layer.minScale;
+    if (layer.maxScale != null && layer.maxScale > 0) out.maxScale = layer.maxScale;
     return out;
 }
 

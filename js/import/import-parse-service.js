@@ -45,8 +45,9 @@ export async function parseKmlForImport(text, byteSize = 0) {
 export async function parseKmzForImport(buffer) {
     if (shouldUseWorker(buffer.byteLength)) {
         try {
-            const transfer = [buffer];
-            const result = await parseInWorker('kmz', buffer, { transfer });
+            // Clone before transfer — transferring detaches the buffer; keep original for fallback.
+            const workerBuffer = buffer.slice(0);
+            const result = await parseInWorker('kmz', workerBuffer, { transfer: [workerBuffer] });
             if (result) return result;
         } catch (e) {
             if (e?.cancelled) throw e;

@@ -3,12 +3,102 @@
  * Uses fetch() and standard REST query parameters
  */
 import logger from '../core/logger.js';
-import { createSpatialDataset, createTableDataset } from '../core/data-model.js';
+import {
+    createSpatialDataset,
+    createTableDataset,
+    createChunkedSpatialDataset
+} from '../core/data-model.js';
 import { TaskRunner, yieldToUI } from '../core/task-runner.js';
 import { handleError, AppError, ErrorCategory } from '../core/error-handler.js';
+import {
+    filterFeatureProperties,
+    applySelectedFieldsToSchema,
+    shouldFilterFields
+} from '../import/import-field-filter.js';
+import {
+    createWorkspaceLayer,
+    appendWorkspaceBatch,
+    flushSpatialIndexSave,
+    WORKSPACE_CHUNK_SIZE
+} from '../workspace/workspace-store.js';
+import { applyArcgisScaleRangeToLayer } from '../map/scale-range.js';
 
 /** Maximum features to download without explicit user override. */
 export const ARCGIS_MAX_FEATURES = 250_000;
+
+/**
+ * Convert one ESRI feature JSON object to GeoJSON Feature.
+ * @param {object} f
+ * @param {(g: object) => object|null} convertGeometry
+ */
+export function esriFeatureToGeoJSON(f, convertGeometry) {
+    const convert = convertGeometry || ((g) => g);
+    return {
+        type: 'Feature',
+        geometry: convert(f.geometry),
+        properties: f.attributes || {}
+    };
+}
+
+/** Whether UI should confirm before downloading a layer over the soft feature cap. */
+export function arcgisNeedsLargeDownloadConfirm(metadata, queryOptions = {}) {
+    if (queryOptions.allowLargeDownload || queryOptions.spatialFilter) return false;
+    const total = metadata?.totalCount;
+    return total != null && total > ARCGIS_MAX_FEATURES;
+}
+
+/** Build layer schema from ArcGIS layer metadata (no feature scan). */
+export function schemaFromArcgisMetadata(metadata, selectedFields = null) {
+    const fields = (metadata?.fields || []).filter((f) => {
+        if (!shouldFilterFields(selectedFields)) return true;
+        return selectedFields.includes(f.name);
+    });
+    return {
+        fields: fields.map((f, order) => ({
+            name: f.name,
+            type: f.type || 'string',
+            nullCount: 0,
+            uniqueCount: 0,
+            sampleValues: [],
+            min: null,
+            max: null,
+            selected: true,
+            outputName: f.alias || f.name,
+            order
+        })),
+        geometryType: metadata?.geometryType || null,
+        featureCount: 0,
+        crs: 'EPSG:4326'
+    };
+}
+
+/**
+ * Append ESRI features to workspace in fixed-size chunks (avoids stack overflow from spread).
+ */
+export async function appendArcgisFeaturesToWorkspace(layerId, esriFeatures, convertGeometry, startIndex, selectedFields = null) {
+    if (!esriFeatures?.length) return 0;
+
+    let written = 0;
+    for (let i = 0; i < esriFeatures.length; i += WORKSPACE_CHUNK_SIZE) {
+        const slice = esriFeatures.slice(i, i + WORKSPACE_CHUNK_SIZE);
+        const geojsonBatch = new Array(slice.length);
+        for (let j = 0; j < slice.length; j++) {
+            geojsonBatch[j] = filterFeatureProperties(
+                esriFeatureToGeoJSON(slice[j], convertGeometry),
+                selectedFields
+            );
+        }
+        await appendWorkspaceBatch(layerId, geojsonBatch, startIndex + i, selectedFields);
+        written += geojsonBatch.length;
+    }
+    return written;
+}
+
+function _pushAll(target, items) {
+    for (let i = 0; i < items.length; i++) {
+        target.push(items[i]);
+    }
+}
 
 export class ArcGISRestImporter {
     constructor() {
@@ -63,6 +153,8 @@ export class ArcGISRestImporter {
 
             this.metadata = {
                 name: data.name || 'ArcGIS Layer',
+                minScale: data.minScale || null,
+                maxScale: data.maxScale || null,
                 geometryType: this.mapGeometryType(data.geometryType),
                 fields: (data.fields || []).map(f => ({
                     name: f.name,
@@ -130,18 +222,31 @@ export class ArcGISRestImporter {
             where = '1=1',
             returnGeometry = true,
             spatialFilter = null,
-            allowLargeDownload = false
+            allowLargeDownload = false,
+            selectedFields = null
         } = queryOptions;
 
         const url = this.metadata.url;
         const maxRec = this.metadata.maxRecordCount || 1000;
-        const allFeatures = [];
         let offset = 0;
         let page = 0;
         let done = false;
         const totalExpected = this.metadata.totalCount;
+        const streamToWorkspace = returnGeometry && queryOptions.useWorkspace !== false;
+        const convertGeom = (g) => this.convertGeometry(g);
 
-        if (totalExpected != null && totalExpected > ARCGIS_MAX_FEATURES && !allowLargeDownload) {
+        /** @type {object[]} raw ESRI features — only when not streaming spatial to workspace */
+        const allFeatures = [];
+        let workspaceLayerId = null;
+        let datasetShell = null;
+        let featureOffset = 0;
+
+        if (
+            totalExpected != null
+            && totalExpected > ARCGIS_MAX_FEATURES
+            && !allowLargeDownload
+            && !spatialFilter
+        ) {
             throw new AppError(
                 `This layer has ${totalExpected.toLocaleString()} features — exceeds the ${ARCGIS_MAX_FEATURES.toLocaleString()} feature limit. Apply a filter or use a smaller layer.`,
                 ErrorCategory.OUT_OF_MEMORY,
@@ -172,11 +277,6 @@ export class ArcGISRestImporter {
                     params.set('spatialRel', 'esriSpatialRelIntersects');
                     params.set('inSR', '4326');
                 }
-
-                const pct = totalExpected
-                    ? Math.round((allFeatures.length / totalExpected) * 90)
-                    : Math.min(page * 10, 90);
-                runner.updateProgress(pct, `Page ${page}: ${allFeatures.length} features...`);
 
                 let data;
                 let retries = 0;
@@ -222,14 +322,45 @@ export class ArcGISRestImporter {
                     break;
                 }
 
-                allFeatures.push(...features);
-                logger.debug('ArcGIS', `Page ${page}`, { fetched: features.length, total: allFeatures.length });
+                if (streamToWorkspace) {
+                    if (!workspaceLayerId) {
+                        datasetShell = createChunkedSpatialDataset(
+                            this.metadata.name,
+                            { schema: schemaFromArcgisMetadata(this.metadata, selectedFields) },
+                            { format: 'arcgis-rest', url, importSelectedFields: selectedFields || undefined }
+                        );
+                        workspaceLayerId = datasetShell.workspaceLayerId || datasetShell.id;
+                        await createWorkspaceLayer({
+                            id: workspaceLayerId,
+                            name: this.metadata.name,
+                            source: datasetShell.source,
+                            schema: datasetShell.schema
+                        });
+                    }
+                    const added = await appendArcgisFeaturesToWorkspace(
+                        workspaceLayerId,
+                        features,
+                        convertGeom,
+                        featureOffset,
+                        selectedFields
+                    );
+                    featureOffset += added;
+                } else {
+                    _pushAll(allFeatures, features);
+                }
 
-                if (allFeatures.length > ARCGIS_MAX_FEATURES && !allowLargeDownload) {
+                const fetchedTotal = streamToWorkspace ? featureOffset : allFeatures.length;
+                logger.debug('ArcGIS', `Page ${page}`, { fetched: features.length, total: fetchedTotal });
+
+                if (
+                    !streamToWorkspace
+                    && fetchedTotal > ARCGIS_MAX_FEATURES
+                    && !allowLargeDownload
+                ) {
                     throw new AppError(
                         `Download exceeded ${ARCGIS_MAX_FEATURES.toLocaleString()} features. Narrow your query or filter.`,
                         ErrorCategory.OUT_OF_MEMORY,
-                        { fetched: allFeatures.length }
+                        { fetched: fetchedTotal }
                     );
                 }
 
@@ -237,28 +368,50 @@ export class ArcGISRestImporter {
                     done = true;
                 }
 
+                const pct = totalExpected
+                    ? Math.round((fetchedTotal / totalExpected) * 90)
+                    : Math.min(page * 10, 90);
+                runner.updateProgress(pct, `Page ${page}: ${fetchedTotal.toLocaleString()} features...`);
+
                 offset += features.length;
                 await yieldToUI();
             }
 
-            runner.updateProgress(95, 'Normalizing features...');
+            if (streamToWorkspace) {
+                await flushSpatialIndexSave();
+            }
 
-            // Convert ESRI JSON to GeoJSON
-            const geojsonFeatures = allFeatures.map(f => ({
-                type: 'Feature',
-                geometry: this.convertGeometry(f.geometry),
-                properties: f.attributes || {}
-            }));
+            runner.updateProgress(95, streamToWorkspace ? 'Finalizing workspace layer...' : 'Normalizing features...');
+
+            if (streamToWorkspace && workspaceLayerId && datasetShell) {
+                const workspaceResult = {
+                    ...datasetShell,
+                    type: 'spatial-chunked',
+                    storage: 'workspace',
+                    workspaceLayerId,
+                    geojson: { type: 'FeatureCollection', features: [] },
+                    schema: applySelectedFieldsToSchema(
+                        { ...datasetShell.schema, featureCount: featureOffset },
+                        selectedFields
+                    ),
+                    source: { ...datasetShell.source, importSelectedFields: selectedFields || undefined },
+                    _viewportCache: true
+                };
+                return applyArcgisScaleRangeToLayer(workspaceResult, this.metadata);
+            }
+
+            const geojsonFeatures = allFeatures.map((f) => esriFeatureToGeoJSON(f, (g) => this.convertGeometry(g)));
 
             const fc = { type: 'FeatureCollection', features: geojsonFeatures };
             const hasGeometry = geojsonFeatures.some(f => f.geometry != null);
 
             if (hasGeometry) {
-                return createSpatialDataset(
+                const dataset = createSpatialDataset(
                     this.metadata.name,
                     fc,
                     { format: 'arcgis-rest', url, features: geojsonFeatures.length }
                 );
+                return applyArcgisScaleRangeToLayer(dataset, this.metadata);
             } else {
                 const rows = geojsonFeatures.map(f => f.properties);
                 return createTableDataset(
@@ -376,7 +529,7 @@ export class ArcGISRestImporter {
                 const svcUrl = `${url}/${svc.name}/${svcType}`;
                 try {
                     const layers = await this._fetchServiceLayers(svcUrl, svc.name, svcType);
-                    results.push(...layers);
+                    for (const layer of layers) results.push(layer);
                 } catch (_) {
                     // Skip inaccessible services
                     logger.warn('ArcGIS', `Skipped inaccessible service: ${svc.name}`);
@@ -398,7 +551,7 @@ export class ArcGISRestImporter {
                             const svcUrl = `${url}/${svc.name}/${svcType}`;
                             try {
                                 const layers = await this._fetchServiceLayers(svcUrl, svc.name, svcType);
-                                results.push(...layers);
+                                for (const layer of layers) results.push(layer);
                             } catch (_) {
                                 logger.warn('ArcGIS', `Skipped inaccessible service: ${svc.name}`);
                             }

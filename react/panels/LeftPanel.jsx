@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { isSpatialLayer, getLayerFeatureCount } from '../../js/core/data-model.js';
 import { LayerDataToolsPanel } from './LayerDataToolsPanel.jsx';
 
 export function LayerListPanel({
@@ -23,17 +24,20 @@ export function LayerListPanel({
         <>
             {layers.map((layer, idx) => {
                 const isActive = layer.id === activeLayerId;
-                const icon = layer.type === 'spatial' ? '🗺️' : '📊';
-                const count = layer.type === 'spatial'
-                    ? `${layer.geojson?.features?.length || 0} features`
-                    : `${layer.rows?.length || 0} rows`;
+                const isSpatial = isSpatialLayer(layer);
+                const icon = isSpatial ? '🗺️' : '📊';
+                const count = isSpatial
+                    ? `${getLayerFeatureCount(layer).toLocaleString()} features`
+                    : `${getLayerFeatureCount(layer).toLocaleString()} rows`;
                 const fieldCount = layer.schema?.fields?.length || 0;
                 const geomType = layer.schema?.geometryType;
+
+                const outOfScale = layer._outOfScaleRange;
 
                 return (
                     <div
                         key={layer.id}
-                        className={`layer-item ${isActive ? 'active' : ''}`}
+                        className={`layer-item ${isActive ? 'active' : ''}${outOfScale ? ' layer-item-scale-hidden' : ''}`}
                         data-id={layer.id}
                         onClick={() => actions.setActiveLayer(layer.id)}
                     >
@@ -58,6 +62,14 @@ export function LayerListPanel({
                                     }}
                                 >
                                     FILTERED
+                                </span>
+                            ) : null}
+                            {layer.scaleRangeEnabled ? (
+                                <span
+                                    className="layer-filter-badge layer-scale-badge"
+                                    title={outOfScale ? 'Outside visible scale range at current zoom' : 'Scale range active'}
+                                >
+                                    SCALE
                                 </span>
                             ) : null}
                             <div className="layer-order-btns">

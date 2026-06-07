@@ -5,7 +5,7 @@
 import booleanIntersects from '@turf/boolean-intersects';
 import bboxPolygon from '@turf/bbox-polygon';
 import logger from '../core/logger.js';
-import { analyzeSchema, splitByGeometryType } from '../core/data-model.js';
+import { analyzeSchema, splitByGeometryType, isSpatialLayer } from '../core/data-model.js';
 import { processInChunks } from '../core/task-runner.js';
 import { isSmartStyleActive } from '../map/style-engine.js';
 import { getLayerDefaultColor } from '../map/layer-palette.js';
@@ -211,7 +211,7 @@ export function serializeImportedDataset(dataset) {
  */
 export function applyImportLayerStyles(ds, options) {
     const { mapService, getLayers, layerIndex } = options;
-    if (ds.type !== 'spatial') return ds;
+    if (!isSpatialLayer(ds)) return ds;
 
     if (ds._kmlStyle && !mapService.getLayerStyle(ds.id)) {
         mapService.setLayerStyle(ds.id, { ...ds._kmlStyle });

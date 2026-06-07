@@ -30,6 +30,12 @@ function detectGeomTypes(layer) {
         else if (t === 'LineString' || t === 'MultiLineString') types.add('line');
         else if (t === 'Polygon' || t === 'MultiPolygon') types.add('polygon');
     }
+    if (!types.size && layer?.schema?.geometryType) {
+        const gt = String(layer.schema.geometryType);
+        if (gt === 'Point' || gt === 'MultiPoint') types.add('point');
+        else if (gt.includes('Line')) types.add('line');
+        else if (gt.includes('Polygon')) types.add('polygon');
+    }
     return types;
 }
 

@@ -100,7 +100,7 @@ export function preflightFile(file, options = {}) {
             level: PREFLIGHT_LEVEL.SOFT,
             sizeBytes,
             format,
-            message: `"${file.name}" is ${formatBytes(sizeBytes)}. Import may take a while.`
+            message: `"${file.name}" is ${formatBytes(sizeBytes)} — above the recommended size for a standard browser import. The Import Optimizer will reduce memory use by streaming data, keeping only selected fields, and simplifying KML/KMZ when applicable.`
         };
     }
     return { level: PREFLIGHT_LEVEL.OK, sizeBytes, format };

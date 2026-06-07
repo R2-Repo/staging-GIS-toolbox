@@ -32,7 +32,10 @@ export const MIN_HEAP_HEADROOM_BYTES = 64 * 1024 * 1024;
 /** Feature estimate above this blocks import (density sniff). */
 export const SNIFF_FEATURE_REJECT = 100_000;
 
-export const IMPORT_GUARD_VERSION = '2026-06-07c';
+/** Coordinate count estimate above this blocks import (pathological geometry). */
+export const SNIFF_COORDINATE_REJECT = 2_000_000;
+
+export const IMPORT_GUARD_VERSION = '2026-06-07d';
 
 function _detectFormatFromName(fileName) {
     const name = (fileName || '').toLowerCase();
@@ -146,6 +149,68 @@ export async function sniffFeatureCountEstimate(file) {
 }
 
 /**
+ * Estimate coordinate density from a text sample (GeoJSON/KML).
+ * @param {string} head
+ * @param {number} fileSize
+ * @returns {number|null}
+ */
+export function estimateCoordinateCountFromSample(head, fileSize) {
+    if (!head || fileSize < 256 * 1024) return null;
+    const sampleLen = head.length;
+    const coordHits = (head.match(/\[\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*/g) || []).length;
+    if (coordHits < 5) return null;
+    return Math.max(coordHits, Math.round((coordHits / sampleLen) * fileSize));
+}
+
+/**
+ * @param {File} file
+ * @returns {Promise<number|null>}
+ */
+export async function sniffCoordinateCountEstimate(file) {
+    const format = _detectFormatFromName(file.name);
+    if (!format || !['geojson', 'json', 'kml', 'xml'].includes(format)) return null;
+    if ((file.size ?? 0) < 256 * 1024) return null;
+
+    const sampleLen = Math.min(file.size, 384 * 1024);
+    let head;
+    try {
+        head = await file.slice(0, sampleLen).text();
+    } catch {
+        return null;
+    }
+    return estimateCoordinateCountFromSample(head, file.size);
+}
+
+/**
+ * @param {File} file
+ * @returns {Promise<{ ok: boolean, message?: string }>}
+ */
+async function _checkZipExpansion(file) {
+    const format = _detectFormatFromName(file.name);
+    if (format !== 'zip' && format !== 'kmz') return { ok: true };
+
+    const sizeBytes = file.size ?? 0;
+    if (sizeBytes > MAX_READ_BYTES_BINARY) return { ok: true };
+
+    try {
+        const buffer = await file.arrayBuffer();
+        const { loadJSZip } = await import('../core/libs.js');
+        const { measureZipUncompressedBytes, MAX_ZIP_UNCOMPRESSED_BYTES } = await import('./zip-utils.js');
+        const JSZipLib = await loadJSZip();
+        const uncompressed = await measureZipUncompressedBytes(buffer, JSZipLib);
+        if (uncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
+            return {
+                ok: false,
+                message: `"${file.name}" would expand to ${formatBytes(uncompressed)} uncompressed (limit ${formatBytes(MAX_ZIP_UNCOMPRESSED_BYTES)}). Split or simplify the archive before importing.`
+            };
+        }
+    } catch {
+        /* if sniff fails, rely on later assert during import */
+    }
+    return { ok: true };
+}
+
+/**
  * @param {File[]} files
  * @returns {Promise<{ ok: boolean, message?: string }>}
  */
@@ -170,6 +235,17 @@ export async function checkEstimatedMemoryBudget(files) {
                 message: `"${file.name}" appears to contain ~${featureEst.toLocaleString()} features — too dense for browser import. Simplify or split the file (limit ~${SNIFF_FEATURE_REJECT.toLocaleString()} features).`
             };
         }
+
+        const coordEst = await sniffCoordinateCountEstimate(file);
+        if (coordEst != null && coordEst > SNIFF_COORDINATE_REJECT) {
+            return {
+                ok: false,
+                message: `"${file.name}" appears to contain ~${coordEst.toLocaleString()} coordinates — geometry is too dense for browser import. Simplify or split the file.`
+            };
+        }
+
+        const zipCheck = await _checkZipExpansion(file);
+        if (!zipCheck.ok) return zipCheck;
     }
 
     const totalPeak = files.reduce((sum, f) => sum + estimateImportPeakBytes(f), 0);
@@ -203,6 +279,8 @@ export function checkExistingLayerMemory(getLayers) {
     for (const layer of layers) {
         if (layer.type === 'spatial') {
             featureCount += layer.geojson?.features?.length || 0;
+        } else if (layer.type === 'spatial-chunked' || layer.storage === 'workspace') {
+            featureCount += layer.schema?.featureCount || 0;
         } else if (layer.type === 'table') {
             featureCount += layer.rows?.length || 0;
         }
@@ -224,6 +302,8 @@ export default {
     assertFileReadable,
     assertTextPayloadSize,
     sniffFeatureCountEstimate,
+    sniffCoordinateCountEstimate,
+    estimateCoordinateCountFromSample,
     IMPORT_GUARD_VERSION,
     ESTIMATED_PEAK_REJECT_BYTES,
     MAX_READ_BYTES_TEXT,

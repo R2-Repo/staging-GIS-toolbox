@@ -1,36 +1,23 @@
 /**
- * KMZ importer — unzip and extract KML
+ * KMZ importer — worker parse path + GIS strip mode by default
  */
 import { importKML } from './kml-importer.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadJSZip } from '../core/libs.js';
 import logger from '../core/logger.js';
-import { createKmzLinkResolver, normalizeZipPath, resolveZipInternalHref } from './zip-utils.js';
+import { parseKmzForImport } from './import-parse-service.js';
+import {
+    assertZipBufferWithinBudget,
+    createKmzLinkResolver,
+    normalizeZipPath,
+    resolveZipInternalHref
+} from './zip-utils.js';
+import { extractKmlFromKmzBuffer } from './parsers/parse-kmz-buffer.js';
 
-/**
- * Pick the primary KML entry inside a KMZ (doc.kml at root, then nested doc.kml, then heuristic).
- * @param {import('jszip').JSZip.JSZipObject[]} kmlEntries
- */
-function _chooseMainKmlEntry(kmlEntries) {
-    if (kmlEntries.length === 1) {
-        return { entry: kmlEntries[0], reason: 'only-kml' };
-    }
-    const norm = e => normalizeZipPath(e.name);
-    const rootDoc = kmlEntries.find(e => norm(e).toLowerCase() === 'doc.kml');
-    if (rootDoc) return { entry: rootDoc, reason: 'root-doc.kml' };
-    const nestedDoc = kmlEntries.find(e => norm(e).toLowerCase().endsWith('/doc.kml'));
-    if (nestedDoc) return { entry: nestedDoc, reason: 'nested-doc.kml' };
-    const sorted = [...kmlEntries].sort((a, b) => {
-        const da = norm(a).split('/').filter(Boolean).length;
-        const db = norm(b).split('/').filter(Boolean).length;
-        if (da !== db) return da - db;
-        const sa = a._data?.uncompressedSize ?? 0;
-        const sb = b._data?.uncompressedSize ?? 0;
-        if (sb !== sa) return sb - sa;
-        return norm(a).length - norm(b).length;
-    });
-    return { entry: sorted[0], reason: 'heuristic-shallow-largest' };
-}
+/** Max embedded asset size when rewriting KMZ hrefs (bytes). */
+export const KMZ_EMBEDDED_ASSET_MAX_BYTES = 5 * 1024 * 1024;
+
+export const DEFAULT_KMZ_IMPORT_MODE = 'gis';
 
 function _guessMimeFromPath(p) {
     const low = p.toLowerCase();
@@ -43,13 +30,6 @@ function _guessMimeFromPath(p) {
     return 'application/octet-stream';
 }
 
-/** Max embedded asset size when rewriting KMZ hrefs (bytes). */
-export const KMZ_EMBEDDED_ASSET_MAX_BYTES = 5 * 1024 * 1024;
-
-/**
- * Rewrite relative <href> targets inside KML to blob: URLs for files found in the KMZ.
- * @param {string[]} [blobUrls] - collects created blob URLs for later revoke
- */
 async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrls = []) {
     const pathMap = new Map();
     zip.forEach((relPath, entry) => {
@@ -102,57 +82,75 @@ async function _rewriteKmzEmbeddedHrefs(kmlText, zip, mainKmlPath, task, blobUrl
     return { kmlText: out, skippedLarge };
 }
 
+/**
+ * @param {File} file
+ * @param {import('../core/task-runner.js').TaskRunner} task
+ * @param {{ buffer?: ArrayBuffer, importMode?: 'gis'|'preserve' }} [options]
+ */
 export async function importKMZ(file, task, options = {}) {
-    task.updateProgress(10, 'Loading JSZip...');
+    const importMode = options.importMode ?? DEFAULT_KMZ_IMPORT_MODE;
+    task.updateProgress(10, 'Reading KMZ...');
 
+    const buffer = options.buffer ?? await file.arrayBuffer();
     const JSZipLib = await loadJSZip();
     if (!JSZipLib?.loadAsync) {
         throw new AppError('JSZip library not loaded', ErrorCategory.PARSE_FAILED);
     }
 
-    task.updateProgress(20, 'Extracting KMZ...');
-    const buffer = options.buffer ?? await file.arrayBuffer();
-    let zip;
-    try {
-        zip = await JSZipLib.loadAsync(buffer);
-    } catch (e) {
-        throw new AppError('Failed to unzip KMZ: ' + e.message, ErrorCategory.PARSE_FAILED);
-    }
+    await assertZipBufferWithinBudget(buffer, JSZipLib, file.name);
 
-    const kmlFiles = [];
-    zip.forEach((path, entry) => {
-        if (path.toLowerCase().endsWith('.kml') && !entry.dir) {
-            kmlFiles.push(entry);
+    if (importMode === 'preserve') {
+        task.updateProgress(20, 'Extracting KMZ (preserve mode)...');
+        let zip;
+        try {
+            zip = await JSZipLib.loadAsync(buffer);
+        } catch (e) {
+            throw new AppError('Failed to unzip KMZ: ' + e.message, ErrorCategory.PARSE_FAILED);
         }
-    });
 
-    if (kmlFiles.length === 0) {
-        throw new AppError('KMZ contains no KML file', ErrorCategory.PARSE_FAILED);
+        const extracted = await extractKmlFromKmzBuffer(buffer, JSZipLib);
+        const blobUrls = [];
+        const hrefResult = await _rewriteKmzEmbeddedHrefs(
+            extracted.kmlText, zip, extracted.mainKmlPath, task, blobUrls
+        );
+
+        task.updateProgress(70, 'Parsing KML...');
+        const dataset = await importKML(hrefResult.kmlText, task, {
+            sourceFileName: file.name,
+            importMode: 'preserve',
+            text: hrefResult.kmlText
+        });
+        dataset.name = file.name.replace(/\.kmz$/i, '');
+        dataset.source.file = file.name;
+        dataset.source.format = 'kmz';
+
+        if (hrefResult.skippedLarge > 0) {
+            dataset._importWarning = `${hrefResult.skippedLarge} embedded asset(s) over ${Math.round(KMZ_EMBEDDED_ASSET_MAX_BYTES / (1024 * 1024))} MB were skipped to save memory.`;
+        }
+        if (blobUrls.length > 0) dataset._blobUrls = blobUrls;
+        dataset._kmzLinkResolver = createKmzLinkResolver(zip, extracted.mainKmlPath);
+        return dataset;
     }
 
-    task.updateProgress(50, 'Reading KML from KMZ...');
-    const { entry: mainKml, reason } = _chooseMainKmlEntry(kmlFiles);
-    logger.info('Importer', 'KMZ main KML chosen', { entry: mainKml.name, reason });
+    task.updateProgress(30, 'Parsing KMZ (GIS mode)...');
+    const parsed = await parseKmzForImport(buffer);
+    if (!parsed?.geojson) {
+        throw new AppError('KMZ contains no parseable KML', ErrorCategory.PARSE_FAILED);
+    }
 
-    const blobUrls = [];
-    let kmlContent = await mainKml.async('string');
-    const hrefResult = await _rewriteKmzEmbeddedHrefs(kmlContent, zip, mainKml.name, task, blobUrls);
-    kmlContent = hrefResult.kmlText;
-
-    task.updateProgress(70, 'Parsing KML...');
-    const dataset = await importKML(kmlContent, task, { sourceFileName: file.name });
+    task.updateProgress(70, 'Building dataset...');
+    const dataset = await importKML('kmz', task, {
+        sourceFileName: file.name,
+        importMode: 'gis',
+        geojson: parsed.geojson,
+        networkHrefs: parsed.networkHrefs || []
+    });
     dataset.name = file.name.replace(/\.kmz$/i, '');
     dataset.source.file = file.name;
     dataset.source.format = 'kmz';
-
-    if (hrefResult.skippedLarge > 0) {
-        dataset._importWarning = `${hrefResult.skippedLarge} embedded asset(s) over ${Math.round(KMZ_EMBEDDED_ASSET_MAX_BYTES / (1024 * 1024))} MB were skipped to save memory.`;
-    }
-
-    if (blobUrls.length > 0) {
-        dataset._blobUrls = blobUrls;
-    }
-    dataset._kmzLinkResolver = createKmzLinkResolver(zip, mainKml.name);
-
+    dataset.source.importMode = 'gis';
+    dataset._importWarning = dataset._importWarning
+        ? `${dataset._importWarning} Imported as simplified GIS layer (styling/images stripped).`
+        : 'Imported as simplified GIS layer (styling/images stripped).';
     return dataset;
 }

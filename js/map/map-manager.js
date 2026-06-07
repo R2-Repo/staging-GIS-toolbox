@@ -4,7 +4,16 @@
  */
 import logger from '../core/logger.js';
 import bus from '../core/event-bus.js';
-import { flattenFeatureGeometryCollections } from '../core/data-model.js';
+import { flattenFeatureGeometryCollections, isWorkspaceLayer } from '../core/data-model.js';
+import { MAP_CHUNK_BATCH_SIZE, RENDER_LIMITS } from './render-limits.js';
+import { buildViewportGeoJSON } from '../workspace/viewport-loader.js';
+import { getWorkspaceFeatureAttributes, getWorkspaceLayerBounds } from '../workspace/workspace-store.js';
+import {
+    resolveMapLibreZoomRange,
+    normalizeScaleRange,
+    MAPLIBRE_MIN_ZOOM,
+    MAPLIBRE_MAX_ZOOM
+} from './scale-range.js';
 
 const POINT_CLUSTER_THRESHOLD = 10000;
 
@@ -138,6 +147,76 @@ class MapManager {
 
         // ID counter
         this._idCounter = 0;
+
+        // Scale-range re-apply when latitude shifts significantly
+        this._lastScaleRangeLat = null;
+    }
+
+    _layerAddSpec(baseSpec, zoomRange) {
+        if (!zoomRange) return baseSpec;
+        return { ...baseSpec, minzoom: zoomRange.minzoom, maxzoom: zoomRange.maxzoom };
+    }
+
+    _getLayerZoomRange(dataset) {
+        if (!dataset || !this.map) return null;
+        return resolveMapLibreZoomRange(dataset, this.map.getCenter().lat);
+    }
+
+    _applyZoomRangeToLayerIds(layerIds, zoomRange) {
+        if (!this.map || !layerIds?.length) return;
+        const minz = zoomRange?.minzoom ?? MAPLIBRE_MIN_ZOOM;
+        const maxz = zoomRange?.maxzoom ?? MAPLIBRE_MAX_ZOOM;
+        for (const lid of layerIds) {
+            if (this.map.getLayer(lid)) {
+                this.map.setLayerZoomRange(lid, minz, maxz);
+            }
+        }
+    }
+
+    _applyScaleRangeForEntry(entry, scaleRangeConfig) {
+        if (!entry || !this.map) return;
+        const config = normalizeScaleRange(scaleRangeConfig || {});
+        entry.scaleRange = config;
+        const zoomRange = resolveMapLibreZoomRange(config, this.map.getCenter().lat);
+        this._applyZoomRangeToLayerIds(entry.layerIds, zoomRange);
+    }
+
+    setLayerScaleRange(layerId, range, latitude) {
+        const entry = this.dataLayers.get(layerId);
+        if (!entry || !this.map) return;
+        this._applyScaleRangeForEntry(entry, range);
+        if (Number.isFinite(latitude)) {
+            this._lastScaleRangeLat = latitude;
+        }
+    }
+
+    _reapplyAllScaleRangesIfNeeded() {
+        if (!this.map) return;
+        const lat = this.map.getCenter().lat;
+        const prev = this._lastScaleRangeLat;
+        if (prev != null && Math.abs(lat - prev) < 0.5) return;
+
+        this._lastScaleRangeLat = lat;
+        let changed = false;
+        for (const [, entry] of this.dataLayers) {
+            if (!entry.scaleRange?.scaleRangeEnabled) continue;
+            const zoomRange = resolveMapLibreZoomRange(entry.scaleRange, lat);
+            this._applyZoomRangeToLayerIds(entry.layerIds, zoomRange);
+            changed = true;
+        }
+        if (changed) {
+            bus.emit('map:scaleRangeChanged', { latitude: lat });
+        }
+    }
+
+    _storeLayerScaleRange(dataset) {
+        const entry = this.dataLayers.get(dataset?.id);
+        if (!entry || !this.map) return;
+        const scaleRangeConfig = normalizeScaleRange(dataset);
+        entry.scaleRange = scaleRangeConfig;
+        const zoomRange = resolveMapLibreZoomRange(scaleRangeConfig, this.map.getCenter().lat);
+        this._applyZoomRangeToLayerIds(entry.layerIds, zoomRange);
+        this._lastScaleRangeLat = this.map.getCenter().lat;
     }
 
     _nextId(prefix) {
@@ -198,6 +277,15 @@ class MapManager {
 
         bus.on('layer:active', (layer) => {
             this._activeLayerId = layer?.id ?? null;
+        });
+
+        this._workspaceMoveTimer = null;
+        this.map.on('moveend', () => {
+            window.clearTimeout(this._workspaceMoveTimer);
+            this._workspaceMoveTimer = window.setTimeout(() => {
+                this._reapplyAllScaleRangesIfNeeded();
+                void this._refreshAllWorkspaceLayers();
+            }, 100);
         });
 
         // Right-click
@@ -383,7 +471,11 @@ class MapManager {
     // ==========================================
 
     addLayer(dataset, colorIndex = 0, { fit = false } = {}) {
-        if (!this.map || !dataset.geojson) return;
+        if (!this.map) return;
+        if (isWorkspaceLayer(dataset)) {
+            return this.addWorkspaceLayer(dataset, colorIndex, { fit });
+        }
+        if (!dataset.geojson) return;
 
         this.removeLayer(dataset.id);
 
@@ -405,7 +497,10 @@ class MapManager {
             this.dataLayers.set(dataset.id, {
                 sourceId,
                 layerIds: [],
-                geojson: { type: 'FeatureCollection', features: [] }
+                chunkSources: [{ sourceId, layerIds: [] }],
+                colorIndex,
+                geojson: { type: 'FeatureCollection', features: [] },
+                scaleRange: normalizeScaleRange(dataset)
             });
             this._layerNames.set(dataset.id, dataset.name);
             logger.info('Map', 'No geometries to display', { layer: dataset.name });
@@ -532,65 +627,17 @@ class MapManager {
         }
 
         // Click handlers
-        for (const lid of layerIds) {
-            this.map.on('click', lid, (e) => {
-                if (e._drawHandled) return;
-                e.preventDefault();
-                const props = e.features?.[0]?.properties;
-                if (!props) return;
-                const featureIndex = props._featureIndex;
-                const feature = dataset.geojson.features[featureIndex];
-                if (!feature) return;
-
-                const latlng = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-                const nearby = this._findFeaturesNearClick(latlng, dataset.id, featureIndex, e.point);
-                this.highlightFeature(dataset.id, featureIndex, styFlat.strokeColor);
-                this._popupHits = nearby.length > 0 ? nearby : [{
-                    feature, featureIndex,
-                    layerId: dataset.id, layerName: dataset.name,
-                    layerColor: styFlat.strokeColor
-                }];
-                this._popupIndex = 0;
-                this._popupLatLng = latlng;
-                this._renderCyclePopup();
-
-                if (this._canSelect() && this._isActiveLayer(dataset.id)) {
-                    const ev = e.originalEvent;
-                    const toggle = !!(ev?.shiftKey || ev?.ctrlKey || ev?.metaKey);
-                    this._handleSelectionClick(dataset.id, featureIndex, toggle);
-                }
-            });
-
-            this.map.on('contextmenu', lid, (e) => {
-                e.preventDefault();
-                const props = e.features?.[0]?.properties;
-                if (!props) return;
-                const featureIndex = props._featureIndex;
-                const feature = dataset.geojson.features[featureIndex];
-                bus.emit('map:contextmenu', {
-                    latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
-                    originalEvent: e.originalEvent,
-                    layerId: dataset.id, featureIndex, feature
-                });
-            });
-
-            this.map.on('mouseenter', lid, () => {
-                if (this.map.getCanvas().style.cursor !== 'crosshair') {
-                    this.map.getCanvas().style.cursor = 'pointer';
-                }
-            });
-            this.map.on('mouseleave', lid, () => {
-                if (this.map.getCanvas().style.cursor !== 'crosshair') {
-                    this.map.getCanvas().style.cursor = '';
-                }
-            });
-        }
+        this._bindLayerClickHandlers(dataset, layerIds, styFlat);
 
         this.dataLayers.set(dataset.id, {
             sourceId,
             layerIds,
-            geojson: dataset._geometryExploded === true ? dataset.geojson : geojson
+            chunkSources: [{ sourceId, layerIds }],
+            colorIndex,
+            geojson: dataset._geometryExploded === true ? dataset.geojson : geojson,
+            scaleRange: normalizeScaleRange(dataset)
         });
+        this._storeLayerScaleRange(dataset);
         this._layerNames.set(dataset.id, dataset.name);
 
         if (dataset.geojson.features.length > 10000) {
@@ -616,7 +663,87 @@ class MapManager {
         bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
     }
 
-    /** Append tagged features to an existing map layer source (incremental import). */
+    /** Workspace-backed layer — renders viewport packet only. */
+    async addWorkspaceLayer(dataset, colorIndex = 0, { fit = false } = {}) {
+        if (!this.map || !isWorkspaceLayer(dataset)) return;
+
+        this.removeLayer(dataset.id);
+        this._workspaceDatasets = this._workspaceDatasets || new Map();
+        this._workspaceDatasets.set(dataset.id, dataset);
+
+        const defaultColor = LAYER_COLORS[colorIndex % LAYER_COLORS.length];
+        const stored = this._layerStyles.get(dataset.id);
+        const layerStyle = normalizeStyle(stored, defaultColor);
+        if (!stored) this._layerStyles.set(dataset.id, { ...layerStyle });
+
+        const bounds = this.map.getBounds();
+        const west = bounds.getWest();
+        const south = bounds.getSouth();
+        const east = bounds.getEast();
+        const north = bounds.getNorth();
+        const viewportFc = await buildViewportGeoJSON(dataset.workspaceLayerId || dataset.id, [west, south, east, north]);
+        dataset.geojson = viewportFc;
+
+        const taggedFeatures = _tagFeaturesForMap(dataset);
+        const sourceId = `src-${dataset.id}`;
+        const layerIds = this._installGeoJsonChunk(
+            dataset, taggedFeatures, 0, layerStyle, { styFlat: getBaseFlatStyle(layerStyle, 'polygon') }
+        );
+        const geojson = { type: 'FeatureCollection', features: taggedFeatures };
+
+        this.dataLayers.set(dataset.id, {
+            sourceId,
+            layerIds,
+            chunkSources: [{ sourceId, layerIds }],
+            colorIndex,
+            workspace: true,
+            geojson,
+            scaleRange: normalizeScaleRange(dataset)
+        });
+        this._storeLayerScaleRange(dataset);
+        this._layerNames.set(dataset.id, dataset.name);
+
+        if (fit && viewportFc.features.length) {
+            try {
+                const turf = await import('@turf/turf');
+                const bbox = turf.bbox(viewportFc);
+                if (bbox && isFinite(bbox[0])) {
+                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
+                }
+            } catch (e) {
+                logger.warn('Map', 'Could not fit workspace layer bounds', { error: e.message });
+            }
+        }
+
+        bus.emit('map:layerAdded', { id: dataset.id, name: dataset.name });
+    }
+
+    async _refreshAllWorkspaceLayers() {
+        if (!this._workspaceDatasets?.size || !this.map) return;
+        for (const [id] of this._workspaceDatasets) {
+            await this.refreshWorkspaceLayerViewport(id);
+        }
+    }
+
+    async refreshWorkspaceLayerViewport(layerId) {
+        const dataset = this._workspaceDatasets?.get(layerId);
+        const entry = this.dataLayers.get(layerId);
+        if (!dataset || !entry || !this.map) return;
+
+        const bounds = this.map.getBounds();
+        const viewportFc = await buildViewportGeoJSON(
+            dataset.workspaceLayerId || layerId,
+            [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+        );
+        dataset.geojson = viewportFc;
+        const tagged = _tagFeaturesForMap(dataset);
+        const geojson = { type: 'FeatureCollection', features: tagged };
+        const source = this.map.getSource(entry.sourceId);
+        if (source) source.setData(geojson);
+        entry.geojson = geojson;
+    }
+
+    /** Append a new GeoJSON source chunk (incremental import — no full setData). */
     appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex) {
         const entry = this.dataLayers.get(layerId);
         if (!entry || !this.map || !rawFeatures?.length) return;
@@ -649,12 +776,208 @@ class MapManager {
         }
         if (tagged.length === 0) return;
 
-        entry.geojson.features.push(...tagged);
-        const source = this.map.getSource(entry.sourceId);
-        if (source) {
-            source.setData(entry.geojson);
+        if (!entry.chunkSources) {
+            entry.chunkSources = [{ sourceId: entry.sourceId, layerIds: [...entry.layerIds] }];
+        }
+        if (entry.chunkSources.length >= RENDER_LIMITS.maxActiveSources) {
+            logger.warn('Map', 'Chunk source limit reached — skipping map append for batch', {
+                layerId, limit: RENDER_LIMITS.maxActiveSources
+            });
+            return;
+        }
+
+        const chunkIndex = entry.chunkSources.length;
+        const defaultColor = LAYER_COLORS[(entry.colorIndex ?? 0) % LAYER_COLORS.length];
+        const layerStyle = normalizeStyle(this._layerStyles.get(layerId), defaultColor);
+        const chunkLayerIds = this._installGeoJsonChunk(
+            dataset, tagged, chunkIndex, layerStyle, { useCluster: false, styFlat: getBaseFlatStyle(layerStyle, 'polygon') }
+        );
+        if (!chunkLayerIds.length) return;
+
+        const sourceId = chunkIndex === 0 ? entry.sourceId : `src-${dataset.id}-c${chunkIndex}`;
+        entry.layerIds.push(...chunkLayerIds);
+        entry.chunkSources.push({ sourceId, layerIds: chunkLayerIds });
+    }
+
+    /**
+     * Add a GeoJSON source + styled layers for one feature batch.
+     * @returns {string[]} map layer ids
+     */
+    _installGeoJsonChunk(dataset, taggedFeatures, chunkIndex, layerStyle, { useCluster = false, styFlat = null } = {}) {
+        if (!this.map || !taggedFeatures.length) return [];
+
+        const suffix = chunkIndex === 0 ? '' : `-c${chunkIndex}`;
+        const sourceId = `src-${dataset.id}${suffix}`;
+        const geojson = { type: 'FeatureCollection', features: taggedFeatures };
+
+        const hasPoints = taggedFeatures.some(f => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint');
+        const hasLines = taggedFeatures.some(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString');
+        const hasPolygons = taggedFeatures.some(f => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon');
+
+        const styPoly = compilePaint(layerStyle, 'polygon');
+        const styLine = compilePaint(layerStyle, 'line');
+        const styPoint = compilePaint(layerStyle, 'point');
+        const flat = styFlat || getBaseFlatStyle(layerStyle, 'polygon');
+
+        if (this.map.getSource(sourceId)) {
+            this.map.getSource(sourceId).setData(geojson);
+        } else {
+            this.map.addSource(sourceId, {
+                type: 'geojson',
+                data: geojson,
+                ...(useCluster ? { cluster: true, clusterMaxZoom: 14, clusterRadius: 50 } : {})
+            });
+        }
+
+        const layerIds = [];
+        const idBase = chunkIndex === 0 ? dataset.id : `${dataset.id}-c${chunkIndex}`;
+
+        if (hasPolygons) {
+            const fillId = `${idBase}-fill`;
+            if (!this.map.getLayer(fillId)) {
+                this.map.addLayer({
+                    id: fillId, type: 'fill', source: sourceId,
+                    filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
+                    paint: { 'fill-color': styPoly.fillColor, 'fill-opacity': styPoly.fillOpacity }
+                });
+            }
+            layerIds.push(fillId);
+
+            const outlineId = `${idBase}-outline`;
+            if (!this.map.getLayer(outlineId)) {
+                this.map.addLayer({
+                    id: outlineId, type: 'line', source: sourceId,
+                    filter: _geomTypesFilter(['Polygon', 'MultiPolygon']),
+                    paint: {
+                        'line-color': styPoly.strokeColor,
+                        'line-width': styPoly.strokeWidth,
+                        'line-opacity': styPoly.strokeOpacity
+                    }
+                });
+            }
+            layerIds.push(outlineId);
+        }
+
+        if (hasLines) {
+            const lineId = `${idBase}-line`;
+            if (!this.map.getLayer(lineId)) {
+                this.map.addLayer({
+                    id: lineId, type: 'line', source: sourceId,
+                    filter: _geomTypesFilter(['LineString', 'MultiLineString']),
+                    paint: {
+                        'line-color': styLine.strokeColor,
+                        'line-width': styLine.strokeWidth,
+                        'line-opacity': styLine.strokeOpacity
+                    }
+                });
+            }
+            layerIds.push(lineId);
+        }
+
+        if (hasPoints) {
+            const fo = Math.min(1, (typeof styPoint.fillOpacity === 'number' ? styPoint.fillOpacity : 0.3) + 0.3);
+            const ptId = `${idBase}-point`;
+            if (!this.map.getLayer(ptId)) {
+                this.map.addLayer({
+                    id: ptId, type: 'circle', source: sourceId,
+                    filter: _geomTypesFilter(['Point', 'MultiPoint']),
+                    paint: {
+                        'circle-radius': styPoint.circleRadius,
+                        'circle-color': styPoint.fillColor,
+                        'circle-stroke-color': styPoint.strokeColor,
+                        'circle-stroke-width': styPoint.strokeWidth,
+                        'circle-opacity': fo
+                    }
+                });
+            }
+            layerIds.push(ptId);
+        }
+
+        this._bindLayerClickHandlers(dataset, layerIds, flat);
+        const zoomRange = this._getLayerZoomRange(dataset);
+        this._applyZoomRangeToLayerIds(layerIds, zoomRange);
+        return layerIds;
+    }
+
+    _bindLayerClickHandlers(dataset, layerIds, styFlat) {
+        for (const lid of layerIds) {
+            if (this._boundClickLayers?.has(lid)) continue;
+            if (!this._boundClickLayers) this._boundClickLayers = new Set();
+
+            this.map.on('click', lid, (e) => {
+                if (e._drawHandled) return;
+                e.preventDefault();
+                const props = e.features?.[0]?.properties;
+                if (!props) return;
+                const featureIndex = props._featureIndex;
+                const resolveFeature = async () => {
+                    let feature = dataset.geojson.features.find(
+                        (f) => f.properties?._featureIndex === featureIndex
+                    ) || dataset.geojson.features[featureIndex];
+                    if (isWorkspaceLayer(dataset)) {
+                        const wsId = dataset.workspaceLayerId || dataset.id;
+                        const attrs = await getWorkspaceFeatureAttributes(wsId, featureIndex);
+                        if (feature && attrs) {
+                            feature = { ...feature, properties: { ...attrs } };
+                        } else if (attrs) {
+                            feature = { type: 'Feature', geometry: e.features[0].geometry, properties: attrs };
+                        }
+                    } else {
+                        feature = dataset.geojson.features[featureIndex];
+                    }
+                    return feature;
+                };
+
+                void resolveFeature().then(async (feature) => {
+                    if (!feature) return;
+                    const latlng = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+                    let nearby = this._findFeaturesNearClick(latlng, dataset.id, featureIndex, e.point);
+                    nearby = await this._enrichPopupHitsWithWorkspaceAttrs(nearby);
+                    this.highlightFeature(dataset.id, featureIndex, styFlat.strokeColor);
+                    this._popupHits = nearby.length > 0 ? nearby : [{
+                        feature: this._stripInternalProps(feature), featureIndex,
+                        layerId: dataset.id, layerName: dataset.name,
+                        layerColor: styFlat.strokeColor
+                    }];
+                    this._popupIndex = 0;
+                    this._popupLatLng = latlng;
+                    this._renderCyclePopup();
+
+                    if (this._canSelect() && this._isActiveLayer(dataset.id)) {
+                        const ev = e.originalEvent;
+                        const toggle = !!(ev?.shiftKey || ev?.ctrlKey || ev?.metaKey);
+                        this._handleSelectionClick(dataset.id, featureIndex, toggle);
+                    }
+                });
+            });
+
+            this.map.on('contextmenu', lid, (e) => {
+                e.preventDefault();
+                const props = e.features?.[0]?.properties;
+                if (!props) return;
+                const featureIndex = props._featureIndex;
+                const feature = dataset.geojson.features[featureIndex];
+                bus.emit('map:contextmenu', {
+                    latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
+                    originalEvent: e.originalEvent,
+                    layerId: dataset.id, featureIndex, feature
+                });
+            });
+
+            this.map.on('mouseenter', lid, () => {
+                if (this.map.getCanvas().style.cursor !== 'crosshair') {
+                    this.map.getCanvas().style.cursor = 'pointer';
+                }
+            });
+            this.map.on('mouseleave', lid, () => {
+                if (this.map.getCanvas().style.cursor !== 'crosshair') {
+                    this.map.getCanvas().style.cursor = '';
+                }
+            });
+            this._boundClickLayers.add(lid);
         }
     }
+
 
     /**
      * Add a large layer in batches to avoid blocking the main thread.
@@ -662,7 +985,7 @@ class MapManager {
      * @param {number} colorIndex
      * @param {{ fit?: boolean, batchSize?: number }} [options]
      */
-    async addLayerIncremental(dataset, colorIndex = 0, { fit = false, batchSize = 5000 } = {}) {
+    async addLayerIncremental(dataset, colorIndex = 0, { fit = false, batchSize = MAP_CHUNK_BATCH_SIZE } = {}) {
         const allFeatures = dataset.geojson?.features || [];
         if (allFeatures.length <= batchSize) {
             this.addLayer(dataset, colorIndex, { fit });
@@ -683,17 +1006,14 @@ class MapManager {
         }
 
         if (fit) {
-            const entry = this.dataLayers.get(dataset.id);
-            if (entry?.geojson?.features?.length) {
-                try {
-                    const turf = await import('@turf/turf');
-                    const bbox = turf.bbox(entry.geojson);
-                    if (bbox && isFinite(bbox[0])) {
-                        this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
-                    }
-                } catch (e) {
-                    logger.warn('Map', 'Could not fit bounds after incremental load', { error: e.message });
+            try {
+                const turf = await import('@turf/turf');
+                const bbox = turf.bbox({ type: 'FeatureCollection', features: savedFeatures });
+                if (bbox && isFinite(bbox[0])) {
+                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
                 }
+            } catch (e) {
+                logger.warn('Map', 'Could not fit bounds after incremental load', { error: e.message });
             }
         }
 
@@ -734,12 +1054,17 @@ class MapManager {
     removeLayer(id) {
         const info = this.dataLayers.get(id);
         if (info) {
-            for (const lid of info.layerIds) {
-                if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+            const chunks = info.chunkSources || [{ sourceId: info.sourceId, layerIds: info.layerIds || [] }];
+            for (const chunk of chunks) {
+                for (const lid of chunk.layerIds) {
+                    if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+                    this._boundClickLayers?.delete(lid);
+                }
+                if (this.map.getSource(chunk.sourceId)) this.map.removeSource(chunk.sourceId);
             }
-            if (this.map.getSource(info.sourceId)) this.map.removeSource(info.sourceId);
             this.dataLayers.delete(id);
         }
+        this._workspaceDatasets?.delete(id);
         this._layerNames.delete(id);
         this.clearSelection(id);
     }
@@ -914,15 +1239,46 @@ class MapManager {
         return results;
     }
 
-    _stripInternalProps(feature) {
-        if (!feature?.properties) return feature;
-        const { _featureIndex, _datasetId, ...rest } = feature.properties;
-        return { ...feature, properties: rest };
+    async _enrichPopupHitsWithWorkspaceAttrs(hits) {
+        if (!hits?.length) return hits;
+        const out = [];
+        for (const hit of hits) {
+            const info = this.dataLayers.get(hit.layerId);
+            if (!info?.workspace) {
+                out.push(hit);
+                continue;
+            }
+            const wsDataset = this._workspaceDatasets?.get(hit.layerId);
+            const wsId = wsDataset?.workspaceLayerId || hit.layerId;
+            const attrs = await getWorkspaceFeatureAttributes(wsId, hit.featureIndex);
+            if (!attrs) {
+                out.push(hit);
+                continue;
+            }
+            out.push({
+                ...hit,
+                feature: this._stripInternalProps({
+                    ...hit.feature,
+                    properties: attrs
+                })
+            });
+        }
+        return out;
     }
 
-    _showMultiPopup(hits, latlng) {
+    _stripInternalProps(feature) {
+        if (!feature?.properties) return feature;
+        const props = {};
+        for (const [k, v] of Object.entries(feature.properties)) {
+            if (!k.startsWith('_')) props[k] = v;
+        }
+        return { ...feature, properties: props };
+    }
+
+    async _showMultiPopup(hits, latlng) {
         if (hits.length === 0) return;
-        this._popupHits = hits;
+        const enriched = await this._enrichPopupHitsWithWorkspaceAttrs(hits);
+        this._popupHits = enriched;
         this._popupIndex = 0;
         this._popupLatLng = latlng;
         this._renderCyclePopup();
@@ -1059,19 +1415,48 @@ class MapManager {
     }
 
     /** Fit map view to the combined extent of the given layer ids. */
-    fitToLayers(layerIds) {
+    async fitToLayers(layerIds) {
         if (!this.map || !layerIds?.length) return;
-        const allFeatures = [];
+
+        let west = Infinity;
+        let south = Infinity;
+        let east = -Infinity;
+        let north = -Infinity;
+        let found = false;
+
         for (const id of layerIds) {
             const info = this.dataLayers.get(id);
-            if (info?.geojson?.features) allFeatures.push(...info.geojson.features);
-        }
-        if (allFeatures.length > 0) {
-            try {
-                const bbox = turf.bbox({ type: 'FeatureCollection', features: allFeatures });
-                if (bbox && isFinite(bbox[0])) {
-                    this.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, maxZoom: 16 });
+            if (info?.workspace) {
+                const wb = await getWorkspaceLayerBounds(
+                    this._workspaceDatasets?.get(id)?.workspaceLayerId || id
+                );
+                if (wb) {
+                    found = true;
+                    if (wb[0] < west) west = wb[0];
+                    if (wb[1] < south) south = wb[1];
+                    if (wb[2] > east) east = wb[2];
+                    if (wb[3] > north) north = wb[3];
                 }
+                continue;
+            }
+            const features = info?.geojson?.features;
+            if (!features?.length) continue;
+            for (let i = 0; i < features.length; i++) {
+                const f = features[i];
+                if (!f?.geometry?.coordinates) continue;
+                const bb = turf.bbox(f);
+                if (!bb || !isFinite(bb[0])) continue;
+                found = true;
+                if (bb[0] < west) west = bb[0];
+                if (bb[1] < south) south = bb[1];
+                if (bb[2] > east) east = bb[2];
+                if (bb[3] > north) north = bb[3];
+            }
+        }
+
+        if (found && isFinite(west)) {
+            try {
+                this.map.fitBounds([[west, south], [east, north]], { padding: 30, maxZoom: 16 });
             } catch (_) {}
         }
     }

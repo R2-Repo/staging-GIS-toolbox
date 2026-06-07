@@ -3,6 +3,7 @@
  * All importers normalize into these forms
  */
 import { processInChunks } from './task-runner.js';
+import { DEFAULT_SCALE_RANGE } from '../map/scale-range.js';
 
 /** Feature count above which explode uses chunked async processing when a task is provided. */
 export const EXPLODE_CHUNK_THRESHOLD = 100;
@@ -52,8 +53,54 @@ export function createSpatialDataset(name, geojson, source = {}) {
         source: { file: source.file || name, format: source.format || 'unknown', ...source },
         visible: true,
         active: true,
-        created: new Date().toISOString()
+        created: new Date().toISOString(),
+        ...DEFAULT_SCALE_RANGE
     };
+}
+
+/**
+ * Lightweight layer handle for IndexedDB workspace-backed spatial data.
+ * @param {string} name
+ * @param {object} meta - { id, schema, source, featureCount }
+ */
+export function createChunkedSpatialDataset(name, meta, source = {}) {
+    return {
+        id: meta.id || generateId(),
+        name,
+        type: 'spatial-chunked',
+        storage: 'workspace',
+        workspaceLayerId: meta.id || meta.workspaceLayerId,
+        geojson: { type: 'FeatureCollection', features: [] },
+        schema: meta.schema,
+        source: { file: source.file || name, format: source.format || 'unknown', ...source },
+        visible: true,
+        active: true,
+        created: new Date().toISOString(),
+        _viewportCache: true,
+        ...DEFAULT_SCALE_RANGE
+    };
+}
+
+/** @param {object} layer */
+export function isWorkspaceLayer(layer) {
+    return layer?.storage === 'workspace' || layer?.type === 'spatial-chunked';
+}
+
+/** @param {object} layer */
+export function isSpatialLayer(layer) {
+    return layer?.type === 'spatial' || isWorkspaceLayer(layer);
+}
+
+/** Feature/row count for UI labels — workspace layers use schema.featureCount, not in-memory geojson length. */
+export function getLayerFeatureCount(layer) {
+    if (!layer) return 0;
+    if (isWorkspaceLayer(layer)) {
+        return layer.schema?.featureCount ?? 0;
+    }
+    if (layer.type === 'spatial') {
+        return layer.geojson?.features?.length ?? layer.schema?.featureCount ?? 0;
+    }
+    return layer.rows?.length ?? 0;
 }
 
 /**
@@ -424,7 +471,9 @@ export function splitByGeometryType(dataset) {
 }
 
 export default {
-    createSpatialDataset, createTableDataset, tableToSpatial, spatialToTable,
+    createSpatialDataset, createTableDataset, createChunkedSpatialDataset,
+    isWorkspaceLayer, isSpatialLayer, getLayerFeatureCount,
+    tableToSpatial, spatialToTable,
     analyzeSchema, analyzeSchemaAsync, analyzeTableSchema, getSelectedFields, applyFieldSelection,
     mergeDatasets, splitByGeometryType, flattenFeatureGeometryCollections,
     explodeGeometryCollectionsInFeatureCollection,

@@ -16,6 +16,8 @@ import { readFilePayload } from './file-payload.js';
 import { MAX_IMPORT_FEATURES } from './import-preflight.js';
 import { guardFilesBeforeImport } from './import-guard.js';
 import { assertFileReadable } from './import-memory-budget.js';
+import { assertZipBufferWithinBudget } from './zip-utils.js';
+import { filterImportResult } from './import-field-filter.js';
 
 function _enforceFeatureCap(result, fileName) {
     const datasets = Array.isArray(result) ? result : [result];
@@ -68,9 +70,13 @@ async function importXML(file, task, payloadOpts = {}) {
  * @param {ArrayBuffer} buffer
  * @returns {Promise<'shapefile'|'kmz'|null>}
  */
-export async function detectZipKindFromBuffer(buffer) {
+export async function detectZipKindFromBuffer(buffer, fileName = '') {
     const JSZipLib = await loadJSZip();
     if (!JSZipLib?.loadAsync) return null;
+
+    if (fileName) {
+        await assertZipBufferWithinBudget(buffer, JSZipLib, fileName);
+    }
 
     let zip;
     try {
@@ -101,7 +107,7 @@ export async function detectZipKind(file) {
 
 async function importZip(file, task, payloadOpts = {}) {
     const buffer = payloadOpts.buffer ?? await file.arrayBuffer();
-    const kind = await detectZipKindFromBuffer(buffer);
+    const kind = await detectZipKindFromBuffer(buffer, file.name);
     if (kind === 'kmz') {
         return importKMZ(file, task, { buffer });
     }
@@ -202,11 +208,17 @@ export async function importFileCore(file, task, options = {}) {
     let result;
     if (format === 'kml') {
         const text = payload?.kind === 'text' ? payload.data : await file.text();
-        result = await importKML(text, task, { sourceFileName: file.name, text });
+        result = await importKML(text, task, {
+            sourceFileName: file.name,
+            text,
+            importMode: options.importMode
+        });
     } else if (format === 'xml') {
         result = await importXML(file, task, payloadOpts);
     } else if (format === 'zip') {
         result = await importZip(file, task, payloadOpts);
+    } else if (format === 'kmz') {
+        result = await importKMZ(file, task, { ...payloadOpts, importMode: options.importMode });
     } else if (format === 'json') {
         let parsed;
         if (payload?.kind === 'text') {
@@ -231,6 +243,10 @@ export async function importFileCore(file, task, options = {}) {
 
     if (payload?.kind === 'text') payload.data = null;
     if (payload?.kind === 'buffer') payload.data = null;
+
+    if (options.selectedFields?.length) {
+        result = filterImportResult(result, options.selectedFields);
+    }
 
     _enforceFeatureCap(result, file.name);
 
@@ -292,7 +308,10 @@ export async function importFiles(files, options = {}) {
                 const ds = await importFileCore(file, task, {
                     fileIndex: i,
                     fileCount: files.length,
-                    _batchMode: true
+                    _batchMode: true,
+                    importMode: options.importMode,
+                    useWorkspace: options.useWorkspace,
+                    selectedFields: options.selectedFields
                 });
 
                 if (ds === null || task.cancelled) {

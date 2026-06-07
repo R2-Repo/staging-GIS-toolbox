@@ -4,6 +4,16 @@ import {
     formatBytes,
     PREFLIGHT_LEVEL
 } from '../../js/import/import-preflight.js';
+import { scanFilesForImport } from '../../js/import/import-scan.js';
+import { mergeScanFieldNames } from '../../js/import/import-field-filter.js';
+import {
+    buildLargeDatasetNotice,
+    buildImportProgressReductionNotice,
+    scansNeedLargeDatasetNotice
+} from '../../js/import/import-size-notices.js';
+import { ImportFieldSelector } from './ImportFieldSelector.jsx';
+import { ImportProgressPanel } from './ImportProgressPanel.jsx';
+import { ImportReductionNotice } from './ImportReductionNotice.jsx';
 
 export function ImportFlowDialog({
     onCancel,
@@ -11,37 +21,95 @@ export function ImportFlowDialog({
     onOpenArcGIS,
     onOpenPhotoMapper,
     onOpenFence,
-    onConfirmStrongImport
+    onOptimizeImport
 }) {
     const fileInputRef = useRef(null);
+    const cancelImportRef = useRef(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [error, setError] = useState('');
     const [pendingFiles, setPendingFiles] = useState([]);
     const [preflight, setPreflight] = useState(null);
+    const [scanning, setScanning] = useState(false);
+    const [fieldNames, setFieldNames] = useState([]);
+    const [selectedFields, setSelectedFields] = useState([]);
+    const [importScans, setImportScans] = useState([]);
+    const [readyToImport, setReadyToImport] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState({ percent: 0, step: 'Starting import…' });
+
+    const resetImportStep = () => {
+        setReadyToImport(false);
+        setFieldNames([]);
+        setSelectedFields([]);
+        setImportScans([]);
+        setScanning(false);
+        setImporting(false);
+        setImportProgress({ percent: 0, step: 'Starting import…' });
+        cancelImportRef.current = null;
+    };
 
     const runPreflight = (fileList) => {
         const files = Array.from(fileList || []);
         setPendingFiles(files);
         setPreflight(files.length ? preflightFiles(files) : null);
+        resetImportStep();
         return files;
     };
 
-    const startImport = async (files) => {
+    const startImport = async (files, importOptions = {}, uiFromParent = null) => {
         if (!files?.length) return;
         const check = preflightFiles(files);
         if (check.reject) {
             setError(check.messages.join(' '));
             return;
         }
-        if (check.level === PREFLIGHT_LEVEL.STRONG && onConfirmStrongImport) {
-            const ok = await onConfirmStrongImport(check.messages.join('\n'));
-            if (!ok) return;
+        const fields = importOptions.selectedFields ?? selectedFields;
+        if (fieldNames.length > 0 && (!fields || fields.length === 0)) {
+            setError('Select at least one field to import.');
+            return;
         }
+
+        setError('');
+        setImporting(true);
+        setImportProgress({ percent: 0, step: 'Starting import…' });
+
+        const ui = uiFromParent || {
+            onProgress: (p) => setImportProgress(p),
+            onCancelReady: (fn) => { cancelImportRef.current = fn; },
+            close: () => onCancel?.(),
+            onAborted: () => setImporting(false)
+        };
+
         try {
-            setError('');
-            await onImportFiles?.(files, { preflightConfirmed: true });
+            await onImportFiles?.(files, {
+                preflightConfirmed: true,
+                selectedFields: fieldNames.length ? fields : null,
+                ...importOptions
+            }, {
+                ...ui,
+                onAborted: ui.onAborted || (() => setImporting(false))
+            });
         } catch (err) {
+            setImporting(false);
             setError(err?.message || 'Unable to start import.');
+        }
+    };
+
+    const prepareImportOptions = async (files) => {
+        setScanning(true);
+        setError('');
+        try {
+            const scans = await scanFilesForImport(files);
+            setImportScans(scans);
+            const names = mergeScanFieldNames(scans);
+            setFieldNames(names);
+            setSelectedFields(names);
+            setReadyToImport(true);
+        } catch (err) {
+            setError(err?.message || 'Could not scan files.');
+            setReadyToImport(true);
+        } finally {
+            setScanning(false);
         }
     };
 
@@ -49,10 +117,34 @@ export function ImportFlowDialog({
         const files = runPreflight(fileList);
         if (files.length === 0) return;
         const check = preflightFiles(files);
-        if (check.level === PREFLIGHT_LEVEL.OK || check.level === PREFLIGHT_LEVEL.SOFT) {
-            await startImport(files);
+        if (check.reject) {
+            setError(check.messages.join(' '));
+            return;
         }
+        if (check.level === PREFLIGHT_LEVEL.SOFT && onOptimizeImport) {
+            onOptimizeImport(files);
+            return;
+        }
+        await prepareImportOptions(files);
     };
+
+    const showLargeDatasetNotice = scansNeedLargeDatasetNotice(importScans);
+    const largeDatasetNotice = showLargeDatasetNotice ? buildLargeDatasetNotice(importScans) : null;
+    const progressNotice = showLargeDatasetNotice ? buildImportProgressReductionNotice() : null;
+
+    if (importing) {
+        return (
+            <div>
+                <ImportProgressPanel
+                    step={importProgress.step}
+                    percent={importProgress.percent}
+                    fileName={importProgress.fileName}
+                    notice={progressNotice}
+                    onCancel={cancelImportRef.current ? () => cancelImportRef.current?.() : null}
+                />
+            </div>
+        );
+    }
 
     return (
         <div>
@@ -79,66 +171,89 @@ export function ImportFlowDialog({
                 </ul>
             ) : null}
 
-            <p className="text-xs text-muted mb-8">
-                Supported: GeoJSON, JSON, CSV/TSV, Excel, KML, KMZ, Shapefile ZIP (.shp inside),
-                and KML-style XML. ZIP files are auto-detected as shapefile or KMZ.
-            </p>
+            {scanning ? (
+                <ImportProgressPanel step="Scanning attributes…" percent={0} />
+            ) : null}
 
-            <div
-                style={{
-                    border: `1px dashed ${isDragOver ? 'var(--primary)' : 'var(--border)'}`,
-                    borderRadius: '8px',
-                    padding: '20px',
-                    textAlign: 'center',
-                    marginBottom: '10px',
-                    background: isDragOver ? 'rgba(219,172,63,0.08)' : 'transparent'
-                }}
-                onDragEnter={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDragOver(true);
-                }}
-                onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDragOver(true);
-                }}
-                onDragLeave={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDragOver(false);
-                }}
-                onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDragOver(false);
-                    void handleFiles(e.dataTransfer?.files);
-                }}
-            >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
-                <div style={{ marginBottom: 8 }}>Drop files here</div>
-                <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    Choose Files
-                </button>
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml"
-                    style={{ display: 'none' }}
-                    onChange={(e) => void handleFiles(e.target.files)}
-                />
-            </div>
-
-            {preflight?.level === PREFLIGHT_LEVEL.STRONG && pendingFiles.length > 0 ? (
-                <div style={{ marginBottom: '10px' }}>
-                    <button className="btn btn-warning btn-sm" onClick={() => void startImport(pendingFiles)}>
-                        Continue with large file(s)
+            {readyToImport && !scanning ? (
+                <div className="mb-8">
+                    {largeDatasetNotice ? (
+                        <ImportReductionNotice {...largeDatasetNotice} />
+                    ) : null}
+                    <div className="text-xs mb-4"><strong>Attributes to import</strong></div>
+                    <ImportFieldSelector
+                        fields={fieldNames}
+                        selected={selectedFields}
+                        onChange={setSelectedFields}
+                        hint={largeDatasetNotice
+                            ? 'Uncheck fields you do not need — only selected attributes are stored (part of the size reduction plan).'
+                            : 'Uncheck fields you do not need — deselected attributes are not stored.'}
+                    />
+                    <button
+                        className="btn btn-primary btn-sm mt-8"
+                        onClick={() => void startImport(pendingFiles, { selectedFields })}
+                    >
+                        Import selected
                     </button>
                 </div>
+            ) : null}
+
+            {!readyToImport ? (
+                <>
+                    <p className="text-xs text-muted mb-8">
+                        Supported: GeoJSON, JSON, CSV/TSV, Excel, KML, KMZ, Shapefile ZIP (.shp inside),
+                        and KML-style XML. Choose attributes before import when field names can be previewed.
+                    </p>
+
+                    <div
+                        style={{
+                            border: `1px dashed ${isDragOver ? 'var(--primary)' : 'var(--border)'}`,
+                            borderRadius: '8px',
+                            padding: '20px',
+                            textAlign: 'center',
+                            marginBottom: '10px',
+                            background: isDragOver ? 'rgba(219,172,63,0.08)' : 'transparent'
+                        }}
+                        onDragEnter={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDragOver(true);
+                        }}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDragOver(true);
+                        }}
+                        onDragLeave={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDragOver(false);
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDragOver(false);
+                            void handleFiles(e.dataTransfer?.files);
+                        }}
+                    >
+                        <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
+                        <div style={{ marginBottom: 8 }}>Drop files here</div>
+                        <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            Choose Files
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            accept=".geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml"
+                            style={{ display: 'none' }}
+                            onChange={(e) => void handleFiles(e.target.files)}
+                        />
+                    </div>
+                </>
             ) : null}
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -148,7 +263,7 @@ export function ImportFlowDialog({
             </div>
 
             <div className="modal-footer">
-                <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
+                <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Close</button>
             </div>
         </div>
     );

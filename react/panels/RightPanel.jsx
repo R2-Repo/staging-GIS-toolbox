@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
+import { isSpatialLayer } from '../../js/core/data-model.js';
 import { SmartStylePanel } from './SmartStylePanel.jsx';
+import { VisibilityRangeSection } from './VisibilityRangeSection.jsx';
 
 function renderAgolIssue(issue) {
     const suffix = issue.message || issue.fixed ? ` -> ${issue.message || issue.fixed}` : '';
@@ -12,7 +14,8 @@ export function RightPanel({
     onExport,
     onFixAgol,
     onShowDataTable,
-    onStyleChange
+    onStyleChange,
+    onScaleRangeChange
 }) {
     const layer = snapshot?.layer || null;
     const selectedFields = snapshot?.selectedFields || [];
@@ -21,6 +24,8 @@ export function RightPanel({
     const agolCheck = snapshot?.agolCheck || null;
     const layerStyle = snapshot?.layerStyle ?? null;
     const styleDefaultColor = snapshot?.styleDefaultColor || '#2563eb';
+    const mapZoom = snapshot?.mapZoom ?? 7;
+    const mapLatitude = snapshot?.mapLatitude ?? 0;
 
     if (!layer) {
         return <div className="empty-state"><p>No layer selected</p></div>;
@@ -92,7 +97,16 @@ export function RightPanel({
                 </div>
             </div>
 
-            {layer.type === 'spatial' ? (
+            {isSpatialLayer(layer) ? (
+                <VisibilityRangeSection
+                    layer={layer}
+                    mapZoom={mapZoom}
+                    mapLatitude={mapLatitude}
+                    onChange={onScaleRangeChange}
+                />
+            ) : null}
+
+            {isSpatialLayer(layer) ? (
                 <SmartStylePanel
                     key={layer.id}
                     layer={layer}

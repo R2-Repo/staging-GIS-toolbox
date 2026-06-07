@@ -9,9 +9,12 @@ import {
     getState, getLayers, getActiveLayer, addLayer, removeLayer, updateLayer,
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from '../core/state.js';
-import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema } from '../core/data-model.js';
+import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, isSpatialLayer } from '../core/data-model.js';
 import { importFile, importFiles } from '../import/importer.js';
 import { cancelWorkerParse } from '../import/import-parse-service.js';
+import { convertSpatialDatasetToWorkspace } from '../import/workspace-import.js';
+import { isWorkspaceLayer } from '../core/data-model.js';
+import { removeWorkspaceLayer } from '../workspace/workspace-store.js';
 import {
     finalizeImportedDatasets,
     applyImportLayerStyles,
@@ -40,12 +43,13 @@ import {
 } from '../dual-screen/layout.js';
 
 import { showToast, showErrorToast } from '../ui/toast.js';
-import { showModal, confirm, showProgressModal } from '../ui/modals.js';
+import { showModal, confirm, confirmArcgisLargeImport, showProgressModal } from '../ui/modals.js';
 import * as transforms from '../dataprep/transforms.js';
 import { applyTemplate } from '../dataprep/template-builder.js';
 import { saveSnapshot, undo as undoHistory, redo as redoHistory, getHistoryState } from '../dataprep/transform-history.js';
 import { photoMapper } from '../photo/photo-mapper.js';
-import { arcgisImporter } from '../arcgis/rest-importer.js';
+import { arcgisImporter, ARCGIS_MAX_FEATURES, arcgisNeedsLargeDownloadConfirm } from '../arcgis/rest-importer.js';
+import { arcgisOutFieldsParam } from '../import/import-field-filter.js';
 import ARCGIS_ENDPOINTS from '../arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from '../agol/compatibility.js';
 import * as gisTools from './gis-tools.js';
@@ -304,6 +308,10 @@ export function buildMapContextMenuItems(payload) {
 
 export function getRightPanelSnapshot() {
     const layer = getActiveLayer();
+    const map = mapService.getMap();
+    const mapZoom = map?.getZoom?.() ?? 7;
+    const mapLatitude = map?.getCenter?.()?.lat ?? 0;
+
     if (!layer) {
         return {
             layer: null,
@@ -312,7 +320,9 @@ export function getRightPanelSnapshot() {
             agolMode: !!getState().agolCompatMode,
             agolCheck: null,
             layerStyle: null,
-            styleDefaultColor: '#2563eb'
+            styleDefaultColor: '#2563eb',
+            mapZoom,
+            mapLatitude
         };
     }
 
@@ -324,15 +334,34 @@ export function getRightPanelSnapshot() {
         formats: getAvailableFormats(layer),
         agolMode,
         agolCheck: agolMode ? checkAGOLCompatibility(layer) : null,
-        layerStyle: layer.type === 'spatial' ? mapService.getLayerStyle(layer.id) : null,
-        styleDefaultColor: getLayerDefaultColor(layerIndex)
+        layerStyle: isSpatialLayer(layer) ? mapService.getLayerStyle(layer.id) : null,
+        styleDefaultColor: getLayerDefaultColor(layerIndex),
+        mapZoom,
+        mapLatitude
     };
 }
 
 export function handleLayerStyleChange(style) {
     const layer = getActiveLayer();
-    if (!layer || layer.type !== 'spatial') return;
+    if (!layer || !isSpatialLayer(layer)) return;
     mapService.restyleLayer(layer.id, layer, style);
+}
+
+export function handleLayerScaleRangeChange(layerId, range) {
+    const layer = getLayers().find((l) => l.id === layerId);
+    if (!layer || !isSpatialLayer(layer)) return;
+
+    const patch = {
+        scaleRangeEnabled: !!range.scaleRangeEnabled,
+        minScale: range.minScale ?? null,
+        maxScale: range.maxScale ?? null
+    };
+    updateLayer(layerId, patch);
+
+    const map = mapService.getMap();
+    const latitude = map?.getCenter?.()?.lat ?? 0;
+    mapService.setLayerScaleRange(layerId, patch, latitude);
+    refreshUI();
 }
 
 // ============================
@@ -444,22 +473,42 @@ async function runWithTaskProgress(title, operation) {
 function _rollbackImportedLayers(layerIds) {
     for (const id of layerIds) {
         const layer = getLayers().find((l) => l.id === id);
-        if (layer) revokeKmzBlobUrls(layer);
+        if (layer) {
+            revokeKmzBlobUrls(layer);
+            if (isWorkspaceLayer(layer)) {
+                void removeWorkspaceLayer(id);
+            }
+        }
         mapService.removeLayer(id);
         removeLayer(id);
     }
 }
 
-async function _addImportedDatasets(datasets) {
+async function _addImportedDatasets(datasets, importOpts = {}) {
     const ids = [];
     const INCREMENTAL_THRESHOLD = 10000;
-    for (const ds of datasets) {
+    for (const raw of datasets) {
+        let ds = raw;
+        if (ds.type === 'spatial' && !isWorkspaceLayer(ds) && importOpts.useWorkspace !== false) {
+            ds = await convertSpatialDatasetToWorkspace(ds);
+            if (ds.storage === 'workspace' && raw.geojson?.features?.length) {
+                raw.geojson.features.length = 0;
+            }
+        }
+
         addLayer(ds);
         const layerIdx = getLayers().indexOf(ds);
         applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
-        const featureCount = ds.type === 'spatial' ? (ds.geojson?.features?.length || 0) : 0;
-        if (featureCount > INCREMENTAL_THRESHOLD) {
-            await mapService.addLayerIncremental(ds, layerIdx, { fit: false });
+
+        if (isWorkspaceLayer(ds)) {
+            await mapService.addWorkspaceLayer(ds, layerIdx, { fit: false });
+        } else if (ds.type === 'spatial') {
+            const featureCount = ds.geojson?.features?.length || 0;
+            if (featureCount > INCREMENTAL_THRESHOLD) {
+                await mapService.addLayerIncremental(ds, layerIdx, { fit: false });
+            } else {
+                mapService.addLayer(ds, layerIdx, { fit: false });
+            }
         } else {
             mapService.addLayer(ds, layerIdx, { fit: false });
         }
@@ -473,6 +522,7 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
     let userCancelled = false;
     const batchLayerIds = [];
     let onProgress = null;
+    const useExternalProgress = typeof options.onProgress === 'function';
 
     try {
         if (!options.preflightConfirmed) {
@@ -483,29 +533,55 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
             if (guard.cancelled) return;
         }
 
-        progress = showProgressModal('Importing Files');
-        onProgress = (data) => progress.update(data.percent, data.step, {
-            fileName: data.fileName,
-            fileSize: data.fileSize,
-            fileIndex: data.fileIndex,
-            fileCount: data.fileCount
-        });
-        bus.on('task:progress', onProgress);
+        if (useExternalProgress) {
+            onProgress = (data) => {
+                options.onProgress({
+                    percent: data?.percent || 0,
+                    step: data?.step || '',
+                    fileName: data?.fileName,
+                    fileSize: data?.fileSize,
+                    fileIndex: data?.fileIndex,
+                    fileCount: data?.fileCount
+                });
+            };
+            bus.on('task:progress', onProgress);
+            options.onProgress({ percent: 0, step: 'Starting import…' });
+            options.onCancelReady?.(() => {
+                if (userCancelled) return;
+                userCancelled = true;
+                getActiveTask()?.cancel();
+                cancelWorkerParse();
+                bus.off('task:progress', onProgress);
+                showToast('Import cancelled', 'warning');
+            });
+        } else {
+            progress = showProgressModal('Importing Files');
+            onProgress = (data) => progress.update(data.percent, data.step, {
+                fileName: data.fileName,
+                fileSize: data.fileSize,
+                fileIndex: data.fileIndex,
+                fileCount: data.fileCount
+            });
+            bus.on('task:progress', onProgress);
 
-        progress.onCancel(() => {
-            userCancelled = true;
-            getActiveTask()?.cancel();
-            cancelWorkerParse();
-            progress.close();
-            bus.off('task:progress', onProgress);
-            showToast('Import cancelled', 'warning');
-        });
+            progress.onCancel(() => {
+                userCancelled = true;
+                getActiveTask()?.cancel();
+                cancelWorkerParse();
+                progress.close();
+                bus.off('task:progress', onProgress);
+                showToast('Import cancelled', 'warning');
+            });
+        }
 
         let allExpanded = [];
         let totalFiltered = 0;
 
         sessionStore.pauseSessionSave();
         const { errors, cancelled } = await importFiles(files, {
+            importMode: options.importMode,
+            useWorkspace: options.useWorkspace,
+            selectedFields: options.selectedFields,
             onFileImported: async (_file, result) => {
                 throwIfTaskCancelled();
                 if (!result) return;
@@ -515,16 +591,23 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
                     task: getActiveTask()
                 });
                 totalFiltered += tf;
-                const ids = await _addImportedDatasets(expanded);
+                const ids = await _addImportedDatasets(expanded, {
+                    importMode: options.importMode,
+                    useWorkspace: options.useWorkspace
+                });
                 batchLayerIds.push(...ids);
                 allExpanded.push(...expanded);
             }
         });
 
-        if (!userCancelled) progress.close();
+        if (!userCancelled) {
+            if (progress) progress.close();
+            else options.onComplete?.();
+        }
         bus.off('task:progress', onProgress);
 
         if (userCancelled || cancelled) {
+            options.onAborted?.();
             _rollbackImportedLayers(batchLayerIds);
             return;
         }
@@ -582,7 +665,10 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
         if (progress) progress.close();
         if (onProgress) bus.off('task:progress', onProgress);
         _rollbackImportedLayers(batchLayerIds);
-        if (e?.cancelled || userCancelled) return;
+        if (e?.cancelled || userCancelled) {
+            options.onAborted?.();
+            return;
+        }
         const classified = handleError(e, 'Import', 'File import');
         if (classified.category === ErrorCategory.OUT_OF_MEMORY) {
             showModal(
@@ -608,14 +694,49 @@ export function openImportFlow() {
                 const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
                 const mounted = mountImportFlowDialog(root, {
                     onCancel: () => close(),
-                    onImportFiles: async (files, importOpts = {}) => {
-                        close();
+                    onImportFiles: async (files, importOpts = {}, ui = {}) => {
                         await handleFileImport(files, _fenceBbox, {
-                            allowStrong: importOpts.allowStrong,
-                            preflightConfirmed: importOpts.preflightConfirmed
+                            preflightConfirmed: importOpts.preflightConfirmed,
+                            importMode: importOpts.importMode,
+                            useWorkspace: importOpts.useWorkspace,
+                            selectedFields: importOpts.selectedFields,
+                            onProgress: ui.onProgress,
+                            onCancelReady: ui.onCancelReady,
+                            onAborted: ui.onAborted,
+                            onComplete: () => ui.close?.()
                         });
                     },
-                    onConfirmStrongImport: (message) => confirm('Large file import', `${message.replace(/\n/g, '<br>')}<br><br>The browser may run out of memory. Continue anyway?`),
+                    onOptimizeImport: (files) => {
+                        close();
+                        const optRootId = `import-opt-${Date.now()}`;
+                        showModal('Import Optimizer', `<div id="${optRootId}"></div>`, {
+                            width: '560px',
+                            onMount: async (optOverlay, optClose) => {
+                                const optRoot = optOverlay.querySelector(`#${optRootId}`);
+                                const { mountImportOptimizerDialog } = await import('../../react/tools/mountImportOptimizerDialog.jsx');
+                                const optMounted = mountImportOptimizerDialog(optRoot, {
+                                    files,
+                                    onCancel: () => optClose(),
+                                    onConfirm: async (opts, ui) => {
+                                        await handleFileImport(files, _fenceBbox, {
+                                            preflightConfirmed: true,
+                                            importMode: opts.importMode,
+                                            useWorkspace: opts.useWorkspace,
+                                            selectedFields: opts.selectedFields,
+                                            onProgress: ui?.onProgress,
+                                            onCancelReady: ui?.onCancelReady,
+                                            onAborted: ui?.onAborted,
+                                            onComplete: () => {
+                                                ui?.close?.();
+                                                optClose();
+                                            }
+                                        });
+                                    }
+                                });
+                                watchOverlayUnmount(optOverlay, () => optMounted.unmount?.());
+                            }
+                        });
+                    },
                     onOpenArcGIS: () => {
                         close();
                         openArcGISImporter();
@@ -875,6 +996,7 @@ export function setupAppWiring() {
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);
+    bus.on('map:scaleRangeChanged', refreshUI);
     bus.on('layers:changed', () => sessionStore.scheduleSave(getLayers(), mapService.getLayerStylesRecord()));
     bus.on('map:styleChanged', () => sessionStore.scheduleSave(getLayers(), mapService.getLayerStylesRecord()));
     bus.on('layer:active', (layer) => {
@@ -3196,6 +3318,7 @@ export async function openArcGISImporter() {
 
                     let arcgisTask = null;
                     let onArcgisProgress = null;
+                    let arcgisShellClosed = false;
                     let finished = false;
 
                     const finishOnce = (cb) => {
@@ -3211,39 +3334,132 @@ export async function openArcGISImporter() {
                         }
                     };
 
+                    const dismissArcgisShell = () => {
+                        if (arcgisShellClosed) return;
+                        arcgisShellClosed = true;
+                        close();
+                    };
+
                     const run = async () => {
                         try {
                             onProgress?.({ percent: 0, step: `Connecting to ${name || 'layer'}...` });
                             const { TaskRunner } = await import('../core/task-runner.js');
                             arcgisTask = new TaskRunner(`Import ${name || 'layer'}`, 'ArcGIS');
-                            onArcgisProgress = (data) => {
-                                onProgress?.({
-                                    percent: data?.percent || 0,
-                                    step: data?.step || ''
-                                });
-                            };
-                            bus.on('task:progress', onArcgisProgress);
 
-                            await arcgisImporter.fetchMetadata(url);
-                            const queryOpts = {
-                                outFields: '*',
-                                where: '1=1',
-                                returnGeometry: true
+                            const bindProgress = (progressUi = null) => {
+                                if (onArcgisProgress) {
+                                    bus.off('task:progress', onArcgisProgress);
+                                }
+                                onArcgisProgress = (data) => {
+                                    const pct = data?.percent || 0;
+                                    const step = data?.step || '';
+                                    onProgress?.({ percent: pct, step });
+                                    progressUi?.onProgress?.({
+                                        percent: pct,
+                                        step,
+                                        fileName: data?.fileName
+                                    });
+                                };
+                                bus.on('task:progress', onArcgisProgress);
                             };
-                            if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
-                            const dataset = await arcgisImporter.downloadFeatures(queryOpts, arcgisTask);
 
-                            if (!dataset || arcgisTask.cancelled) {
-                                finishOnce(onCancelled);
-                                return;
+                            bindProgress();
+
+                            sessionStore.pauseSessionSave();
+                            try {
+                                await arcgisImporter.fetchMetadata(url);
+                                const meta = arcgisImporter.getMetadata();
+                                const allFieldNames = (meta.fields || []).map((f) => f.name);
+
+                                const queryOpts = {
+                                    outFields: '*',
+                                    where: '1=1',
+                                    returnGeometry: true,
+                                    useWorkspace: true
+                                };
+                                if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
+
+                                const applyFieldSelection = (picked) => {
+                                    const allSelected = picked.length >= allFieldNames.length
+                                        && allFieldNames.every((n) => picked.includes(n));
+                                    queryOpts.selectedFields = allSelected ? null : picked;
+                                    queryOpts.outFields = allSelected
+                                        ? '*'
+                                        : arcgisOutFieldsParam(picked, meta.objectIdField);
+                                };
+
+                                const runDownload = async (progressUi = null) => {
+                                    bindProgress(progressUi);
+
+                                    if (arcgisNeedsLargeDownloadConfirm(meta, queryOpts)) {
+                                        const total = meta.totalCount;
+                                        const largeImport = await confirmArcgisLargeImport(
+                                            total,
+                                            `Import ${name || 'layer'}`
+                                        );
+                                        if (!largeImport.proceed) {
+                                            throw Object.assign(new Error('Cancelled'), { cancelled: true });
+                                        }
+                                        largeImport.close?.();
+                                        queryOpts.allowLargeDownload = true;
+                                    }
+
+                                    onProgress?.({ percent: 0, step: 'Starting download...' });
+                                    progressUi?.onProgress?.({ percent: 0, step: 'Starting download...' });
+
+                                    const dataset = await arcgisImporter.downloadFeatures(queryOpts, arcgisTask);
+                                    if (!dataset || arcgisTask.cancelled) {
+                                        throw Object.assign(new Error('Cancelled'), { cancelled: true });
+                                    }
+
+                                    onProgress?.({ percent: 98, step: 'Adding layer to map...' });
+                                    progressUi?.onProgress?.({ percent: 98, step: 'Adding layer to map...' });
+
+                                    const ids = await _addImportedDatasets([dataset], { useWorkspace: false });
+                                    await mapService.fitToLayers(ids);
+                                    const count = isWorkspaceLayer(dataset)
+                                        ? (dataset.schema?.featureCount || 0)
+                                        : dataset.type === 'spatial'
+                                            ? (dataset.geojson?.features?.length || 0)
+                                            : (dataset.rows?.length || 0);
+                                    showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
+                                    refreshUI();
+                                    return { dataset, count };
+                                };
+
+                                if (allFieldNames.length > 0) {
+                                    dismissArcgisShell();
+                                    const { buildArcgisFieldPickerNotice } = await import('../import/import-size-notices.js');
+                                    const { pickImportFieldsModal } = await import('../../react/tools/mountImportFieldPickerDialog.jsx');
+                                    const picked = await pickImportFieldsModal({
+                                        title: 'ArcGIS attributes',
+                                        subtitle: `${meta.name}${meta.totalCount != null ? ` · ${meta.totalCount.toLocaleString()} features` : ''}`,
+                                        planNotice: buildArcgisFieldPickerNotice(meta.totalCount),
+                                        fields: allFieldNames,
+                                        onImport: async (fields, ui) => {
+                                            applyFieldSelection(fields);
+                                            ui.onCancelReady?.(() => {
+                                                arcgisTask?.cancel();
+                                                arcgisImporter.cancel();
+                                            });
+                                            const { dataset, count } = await runDownload(ui);
+                                            dismissArcgisShell();
+                                            finishOnce(() => onComplete?.({ datasetName: dataset.name, count }));
+                                            ui.close?.();
+                                        }
+                                    });
+                                    if (picked === null) {
+                                        finishOnce(onCancelled);
+                                    }
+                                    return;
+                                }
+
+                                const { dataset, count } = await runDownload();
+                                dismissArcgisShell();
+                                finishOnce(() => onComplete?.({ datasetName: dataset.name, count }));
+                            } finally {
+                                sessionStore.resumeSessionSave(true);
                             }
-
-                            addLayer(dataset);
-                            mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                            const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
-                            showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
-                            refreshUI();
-                            finishOnce(() => onComplete?.({ datasetName: dataset.name, count }));
                         } catch (e) {
                             if (e?.cancelled || arcgisTask?.cancelled) {
                                 finishOnce(onCancelled);

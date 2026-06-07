@@ -53,6 +53,11 @@ function applySnapshot(payload) {
         const dataset = createSpatialDataset(entry.name, entry.geojson, entry.source || { format: 'sync' });
         dataset.id = entry.id;
         dataset.visible = entry.visible !== false;
+        if (entry.scaleRangeEnabled) {
+            dataset.scaleRangeEnabled = true;
+            dataset.minScale = entry.minScale ?? null;
+            dataset.maxScale = entry.maxScale ?? null;
+        }
         if (entry.style) mapService.setLayerStyle(entry.id, entry.style);
         mapService.addLayer(dataset, i, { fit: false });
     });
@@ -80,6 +85,11 @@ function applyLayerAdd(payload) {
     const layer = createSpatialDataset(dataset.name, dataset.geojson, dataset.source || { format: 'sync' });
     layer.id = dataset.id;
     layer.visible = dataset.visible !== false;
+    if (dataset.scaleRangeEnabled) {
+        layer.scaleRangeEnabled = true;
+        layer.minScale = dataset.minScale ?? null;
+        layer.maxScale = dataset.maxScale ?? null;
+    }
     mapService.removeLayer(layer.id);
     mapService.addLayer(layer, colorIndex ?? 0, { fit: !!fit });
 }

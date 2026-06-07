@@ -29,6 +29,12 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         addLayerIncremental(dataset, colorIndex = 0, options = {}) {
             return mapAdapter.addLayerIncremental(dataset, colorIndex, options);
         },
+        addWorkspaceLayer(dataset, colorIndex = 0, options = {}) {
+            return mapAdapter.addWorkspaceLayer(dataset, colorIndex, options);
+        },
+        refreshWorkspaceLayerViewport(layerId) {
+            return mapAdapter.refreshWorkspaceLayerViewport(layerId);
+        },
         appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex) {
             return mapAdapter.appendFeaturesToLayer(layerId, dataset, rawFeatures, startIndex);
         },
@@ -37,6 +43,9 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         },
         toggleLayer(layerId, visible) {
             return mapAdapter.toggleLayer(layerId, visible);
+        },
+        setLayerScaleRange(layerId, range, latitude) {
+            return mapAdapter.setLayerScaleRange(layerId, range, latitude);
         },
         restyleLayer(layerId, dataset, style) {
             return mapAdapter.restyleLayer(layerId, dataset, style);

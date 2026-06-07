@@ -3,33 +3,47 @@
 ## Latest
 
 - **Date**: 2026-06-07
-- **Status**: **Import OOM hardening (follow-up)**
+- **Status**: **Layer visible scale range (ArcGIS-style)**
 - **Branch**: working tree (uncommitted)
 
-### What changed (OOM follow-up)
+### What changed
 
-Chrome **"Aw, Snap — Out of Memory"** kills the tab process; JS cannot catch it. Prior guard still allowed large files through (50–75 MB + "Continue anyway" confirm).
+**Scale range core**
+- [`js/map/scale-range.js`](js/map/scale-range.js) — ArcGIS `minScale`/`maxScale` ↔ MapLibre `minzoom`/`maxzoom`; `isLayerVisibleAtScale`, `applyArcgisScaleRangeToLayer`
+- [`js/core/data-model.js`](js/core/data-model.js) — `scaleRangeEnabled`, `minScale`, `maxScale` on spatial / workspace layers
+- [`js/core/session-store.js`](js/core/session-store.js) — persist scale range fields
+- [`js/map/map-manager.js`](js/map/map-manager.js) — apply zoom range on `addLayer`, `_installGeoJsonChunk`, `setLayerScaleRange`; re-apply on `moveend` when latitude shifts
+- [`js/map/map-service.js`](js/map/map-service.js) — `setLayerScaleRange` facade
 
-**New defenses:**
-- [`js/import/import-memory-budget.js`](js/import/import-memory-budget.js) — format expansion factors, ~96 MB estimated-peak reject, Chrome heap headroom check
-- **Stricter file caps** — text reject ≥15 MB; binary reject ≥30 MB; hard caps 25 MB / 40 MB
-- **STRONG tier removed** — no confirm-to-proceed path that still crashes the tab
-- **ZIP/KMZ** — uncompressed size check (80 MB max) before shapefile/KML parse
-- **Map** — in-place feature tagging when `_geometryExploded` (avoids full feature copy)
+**UI**
+- [`react/panels/VisibilityRangeSection.jsx`](react/panels/VisibilityRangeSection.jsx) — toggle, dual scale + zoom inputs, set-from-map, clear
+- [`react/panels/RightPanel.jsx`](react/panels/RightPanel.jsx) — section above Smart Style
+- [`react/panels/LeftPanel.jsx`](react/panels/LeftPanel.jsx) — SCALE badge; dimmed row when out of range at current zoom
+- [`react/App.jsx`](react/App.jsx) — wiring + `layersForPanel` scale state
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — `handleLayerScaleRangeChange`, snapshot map zoom/lat
+- [`css/main.css`](css/main.css) — `.layer-scale-badge`, `.layer-item-scale-hidden`
+
+**Import / sync**
+- [`js/arcgis/rest-importer.js`](js/arcgis/rest-importer.js) — read service `minScale`/`maxScale`; apply on import
+- [`js/dual-screen/protocol.js`](js/dual-screen/protocol.js) — scale range in `serializeLayerForSync`
+- [`js/map-window.js`](js/map-window.js) — secondary map restore applies scale range
+
+**Tests**
+- [`tests/scale-range.test.js`](tests/scale-range.test.js)
+- [`tests/map-scale-range.test.js`](tests/map-scale-range.test.js)
 
 ### Verification
 
-- `npm test` — 40 files, 176 tests green
-- **Re-test in browser** (`npm run dev` or `npm run preview`): drag-drop the same file — should show **Import Failed — File Too Large** modal instead of tab crash
+- `npm test` — 49 files, 225 tests green
+- **Browser**: `npm run preview` — select layer → Right panel **Visibility Range** → enable, set min/max from map, zoom in/out; ArcGIS REST layer with service scale limits; left-panel SCALE badge + dim when out of range
 
-### If it still crashes
+### Known issues / limits
 
-Note file **name, format, and size (MB)** — a small compressed ZIP or dense GeoJSON can expand past limits before checks run; we may need to tune factors further.
+- Scale↔zoom conversion uses map-center latitude (re-applies when lat shifts >0.5°)
+- Attribute/elevation filtering still via workflow Filter Rows (not layer visibility)
+- Per-symbol-class scale ranges not supported (one range per layer)
 
-## Previous (2026-06-07)
+### Next
 
-**Import optimization & performance plan (Phase 1–2)** — guard module, schema sampling, CSV streaming, incremental map, ArcGIS/KMZ caps.
-
-## Previous (2026-06-07)
-
-**Session restore confirm dialog fix** — `restoreSessionIfAvailable()` before `showToolInfo()` in [`react/App.jsx`](react/App.jsx).
+- Manual browser check for scale range UX at high latitudes
+- Optional: GeoJSON export of scale range metadata

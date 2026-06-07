@@ -45,10 +45,12 @@ import {
     clearSelection,
     getRightPanelSnapshot,
     handleLayerStyleChange,
+    handleLayerScaleRangeChange,
     buildMapContextMenuItems,
     setPanelCollapsed
 } from '../js/tools/tool-handlers.js';
 import { getActiveLayer } from '../js/core/state.js';
+import { isLayerVisibleAtScale } from '../js/map/scale-range.js';
 import { AppStoreProvider, createAppStore, useAppStore } from './providers/AppStore.jsx';
 import { MobileGate } from './shell/MobileGate.jsx';
 import { HeaderBar } from './header/HeaderBar.jsx';
@@ -138,6 +140,18 @@ function AppShell() {
     const rightSnapshot = useMemo(() => getRightPanelSnapshot(), [refreshTick, activeLayer?.id]);
     const fields = activeLayer?.schema?.fields || [];
 
+    const layersForPanel = useMemo(() => {
+        const map = mapService.getMap();
+        const zoom = map?.getZoom?.() ?? 7;
+        const lat = map?.getCenter?.()?.lat ?? 0;
+        return layers.map((layer) => ({
+            ...layer,
+            _outOfScaleRange: layer.visible !== false
+                && layer.scaleRangeEnabled
+                && !isLayerVisibleAtScale(layer, zoom, lat)
+        }));
+    }, [layers, refreshTick]);
+
     const onBasemapChange = useCallback((value) => {
         setBasemap(value);
         applyBasemapHeaderSelection(value);
@@ -211,7 +225,7 @@ function AppShell() {
                             </div>
                             <div className="panel-section-body" id="layer-list">
                                 <LayerListPanel
-                                    layers={layers}
+                                    layers={layersForPanel}
                                     activeLayerId={activeLayer?.id || null}
                                     actions={panelActions}
                                 />
@@ -291,6 +305,7 @@ function AppShell() {
                             onFixAgol={fixAGOL}
                             onShowDataTable={showDataTable}
                             onStyleChange={handleLayerStyleChange}
+                            onScaleRangeChange={handleLayerScaleRangeChange}
                         />
                     </div>
                 </aside>

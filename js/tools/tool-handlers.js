@@ -1,127 +1,64 @@
 /**
- * GIS Toolbox ??? Main Application Entry Point
- * Wires all modules together, builds UI, handles events
+ * GIS Toolbox — tool handlers, app wiring, and action dispatch.
+ * UI shell lives in react/App.jsx; this module owns domain-side handlers.
  */
-import logger from './core/logger.js';
-import bus from './core/event-bus.js';
-import { handleError } from './core/error-handler.js';
+import logger from '../core/logger.js';
+import bus from '../core/event-bus.js';
+import { handleError } from '../core/error-handler.js';
 import {
     getState, getLayers, getActiveLayer, addLayer, removeLayer, updateLayer,
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
-} from './core/state.js';
-import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from './core/data-model.js';
-import { importFile, importFiles } from './import/importer.js';
-import { getActiveTask } from './core/task-runner.js';
-import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from './export/exporter.js';
-import mapService from './map/map-service.js';
-import { isSmartStyleActive } from './map/style-engine.js';
-import { detectEmbeddedSimpleStyle, convertLayerSimpleStyleToSmart } from './map/style-import.js';
-import dualScreenCoordinator from './dual-screen/coordinator.js';
-import { installDualScreenMapServiceDecorator } from './dual-screen/dual-screen-map-service.js';
-import { installDualScreenPrimaryHandlers } from './dual-screen/primary-handlers.js';
+} from '../core/state.js';
+import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, splitByGeometryType } from '../core/data-model.js';
+import { importFile, importFiles } from '../import/importer.js';
+import { getActiveTask } from '../core/task-runner.js';
+import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from '../export/exporter.js';
+import mapService from '../map/map-service.js';
+import { isSmartStyleActive } from '../map/style-engine.js';
+import { detectEmbeddedSimpleStyle, convertLayerSimpleStyleToSmart } from '../map/style-import.js';
+import dualScreenCoordinator from '../dual-screen/coordinator.js';
+import { installDualScreenPrimaryHandlers } from '../dual-screen/primary-handlers.js';
 import {
     POPUP_BLOCKED_MESSAGE,
     RELOAD_REMINDER_MESSAGE,
     consumeDualScreenReloadReminder
-} from './dual-screen/storage-hint.js';
+} from '../dual-screen/storage-hint.js';
 import {
     applyDualScreenDocumentLayout,
     syncDualScreenHeaderButton
-} from './dual-screen/layout.js';
+} from '../dual-screen/layout.js';
 
-installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator);
-import { showToast, showErrorToast } from './ui/toast.js';
-import { showModal, confirm, showProgressModal } from './ui/modals.js';
-import * as transforms from './dataprep/transforms.js';
-import { applyTemplate } from './dataprep/template-builder.js';
-import { saveSnapshot, undo as undoHistory, redo as redoHistory, getHistoryState } from './dataprep/transform-history.js';
-import { photoMapper } from './photo/photo-mapper.js';
-import { arcgisImporter } from './arcgis/rest-importer.js';
-import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
-import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
-import * as gisTools from './tools/gis-tools.js';
-import { renderDataPrepToolsHtml } from './ui/data-prep-panel-html.js';
-import { convertFeatureCoords } from './tools/coordinates.js';
-import { findFirstLineStringFeature, listLineStringFeatures } from './tools/line-geojson.js';
+import { showToast, showErrorToast } from '../ui/toast.js';
+import { showModal, confirm, showProgressModal } from '../ui/modals.js';
+import * as transforms from '../dataprep/transforms.js';
+import { applyTemplate } from '../dataprep/template-builder.js';
+import { saveSnapshot, undo as undoHistory, redo as redoHistory, getHistoryState } from '../dataprep/transform-history.js';
+import { photoMapper } from '../photo/photo-mapper.js';
+import { arcgisImporter } from '../arcgis/rest-importer.js';
+import ARCGIS_ENDPOINTS from '../arcgis/endpoints.js';
+import { checkAGOLCompatibility, applyAGOLFixes } from '../agol/compatibility.js';
+import * as gisTools from './gis-tools.js';
+import { convertFeatureCoords } from './coordinates.js';
+import { findFirstLineStringFeature, listLineStringFeatures } from './line-geojson.js';
 
-import drawManager from './map/draw-manager.js';
-import { initSelectionShortcuts } from './map/selection-shortcuts.js';
-import sessionStore from './core/session-store.js';
-import { GIS_WIDGETS, renderWidgetPanelHtml, buildWidgetActions } from './widgets/registry.js';
-import { createWidgetContext } from './widgets/widget-context.js';
-import { createWorkflowController } from './workflow/workflow-controller.js';
+import drawManager from '../map/draw-manager.js';
+import { initSelectionShortcuts } from '../map/selection-shortcuts.js';
+import sessionStore from '../core/session-store.js';
+import { buildWidgetActions } from '../widgets/registry.js';
+import { createWidgetContext } from '../widgets/widget-context.js';
+import { createWorkflowController } from '../workflow/workflow-controller.js';
 
 // ============================
 // Initialize app
 // ============================
-let _reactMapViewHost = null;
-let _reactMapViewUnmount = null;
-let _reactLeftPanelMount = null;
-let _reactRightPanelMount = null;
-let _reactToastUnmount = null;
-let _reactModalUnmount = null;
-let _reactMobileGateUnmount = null;
-let _reactHeaderUnmount = null;
-let _reactMapContextMenuUnmount = null;
 let _importInputEl = null;
 let _workflowOverlay = null;
-
-async function boot() {
-    logger.info('App', 'Initializing GIS Toolbox');
-    await _mountReactMobileGate();
-    await _mountReactModalHost();
-    await _mountReactToastHost();
-    await initMap();
-    await _mountReactLeftPanel();
-    await _mountReactRightPanel();
-    await _mountReactHeader();
-    await _mountReactMapContextMenu();
-    setupEventListeners();
-    setupDragDrop();
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    // Ensure map recalculates size after layout settles
-    setTimeout(() => { mapService.resize(); }, 100);
-
-    logger.info('App', 'App ready');
-
-    // Auto-save status indicator
-    sessionStore.onSaveStatus((status) => {
-        const el = document.getElementById('save-indicator');
-        if (!el) return;
-        if (status === 'saving') {
-            el.textContent = 'Saving???';
-            el.classList.add('visible');
-        } else if (status === 'saved') {
-            el.textContent = 'Session saved';
-            el.classList.add('visible');
-            setTimeout(() => el.classList.remove('visible'), 1500);
-        } else if (status === 'error') {
-            el.textContent = 'Save failed';
-            el.classList.add('visible');
-            setTimeout(() => el.classList.remove('visible'), 2500);
-        }
-    });
-
-    // Check for a saved session and offer to restore
-    restoreSessionIfAvailable();
-
-    // Show tool guide splash on desktop app open (mobile uses MobileGate)
-    if (window.innerWidth >= 768) {
-        setTimeout(() => showToolInfo(), 300);
-    }
-}
-// Handle both: module loaded before or after DOMContentLoaded
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-} else {
-    boot();
-}
+export function getWorkflowOverlay() { return _workflowOverlay; }
 
 // ============================
 // Session Restore
 // ============================
-async function restoreSessionIfAvailable() {
+export async function restoreSessionIfAvailable() {
     try {
         const info = await sessionStore.hasSession();
         if (!info) return;
@@ -212,38 +149,7 @@ function _timeAgo(ts) {
     return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
-async function _mountReactMobileGate() {
-    if (_reactMobileGateUnmount) return;
-    let host = document.getElementById('mobile-gate-host');
-    if (!host) {
-        host = document.createElement('div');
-        host.id = 'mobile-gate-host';
-        document.body.prepend(host);
-    }
-    const { mountMobileGate } = await import('../react/shell/mountMobileGate.jsx');
-    const mounted = mountMobileGate(host);
-    _reactMobileGateUnmount = mounted.unmount;
-}
-
-function _getOrCreateModalHost() {
-    let host = document.getElementById('modal-host');
-    if (!host) {
-        host = document.createElement('div');
-        host.id = 'modal-host';
-        document.body.appendChild(host);
-    }
-    return host;
-}
-
-function _getReactHeaderTarget() {
-    const element = document.querySelector('.header');
-    if (!element) {
-        throw new Error('Header container ".header" not found');
-    }
-    return element;
-}
-
-function _buildMapContextMenuItems(payload) {
+export function buildMapContextMenuItems(payload) {
     const { latlng, layerId, featureIndex, feature } = payload;
     const layers = getLayers();
     const layer = layerId ? layers.find((l) => l.id === layerId) : null;
@@ -252,7 +158,7 @@ function _buildMapContextMenuItems(payload) {
 
     if (feature && layer) {
         items.push({
-            icon: '???',
+            icon: '👁',
             label: 'View attributes',
             action: () => {
                 const nearby = mapService.findFeaturesNearClick(latlng, layerId, featureIndex);
@@ -261,14 +167,14 @@ function _buildMapContextMenuItems(payload) {
             }
         });
         items.push({
-            icon: '??',
+            icon: '✏',
             label: 'Edit feature',
             action: () => openFeatureEditor(layerId, featureIndex)
         });
     }
 
     items.push({
-        icon: '??',
+        icon: '📋',
         label: 'Copy coordinates',
         action: () => {
             const text = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
@@ -279,7 +185,7 @@ function _buildMapContextMenuItems(payload) {
 
     if (mapService.isOrbiting()) {
         items.push({
-            icon: '?',
+            icon: '⏹',
             label: 'Stop camera orbit',
             action: () => {
                 mapService.stopCameraOrbit();
@@ -288,17 +194,17 @@ function _buildMapContextMenuItems(payload) {
         });
     } else {
         items.push({
-            icon: '??',
+            icon: '🔄',
             label: 'Orbit camera around point',
             action: () => {
                 mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
-                showToast('Camera orbiting ? right-click to stop', 'info');
+                showToast('Camera orbiting — right-click to stop', 'info');
             }
         });
     }
 
     items.push({
-        icon: '??',
+        icon: '🚶',
         label: 'Open location in Google Street View',
         action: () => {
             const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${latlng.lat},${latlng.lng}`;
@@ -307,7 +213,7 @@ function _buildMapContextMenuItems(payload) {
     });
 
     items.push({
-        icon: '??',
+        icon: '🌍',
         label: 'Open location in Google Earth',
         action: () => {
             const url = `https://earth.google.com/web/@${latlng.lat},${latlng.lng},1200a,900d,60y,0h,35t,0r`;
@@ -318,49 +224,49 @@ function _buildMapContextMenuItems(payload) {
     if (layer) {
         items.push({ sep: true });
         if (layerIdx > 0) {
-            items.push({ icon: '?', label: 'Move layer up', action: () => moveLayerUp(layerId) });
+            items.push({ icon: '⬆', label: 'Move layer up', action: () => moveLayerUp(layerId) });
         }
         if (layerIdx >= 0 && layerIdx < layers.length - 1) {
-            items.push({ icon: '?', label: 'Move layer down', action: () => moveLayerDown(layerId) });
+            items.push({ icon: '⬇', label: 'Move layer down', action: () => moveLayerDown(layerId) });
         }
         if (layers.length > 1 && layerIdx !== 0) {
             items.push({
-                icon: '?',
+                icon: '⏫',
                 label: 'Bring to front',
                 action: () => {
                     while (layers.indexOf(layers.find((l) => l.id === layerId)) > 0) {
                         reorderLayer(layerId, 'up');
                     }
                     mapService.syncLayerOrder(getLayers().map((l) => l.id));
-                    _renderReactLeftPanel();
+                    refreshUI();
                 }
             });
         }
         if (layers.length > 1 && layerIdx !== layers.length - 1) {
             items.push({
-                icon: '?',
+                icon: '⏬',
                 label: 'Send to back',
                 action: () => {
                     while (layers.indexOf(layers.find((l) => l.id === layerId)) < layers.length - 1) {
                         reorderLayer(layerId, 'down');
                     }
                     mapService.syncLayerOrder(getLayers().map((l) => l.id));
-                    _renderReactLeftPanel();
+                    refreshUI();
                 }
             });
         }
         items.push({ sep: true });
         items.push({
-            icon: layer.visible !== false ? '???????' : '???',
+            icon: layer.visible !== false ? '👁️‍🗨️' : '👁️',
             label: layer.visible !== false ? 'Hide layer' : 'Show layer',
             action: () => {
                 toggleLayerVisibility(layerId);
                 mapService.toggleLayer(layerId, layers.find((l) => l.id === layerId)?.visible);
-                _renderReactLeftPanel();
+                refreshUI();
             }
         });
         items.push({
-            icon: '??',
+            icon: '🔍',
             label: 'Zoom to layer',
             action: () => {
                 const ll = mapService.getLayerRecord(layerId);
@@ -373,7 +279,7 @@ function _buildMapContextMenuItems(payload) {
             }
         });
         items.push({
-            icon: '?',
+            icon: '★',
             label: 'Set as active layer',
             action: () => {
                 setActiveLayer(layerId);
@@ -385,150 +291,7 @@ function _buildMapContextMenuItems(payload) {
     return { items, layerName: layer?.name || null };
 }
 
-async function _mountReactMapContextMenu() {
-    if (_reactMapContextMenuUnmount) return;
-    let host = document.getElementById('map-context-menu-host');
-    if (!host) {
-        host = document.createElement('div');
-        host.id = 'map-context-menu-host';
-        document.body.appendChild(host);
-    }
-    const { mountMapContextMenu } = await import('../react/map/mountMapContextMenu.jsx');
-    const mounted = mountMapContextMenu(host, {
-        buildItems: (payload) => _buildMapContextMenuItems(payload)
-    });
-    _reactMapContextMenuUnmount = mounted.unmount;
-}
-
-async function _mountReactHeader() {
-    if (_reactHeaderUnmount) return;
-    const element = _getReactHeaderTarget();
-    const { mountHeaderBar } = await import('../react/header/mountHeaderBar.jsx');
-    const mounted = mountHeaderBar(element, {
-        onImport: () => openImportFlow(),
-        onFence: () => startImportFence(),
-        onPhotoMapper: () => openPhotoMapper(),
-        onArcGIS: () => openArcGISImporter(),
-        onDrawLayer: () => createDrawLayer(),
-        onUndo: () => handleUndo(),
-        onRedo: () => handleRedo(),
-        onMergeLayers: () => handleMergeLayers(),
-        onWorkflow: () => _workflowOverlay?.toggle(),
-        onBasemapChange: (value) => applyBasemapHeaderSelection(value),
-        onDimensionChange: (value) => applyDimensionHeaderSelection(value),
-        onLogs: () => toggleLogs(),
-        onInfo: () => showToolInfo()
-    });
-    _reactHeaderUnmount = mounted.unmount;
-}
-
-async function _mountReactModalHost() {
-    if (_reactModalUnmount) return;
-    const host = _getOrCreateModalHost();
-    const { mountModalHost } = await import('../react/ui/mountModalHost.jsx');
-    const mounted = mountModalHost(host);
-    _reactModalUnmount = mounted.unmount;
-}
-
-function _getOrCreateToastHost() {
-    let container = document.getElementById('toast-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'toast-container';
-        container.className = 'toast-container';
-        document.body.appendChild(container);
-    }
-    return container;
-}
-
-async function _mountReactToastHost() {
-    if (_reactToastUnmount) return;
-    const host = _getOrCreateToastHost();
-    const { mountToastHost } = await import('../react/ui/mountToastHost.jsx');
-    const mounted = mountToastHost(host);
-    _reactToastUnmount = mounted.unmount;
-}
-
-function _getOrCreateReactMapViewHost() {
-    const mapContainer = document.getElementById('map-container');
-    if (!mapContainer) {
-        throw new Error('Map container "#map-container" not found');
-    }
-
-    if (!_reactMapViewHost) {
-        _reactMapViewHost = document.createElement('div');
-        _reactMapViewHost.className = 'map-react-view-host';
-        mapContainer.prepend(_reactMapViewHost);
-    }
-
-    return _reactMapViewHost;
-}
-
-function _getReactLeftPanelTargets() {
-    const layerElement = document.getElementById('layer-list');
-    const fieldElement = document.getElementById('field-list');
-    const toolsElement = document.getElementById('dataprep-tools');
-    if (!layerElement || !fieldElement || !toolsElement) {
-        throw new Error('Left panel containers not found');
-    }
-    return { layerElement, fieldElement, toolsElement };
-}
-
-async function _mountReactLeftPanel() {
-    if (_reactLeftPanelMount) return;
-
-    const { layerElement, fieldElement, toolsElement } = _getReactLeftPanelTargets();
-    const { mountLeftPanel } = await import('../react/panels/mountLeftPanel.jsx');
-    _reactLeftPanelMount = mountLeftPanel({
-        layerElement,
-        fieldElement,
-        toolsElement,
-        getSnapshot: () => ({
-            layers: getLayers(),
-            activeLayer: getActiveLayer()
-        }),
-        actions: {
-            setActiveLayer: setActiveLayerAndRefresh,
-            renameLayer: (id) => renameLayer(id),
-            renameLayerInline: (id, el) => renameLayer(id, el),
-            moveLayerUp,
-            moveLayerDown,
-            toggleVisibility: toggleLayerVisibilityAndRender,
-            zoomToLayer,
-            removeLayer: removeLayerWithConfirm,
-            openFilterBuilder: (id) => openFilterBuilder(id),
-            toggleField,
-            selectAllFields,
-            addField,
-            renameField: (name) => renameField(name),
-            renameFieldInline: (name, el) => renameField(name, el)
-        },
-        renderDataPrepTools: () => renderDataPrepToolsHtml(getActiveLayer),
-        getActiveLayer,
-        getSelectionCount: (layerId) => mapService.getSelectionCount(layerId),
-        selectionActions: {
-            onSelectAll: selectAllFeatures,
-            onInvertSelection: invertSelection,
-            onDeleteSelected: deleteSelectedFeatures,
-            onClearSelection: clearSelection
-        }
-    });
-    _reactLeftPanelMount.render();
-}
-
-function _renderReactLeftPanel() {
-    _reactLeftPanelMount?.render();
-}
-
-function _getReactRightPanelTarget() {
-    const element = document.getElementById('output-panel-content');
-    if (!element) {
-        throw new Error('Right panel container "#output-panel-content" not found');
-    }
-    return element;
-}
-
-function _getRightPanelSnapshot() {
+export function getRightPanelSnapshot() {
     const layer = getActiveLayer();
     if (!layer) {
         return {
@@ -556,87 +319,16 @@ function _getRightPanelSnapshot() {
     };
 }
 
-function _handleLayerStyleChange(style) {
+export function handleLayerStyleChange(style) {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     mapService.restyleLayer(layer.id, layer, style);
 }
 
-function _maybeOfferSimpleStyleConvert(ds) {
-    if (ds.type !== 'spatial') return;
-    const detection = detectEmbeddedSimpleStyle(ds.geojson?.features || []);
-    if (!detection?.hasSimpleStyle) return;
-    const existing = mapService.getLayerStyle(ds.id);
-    if (existing?.mode === 'smart') return;
-    showToast(
-        `Layer has ${detection.distinctCount} embedded colors (${detection.varyingProperty}). Use Smart Style ? Convert.`,
-        'info'
-    );
-}
-
-async function _mountReactRightPanel() {
-    if (_reactRightPanelMount) return;
-
-    const element = _getReactRightPanelTarget();
-    const { mountRightPanel } = await import('../react/panels/mountRightPanel.jsx');
-    _reactRightPanelMount = mountRightPanel({
-        element,
-        getSnapshot: _getRightPanelSnapshot,
-        actions: {
-            toggleAgol: () => {
-                toggleAGOLCompat();
-                _renderReactRightPanel();
-            },
-            doExport,
-            fixAgol: fixAGOL,
-            showDataTable
-        },
-        onStyleChange: _handleLayerStyleChange
-    });
-    _reactRightPanelMount.render();
-}
-
-function _renderReactRightPanel() {
-    _reactRightPanelMount?.render();
-}
-
-async function _mountReactMapView() {
-    if (_reactMapViewUnmount) {        return;
-    }
-
-    const host = _getOrCreateReactMapViewHost();    const { mountMapView } = await import('../react/map/mountMapView.jsx');
-    const mounted = mountMapView(host, { mapService });
-    _reactMapViewUnmount = mounted.unmount;
-    try {
-        await mounted.ready;    } catch (error) {        _reactMapViewUnmount?.();
-        _reactMapViewUnmount = null;
-        throw error;
-    }
-}
-
-async function initMap() {
-    try {
-        await _mountReactMapView();
-        setExportMapManager(mapService);
-    } catch (e) {
-        logger.error('App', 'Map init failed', { error: e.message });
-        showToast('Map failed to initialize. Some features may be limited.', 'warning');
-    }
-}
-
-function checkMobile() {
-    const isMobile = window.innerWidth < 768;
-    const state = getState();
-    if (isMobile !== state.ui.isMobile) {
-        setUIState('isMobile', isMobile);
-        document.body.classList.toggle('is-mobile', isMobile);
-    }
-}
-
 // ============================
 // Drag & Drop file import (global ??? works anywhere in the app)
 // ============================
-function setupDragDrop() {
+export function setupDragDrop() {
     let dragCounter = 0;
 
     // Create full-screen drop overlay
@@ -739,7 +431,7 @@ async function runWithTaskProgress(title, operation) {
     }
 }
 
-async function handleFileImport(files, fenceBbox = null) {
+export async function handleFileImport(files, fenceBbox = null) {
     const progress = showProgressModal('Importing Files');
     const onProgress = (data) => progress.update(data.percent, data.step);
     bus.on('task:progress', onProgress);
@@ -827,14 +519,14 @@ async function handleFileImport(files, fenceBbox = null) {
     }
 }
 
-function openImportFlow() {
+export function openImportFlow() {
     const rootId = `import-flow-react-${Date.now()}`;
         showModal('Import Files', `<div id="${rootId}"></div>`, {
             width: '560px',
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountImportFlowDialog } = await import('../react/tools/mountImportFlowDialog.jsx');
+                const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
                 const mounted = mountImportFlowDialog(root, {
                     onCancel: () => close(),
                     onImportFiles: async (files) => {
@@ -871,13 +563,13 @@ function setDimensionToggleActive(value) {
     });
 }
 
-function applyBasemapHeaderSelection(value) {
+export function applyBasemapHeaderSelection(value) {
     if (!value) return;
     mapService.setBasemap(value);
     setBasemapToggleActive(value);
 }
 
-function applyDimensionHeaderSelection(value) {
+export function applyDimensionHeaderSelection(value) {
     if (!value) return;
     if (value === '3d') mapService.enable3D();
     else mapService.disable3D();
@@ -891,7 +583,7 @@ function togglePanelSectionHeader(header) {
     if (body) body.classList.toggle('hidden');
 }
 
-function setPanelCollapsed(side, collapsed) {
+export function setPanelCollapsed(side, collapsed) {
     const panel = document.querySelector(`.panel-${side}`);
     if (!panel) return;
     panel.classList.toggle('collapsed', !!collapsed);
@@ -909,30 +601,11 @@ function setPanelCollapsed(side, collapsed) {
     setTimeout(() => { mapService.resize(); }, 250);
 }
 
-function togglePanelCollapsed(side) {
+export function togglePanelCollapsed(side) {
     const panel = document.querySelector(`.panel-${side}`);
     if (!panel) return;
     const willCollapse = !panel.classList.contains('collapsed');
     setPanelCollapsed(side, willCollapse);
-}
-
-function invokeAppAction(action, arg) {
-    if (!action) return;
-    const fn = APP_ACTIONS[action];
-    if (typeof fn !== 'function') return;
-    if (arg == null) {
-        fn();
-        return;
-    }
-    if (arg === 'true') {
-        fn(true);
-        return;
-    }
-    if (arg === 'false') {
-        fn(false);
-        return;
-    }
-    fn(arg);
 }
 
 function closestFromEvent(event, selector) {
@@ -943,7 +616,7 @@ function closestFromEvent(event, selector) {
 // ============================
 // Setup all event listeners
 // ============================
-function setupEventListeners() {
+export function setupAppWiring() {
     // Import button ??? use a persistent hidden input (iOS-safe)
     _importInputEl = document.createElement('input');
     _importInputEl.type = 'file';
@@ -958,19 +631,6 @@ function setupEventListeners() {
             handleFileImport(files, _fenceBbox);
         }
     });
-    
-        document.getElementById('btn-import')?.addEventListener('click', openImportFlow);
-    
-
-    // Photo Mapper
-    
-        document.getElementById('btn-photo-mapper')?.addEventListener('click', openPhotoMapper);
-    
-
-    // Import Fence
-    
-        document.getElementById('btn-fence')?.addEventListener('click', startImportFence);
-    
 
     // Workflow editor
     if (!_workflowOverlay) {
@@ -1020,20 +680,7 @@ function setupEventListeners() {
         });
     }
     
-        document.getElementById('btn-workflow')?.addEventListener('click', () => _workflowOverlay.toggle());
-    
-
     setupDualScreenMode();
-
-    // ArcGIS REST Import
-    
-        document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
-    
-
-    // Draw Layer
-    
-        document.getElementById('btn-draw-layer')?.addEventListener('click', createDrawLayer);
-    
 
     // Handle drawn features
     bus.on('draw:featureCreated', ({ layerId, feature }) => {
@@ -1073,27 +720,6 @@ function setupEventListeners() {
         refreshUI();
         showToast('Feature deleted', 'success');
     });
-
-    // Logs
-    
-        document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
-    
-
-    // Info / Tool Guide
-    
-        document.getElementById('btn-info')?.addEventListener('click', showToolInfo);
-    
-
-    // Merge layers
-    
-        document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
-    
-
-    // Undo / Redo
-    
-        document.getElementById('btn-undo')?.addEventListener('click', handleUndo);
-        document.getElementById('btn-redo')?.addEventListener('click', handleRedo);
-    
 
     // App action delegation for HTML-rendered tool buttons (replaces inline onclick usage)
     document.addEventListener('click', (event) => {
@@ -1198,29 +824,6 @@ function setupEventListeners() {
     bus.on('coord-search:add-existing', _coordSearchAddToExisting);
     bus.on('coord-search:clear', _coordSearchClear);
 
-    // Basemap toggle
-    
-        document.getElementById('basemap-toggle')?.addEventListener('click', (e) => {
-            const btn = e.target.closest('.header-toggle-option');
-            if (!btn || btn.classList.contains('active')) return;
-            applyBasemapHeaderSelection(btn.dataset.value);
-        });
-    
-
-    // 2D/3D toggle
-    
-        document.getElementById('dimension-toggle')?.addEventListener('click', (e) => {
-            const btn = e.target.closest('.header-toggle-option');
-            if (!btn || btn.classList.contains('active')) return;
-            applyDimensionHeaderSelection(btn.dataset.value);
-        });
-    
-
-    // AGOL compat toggle
-    document.getElementById('agol-toggle')?.addEventListener('change', () => {
-        toggleAGOLCompat();
-        refreshUI();
-    });
 }
 
 // ============================
@@ -1254,14 +857,14 @@ function setupDualScreenMode() {
         setFenceBbox: (bbox) => {
             _fenceBbox = bbox;
             dualScreenCoordinator.setFenceBbox(bbox);
-            updateFenceButton();
+            updateFenceButtonState();
             showToast('Import fence placed ??? all imports will be filtered to this area', 'success');
         },
         clearFence: () => {
             _fenceBbox = null;
             dualScreenCoordinator.setFenceBbox(null);
             mapService.clearImportFence();
-            updateFenceButton();
+            updateFenceButtonState();
             if (dualScreenCoordinator.isActive) {
                 dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
             }
@@ -1270,7 +873,7 @@ function setupDualScreenMode() {
         toggleLayerVisibility: (layerId) => {
             toggleLayerVisibility(layerId);
             mapService.toggleLayer(layerId, getLayers().find(l => l.id === layerId)?.visible);
-            _renderReactLeftPanel();
+            refreshUI();
         },
         zoomToLayer: (layerId) => {
             if (dualScreenCoordinator.isActive) {
@@ -1353,13 +956,12 @@ const REFRESH_UI_DEBOUNCE_MS = 150;
 let _refreshUITimer = null;
 
 function refreshUINow() {
-    _renderReactLeftPanel();
-    _renderReactRightPanel();
+    bus.emit('ui:refresh');
     updateToolbarState();
 }
 
 /** Debounced panel refresh ??? coalesces bursts during import / multi-layer updates. */
-function refreshUI() {
+export function refreshUI() {
     clearTimeout(_refreshUITimer);
     _refreshUITimer = setTimeout(() => {
         _refreshUITimer = null;
@@ -1367,7 +969,7 @@ function refreshUI() {
     }, REFRESH_UI_DEBOUNCE_MS);
 }
 
-function updateToolbarState() {
+export function updateToolbarState() {
     const layers = getLayers();
     const hasLayers = layers.length > 0;
     document.getElementById('btn-merge')?.classList.toggle('hidden', layers.length < 2);
@@ -1384,30 +986,30 @@ function updateToolbarState() {
 // ============================
 
 
-function moveLayerUp(id) {
+export function moveLayerUp(id) {
     reorderLayer(id, 'up');
     mapService.syncLayerOrder(getLayers().map(l => l.id));
-    _renderReactLeftPanel();
+    refreshUI();
 }
 
-function moveLayerDown(id) {
+export function moveLayerDown(id) {
     reorderLayer(id, 'down');
     mapService.syncLayerOrder(getLayers().map(l => l.id));
-    _renderReactLeftPanel();
+    refreshUI();
 }
 
-function setActiveLayerAndRefresh(id) {
+export function setActiveLayerAndRefresh(id) {
     setActiveLayer(id);
     refreshUI();
 }
 
-function toggleLayerVisibilityAndRender(id) {
+export function toggleLayerVisibilityAndRender(id) {
     toggleLayerVisibility(id);
     mapService.toggleLayer(id, getLayers().find(l => l.id === id)?.visible);
-    _renderReactLeftPanel();
+    refreshUI();
 }
 
-function zoomToLayer(id) {
+export function zoomToLayer(id) {
     const layer = mapService.getLayerRecord(id);
     if (layer && layer.geojson) {
         try {
@@ -1417,7 +1019,7 @@ function zoomToLayer(id) {
     }
 }
 
-async function removeLayerWithConfirm(id) {
+export async function removeLayerWithConfirm(id) {
     const ok = await confirm('Remove Layer', 'Remove this layer?');
     if (ok) {
         removeLayer(id);
@@ -1564,7 +1166,7 @@ function _coordSearchClear() {
 // ============================
 // Logs panel
 // ============================
-function toggleLogs() {
+export function toggleLogs() {
     const logsPanel = document.getElementById('logs-panel');
     if (!logsPanel) return;
     logsPanel.classList.toggle('hidden');
@@ -1637,7 +1239,7 @@ async function openSplitColumn() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountSplitColumnDialog } = await import('../react/tools/mountSplitColumnDialog.jsx');
+                const { mountSplitColumnDialog } = await import('../../react/tools/mountSplitColumnDialog.jsx');
                 const mounted = mountSplitColumnDialog(root, {
                     fields,
                     onCancel: () => close(),
@@ -1669,7 +1271,7 @@ async function openCombineColumns() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountCombineColumnsDialog } = await import('../react/tools/mountCombineColumnsDialog.jsx');
+                const { mountCombineColumnsDialog } = await import('../../react/tools/mountCombineColumnsDialog.jsx');
                 const mounted = mountCombineColumnsDialog(root, {
                     fields,
                     onCancel: () => close(),
@@ -1701,7 +1303,7 @@ async function openTemplateBuilder() {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountTemplateBuilderDialog } = await import('../react/tools/mountTemplateBuilderDialog.jsx');
+            const { mountTemplateBuilderDialog } = await import('../../react/tools/mountTemplateBuilderDialog.jsx');
             const mounted = mountTemplateBuilderDialog(root, {
                 fields,
                 features,
@@ -1730,7 +1332,7 @@ async function openReplaceClean() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountReplaceCleanDialog } = await import('../react/tools/mountReplaceCleanDialog.jsx');
+                const { mountReplaceCleanDialog } = await import('../../react/tools/mountReplaceCleanDialog.jsx');
                 const mounted = mountReplaceCleanDialog(root, {
                     fields,
                     onCancel: () => close(),
@@ -1761,7 +1363,7 @@ async function openTypeConvert() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountTypeConvertDialog } = await import('../react/tools/mountTypeConvertDialog.jsx');
+                const { mountTypeConvertDialog } = await import('../../react/tools/mountTypeConvertDialog.jsx');
                 const mounted = mountTypeConvertDialog(root, {
                     fields,
                     onCancel: () => close(),
@@ -1782,7 +1384,7 @@ async function openTypeConvert() {
 }
 
 // Filter Builder
-async function openFilterBuilder(targetLayerId) {
+export async function openFilterBuilder(targetLayerId) {
     if (targetLayerId) {
         setActiveLayer(targetLayerId);
         refreshUI();
@@ -1798,7 +1400,7 @@ async function openFilterBuilder(targetLayerId) {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountFilterBuilderDialog } = await import('../react/tools/mountFilterBuilderDialog.jsx');
+            const { mountFilterBuilderDialog } = await import('../../react/tools/mountFilterBuilderDialog.jsx');
             const mounted = mountFilterBuilderDialog(root, {
                 fields,
                 operators: transforms.FILTER_OPERATORS,
@@ -1832,7 +1434,7 @@ async function openFilterBuilder(targetLayerId) {
                     if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
                         close();
                         const filtered = await runWithTaskProgress('Filter', async () => {
-                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const { TaskRunner } = await import('../core/task-runner.js');
                             const task = new TaskRunner('Filter', 'DataPrep');
                             return task.run((t) => transforms.applyFiltersAsync(sourceFeatures, rules, logic, t));
                         });
@@ -1861,7 +1463,7 @@ async function openDeduplicate() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountDeduplicateDialog } = await import('../react/tools/mountDeduplicateDialog.jsx');
+                const { mountDeduplicateDialog } = await import('../../react/tools/mountDeduplicateDialog.jsx');
                 const mounted = mountDeduplicateDialog(root, {
                     fields,
                     onCancel: () => close(),
@@ -1892,7 +1494,7 @@ async function openJoinTool() {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountJoinToolDialog } = await import('../react/tools/mountJoinToolDialog.jsx');
+            const { mountJoinToolDialog } = await import('../../react/tools/mountJoinToolDialog.jsx');
             const mounted = mountJoinToolDialog(root, {
                 fields,
                 onCancel: () => close(),
@@ -1916,7 +1518,7 @@ async function openJoinTool() {
                     if (sourceFeatures.length >= transforms.DATAPREP_CHUNK_THRESHOLD) {
                         close();
                         joinResult = await runWithTaskProgress('Join', async () => {
-                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const { TaskRunner } = await import('../core/task-runner.js');
                             const task = new TaskRunner('Join', 'DataPrep');
                             return task.run((t) =>
                                 transforms.joinDataAsync(sourceFeatures, joinRows, leftKey, rightKey, fieldsToJoin, t)
@@ -1945,7 +1547,7 @@ async function openValidation() {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountValidationDialog } = await import('../react/tools/mountValidationDialog.jsx');
+            const { mountValidationDialog } = await import('../../react/tools/mountValidationDialog.jsx');
             const mounted = mountValidationDialog(root, {
                 fields,
                 onCancel: () => close(),
@@ -1988,7 +1590,7 @@ async function openBuffer() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountBufferToolDialog } = await import('../react/tools/mountBufferToolDialog.jsx');
+                const { mountBufferToolDialog } = await import('../../react/tools/mountBufferToolDialog.jsx');
                 const mounted = mountBufferToolDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2029,7 +1631,7 @@ async function openSimplify() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountSimplifyToolDialog } = await import('../react/tools/mountSimplifyToolDialog.jsx');
+                const { mountSimplifyToolDialog } = await import('../../react/tools/mountSimplifyToolDialog.jsx');
                 const mounted = mountSimplifyToolDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2070,7 +1672,7 @@ async function openClip() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountClipExtentDialog } = await import('../react/tools/mountClipExtentDialog.jsx');
+                const { mountClipExtentDialog } = await import('../../react/tools/mountClipExtentDialog.jsx');
                 const mounted = mountClipExtentDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2175,30 +1777,30 @@ function getWorkingDataset(layer, applyTo = 'auto') {
 }
 
 /** @deprecated Selection is always on; clears current selection */
-function toggleSelectionMode() {
+export function toggleSelectionMode() {
     clearSelection();
 }
 
-function clearSelection() {
+export function clearSelection() {
     mapService.clearSelection();
     updateSelectionUI();
 }
 
-function selectAllFeatures() {
+export function selectAllFeatures() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     mapService.selectAll(layer.id, layer.geojson);
     updateSelectionUI();
 }
 
-function invertSelection() {
+export function invertSelection() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     mapService.invertSelection(layer.id, layer.geojson);
     updateSelectionUI();
 }
 
-async function deleteSelectedFeatures() {
+export async function deleteSelectedFeatures() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return;
     const indices = mapService.getSelectedIndices(layer.id);
@@ -2273,7 +1875,7 @@ async function openDistanceTool() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountDistanceToolDialog } = await import('../react/tools/mountDistanceToolDialog.jsx');
+                const { mountDistanceToolDialog } = await import('../../react/tools/mountDistanceToolDialog.jsx');
                 const mounted = mountDistanceToolDialog(root, {
                     onCancel: () => close(),
                     onPick: async (units) => {
@@ -2301,7 +1903,7 @@ async function openBearingTool() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountBearingToolDialog } = await import('../react/tools/mountBearingToolDialog.jsx');
+                const { mountBearingToolDialog } = await import('../../react/tools/mountBearingToolDialog.jsx');
                 const mounted = mountBearingToolDialog(root, {
                     onCancel: () => close(),
                     onPick: async () => {
@@ -2336,7 +1938,7 @@ async function openDestinationTool() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountDestinationToolDialog } = await import('../react/tools/mountDestinationToolDialog.jsx');
+                const { mountDestinationToolDialog } = await import('../../react/tools/mountDestinationToolDialog.jsx');
                 const mounted = mountDestinationToolDialog(root, {
                     onCancel: () => close(),
                     onPick: async ({ dist, brng, units }) => {
@@ -2367,7 +1969,7 @@ async function openAlongTool() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountAlongToolDialog } = await import('../react/tools/mountAlongToolDialog.jsx');
+                const { mountAlongToolDialog } = await import('../../react/tools/mountAlongToolDialog.jsx');
                 const mounted = mountAlongToolDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2414,7 +2016,7 @@ async function openPointToLineDistanceTool() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountPointToLineDistanceDialog } = await import('../react/tools/mountPointToLineDistanceDialog.jsx');
+                const { mountPointToLineDistanceDialog } = await import('../../react/tools/mountPointToLineDistanceDialog.jsx');
                 const mounted = mountPointToLineDistanceDialog(root, {
                     layers: lineLayerDefs,
                     onCancel: () => close(),
@@ -2456,7 +2058,7 @@ async function openBboxClip() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountBboxClipDialog } = await import('../react/tools/mountBboxClipDialog.jsx');
+                const { mountBboxClipDialog } = await import('../../react/tools/mountBboxClipDialog.jsx');
                 const mounted = mountBboxClipDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2496,7 +2098,7 @@ async function openBezierSpline() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountBezierSplineDialog } = await import('../react/tools/mountBezierSplineDialog.jsx');
+                const { mountBezierSplineDialog } = await import('../../react/tools/mountBezierSplineDialog.jsx');
                 const mounted = mountBezierSplineDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2532,7 +2134,7 @@ async function openPolygonSmooth() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountPolygonSmoothDialog } = await import('../react/tools/mountPolygonSmoothDialog.jsx');
+                const { mountPolygonSmoothDialog } = await import('../../react/tools/mountPolygonSmoothDialog.jsx');
                 const mounted = mountPolygonSmoothDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2571,7 +2173,7 @@ async function openLineOffset() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountLineOffsetDialog } = await import('../react/tools/mountLineOffsetDialog.jsx');
+                const { mountLineOffsetDialog } = await import('../../react/tools/mountLineOffsetDialog.jsx');
                 const mounted = mountLineOffsetDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2606,7 +2208,7 @@ async function openLineSliceAlong() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountLineSliceAlongDialog } = await import('../react/tools/mountLineSliceAlongDialog.jsx');
+                const { mountLineSliceAlongDialog } = await import('../../react/tools/mountLineSliceAlongDialog.jsx');
                 const mounted = mountLineSliceAlongDialog(root, {
                     onCancel: () => close(),
                     onSlice: ({ start, stop, units }) => {
@@ -2643,7 +2245,7 @@ async function openLineSlice() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountLineSliceDialog } = await import('../react/tools/mountLineSliceDialog.jsx');
+                const { mountLineSliceDialog } = await import('../../react/tools/mountLineSliceDialog.jsx');
                 const mounted = mountLineSliceDialog(root, {
                     onCancel: () => close(),
                     onPick: async () => {
@@ -2717,7 +2319,7 @@ async function openLineIntersect() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountLineIntersectDialog } = await import('../react/tools/mountLineIntersectDialog.jsx');
+                const { mountLineIntersectDialog } = await import('../../react/tools/mountLineIntersectDialog.jsx');
                 const mounted = mountLineIntersectDialog(root, {
                     layers: lineLayerDefs,
                     onCancel: () => close(),
@@ -2763,7 +2365,7 @@ async function openKinks() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountKinksDialog } = await import('../react/tools/mountKinksDialog.jsx');
+                const { mountKinksDialog } = await import('../../react/tools/mountKinksDialog.jsx');
                 const mounted = mountKinksDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2798,7 +2400,7 @@ async function openCombine() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountCombineFeaturesDialog } = await import('../react/tools/mountCombineFeaturesDialog.jsx');
+                const { mountCombineFeaturesDialog } = await import('../../react/tools/mountCombineFeaturesDialog.jsx');
                 const mounted = mountCombineFeaturesDialog(root, {
                     selectionCount: mapService.getSelectionCount(layer.id),
                     totalCount: work.totalCount,
@@ -2834,7 +2436,7 @@ async function openUnion() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountUnionPolygonsDialog } = await import('../react/tools/mountUnionPolygonsDialog.jsx');
+                const { mountUnionPolygonsDialog } = await import('../../react/tools/mountUnionPolygonsDialog.jsx');
                 const mounted = mountUnionPolygonsDialog(root, {
                     polygonCount: polyCount,
                     isSelection: work.isSelection,
@@ -2869,7 +2471,7 @@ async function openDissolve() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountDissolveDialog } = await import('../react/tools/mountDissolveDialog.jsx');
+                const { mountDissolveDialog } = await import('../../react/tools/mountDissolveDialog.jsx');
                 const mounted = mountDissolveDialog(root, {
                     fields: layer.schema?.fields || [],
                     selectionCount: mapService.getSelectionCount(layer.id),
@@ -2906,7 +2508,7 @@ async function openSector() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountSectorDialog } = await import('../react/tools/mountSectorDialog.jsx');
+                const { mountSectorDialog } = await import('../../react/tools/mountSectorDialog.jsx');
                 const mounted = mountSectorDialog(root, {
                     onCancel: () => close(),
                     onPickCenter: async ({ radius, b1, b2, units }) => {
@@ -2951,7 +2553,7 @@ async function openNearestPoint() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountNearestPointDialog } = await import('../react/tools/mountNearestPointDialog.jsx');
+                const { mountNearestPointDialog } = await import('../../react/tools/mountNearestPointDialog.jsx');
                 const mounted = mountNearestPointDialog(root, {
                     layers: pointLayerDefs,
                     onCancel: () => close(),
@@ -3005,7 +2607,7 @@ async function openNearestPointOnLine() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountNearestPointOnLineDialog } = await import('../react/tools/mountNearestPointOnLineDialog.jsx');
+                const { mountNearestPointOnLineDialog } = await import('../../react/tools/mountNearestPointOnLineDialog.jsx');
                 const mounted = mountNearestPointOnLineDialog(root, {
                     layers: lineLayerDefs,
                     onCancel: () => close(),
@@ -3066,7 +2668,7 @@ async function openNearestPointToLine() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountNearestPointToLineDialog } = await import('../react/tools/mountNearestPointToLineDialog.jsx');
+                const { mountNearestPointToLineDialog } = await import('../../react/tools/mountNearestPointToLineDialog.jsx');
                 const mounted = mountNearestPointToLineDialog(root, {
                     pointLayers: pointLayerDefs,
                     lineLayers: lineLayerDefs,
@@ -3108,7 +2710,7 @@ async function openNearestNeighborAnalysis() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountNearestNeighborAnalysisDialog } = await import('../react/tools/mountNearestNeighborAnalysisDialog.jsx');
+                const { mountNearestNeighborAnalysisDialog } = await import('../../react/tools/mountNearestNeighborAnalysisDialog.jsx');
                 const mounted = mountNearestNeighborAnalysisDialog(root, {
                     onCancel: () => close(),
                     onRun: async () => {
@@ -3124,7 +2726,7 @@ async function openNearestNeighborAnalysis() {
                                 onMount: async (resultsOverlay) => {
                                     const resultsRoot = resultsOverlay.querySelector(`#${resultsRootId}`);
                                     if (!resultsRoot) return;
-                                    const { mountNearestNeighborResultsDialog } = await import('../react/tools/mountNearestNeighborResultsDialog.jsx');
+                                    const { mountNearestNeighborResultsDialog } = await import('../../react/tools/mountNearestNeighborResultsDialog.jsx');
                                     const resultsMounted = mountNearestNeighborResultsDialog(resultsRoot, { pattern, p, featureCount });
                                     watchOverlayUnmount(resultsOverlay, () => resultsMounted.unmount?.());
                                 }
@@ -3170,7 +2772,7 @@ async function openPointsWithinPolygon() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountPointsWithinPolygonDialog } = await import('../react/tools/mountPointsWithinPolygonDialog.jsx');
+                const { mountPointsWithinPolygonDialog } = await import('../../react/tools/mountPointsWithinPolygonDialog.jsx');
                 const mounted = mountPointsWithinPolygonDialog(root, {
                     pointLayers: pointLayerDefs,
                     polygonLayers: polygonLayerDefs,
@@ -3236,7 +2838,7 @@ async function openCoordConverter() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountCoordConverterDialog } = await import('../react/tools/mountCoordConverterDialog.jsx');
+                const { mountCoordConverterDialog } = await import('../../react/tools/mountCoordConverterDialog.jsx');
                 const mounted = mountCoordConverterDialog(root, {
                     isSpatial,
                     fields,
@@ -3274,7 +2876,7 @@ async function openCoordConverter() {
 // ============================
 // Photo Mapper modal
 // ============================
-async function openPhotoMapper() {
+export async function openPhotoMapper() {
     
         const rootId = `photo-mapper-react-${Date.now()}`;
         showModal('Photo Mapper', `<div id="${rootId}"></div>`, {
@@ -3283,7 +2885,7 @@ async function openPhotoMapper() {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
 
-                const { mountPhotoMapperDialog } = await import('../react/tools/mountPhotoMapperDialog.jsx');
+                const { mountPhotoMapperDialog } = await import('../../react/tools/mountPhotoMapperDialog.jsx');
                 const mounted = mountPhotoMapperDialog(root, {
                     onCancel: () => close(),
                     onProcessFiles: async (files) => processPhotoFilesForReact(files),
@@ -3389,7 +2991,7 @@ async function processPhotoFiles(files, modalOverlay) {
 // ============================
 // GIS Widgets
 // ============================
-function getWidgetContext() {
+export function getWidgetContext() {
     return createWidgetContext({
         getLayers,
         getLayerById: (id) => getLayers().find((layer) => layer.id === id),
@@ -3414,7 +3016,7 @@ function hasActiveImportFence() {
     return !!_fenceBbox || mapService.hasImportFence();
 }
 
-async function startImportFence() {
+export async function startImportFence() {
     if (dualScreenCoordinator.isActive) {
         if (hasActiveImportFence()) {
             const rootId = `import-fence-react-${Date.now()}`;
@@ -3423,7 +3025,7 @@ async function startImportFence() {
                 onMount: async (overlay, close) => {
                     const root = overlay.querySelector(`#${rootId}`);
                     if (!root) return;
-                    const { mountImportFenceOptionsDialog } = await import('../react/tools/mountImportFenceOptionsDialog.jsx');
+                    const { mountImportFenceOptionsDialog } = await import('../../react/tools/mountImportFenceOptionsDialog.jsx');
                     const mounted = mountImportFenceOptionsDialog(root, {
                         message: 'An import fence is currently active. All imports are filtered to this area.',
                         onPlaceNewFence: () => {
@@ -3434,7 +3036,7 @@ async function startImportFence() {
                         },
                         onRemoveFence: () => {
                             _fenceBbox = null;
-                            updateFenceButton();
+                            updateFenceButtonState();
                             dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
                             close();
                             showToast('Import fence removed', 'info');
@@ -3458,7 +3060,7 @@ async function startImportFence() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountImportFenceOptionsDialog } = await import('../react/tools/mountImportFenceOptionsDialog.jsx');
+                const { mountImportFenceOptionsDialog } = await import('../../react/tools/mountImportFenceOptionsDialog.jsx');
                 const mounted = mountImportFenceOptionsDialog(root, {
                     message: 'An import fence is currently active on the map. All imports (files and ArcGIS) are filtered to this area.',
                     placeNewDescription: 'Remove current fence and draw a new one',
@@ -3470,7 +3072,7 @@ async function startImportFence() {
                     onRemoveFence: () => {
                         mapService.clearImportFence();
                         _fenceBbox = null;
-                        updateFenceButton();
+                        updateFenceButtonState();
                         close();
                         showToast('Import fence removed', 'info');
                     }
@@ -3491,11 +3093,11 @@ async function drawNewFence() {
         return;
     }
     _fenceBbox = bbox;
-    updateFenceButton();
+    updateFenceButtonState();
     showToast('Import fence placed ??? all imports will be filtered to this area', 'success');
 }
 
-function updateFenceButton() {
+export function updateFenceButtonState() {
     const btn = document.getElementById('btn-fence');
     if (!btn) return;
     if (hasActiveImportFence()) {
@@ -3538,7 +3140,7 @@ function filterDatasetByFence(dataset, bbox) {
 // ============================
 // ArcGIS REST Importer modal
 // ============================
-async function openArcGISImporter() {
+export async function openArcGISImporter() {
     const spatialFilter = mapService.getImportFenceEsriEnvelope();
     const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">??? <strong>Import Fence active</strong> ??? only features inside the fence will be downloaded from the server.</div>' : '';
 
@@ -3577,7 +3179,7 @@ async function openArcGISImporter() {
                     const run = async () => {
                         try {
                             onProgress?.({ percent: 0, step: `Connecting to ${name || 'layer'}...` });
-                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const { TaskRunner } = await import('../core/task-runner.js');
                             arcgisTask = new TaskRunner(`Import ${name || 'layer'}`, 'ArcGIS');
                             onArcgisProgress = (data) => {
                                 onProgress?.({
@@ -3629,7 +3231,7 @@ async function openArcGISImporter() {
                     };
                 };
 
-                const { mountArcGISImporterDialog } = await import('../react/tools/mountArcGISImporterDialog.jsx');
+                const { mountArcGISImporterDialog } = await import('../../react/tools/mountArcGISImporterDialog.jsx');
                 const mounted = mountArcGISImporterDialog(root, {
                     endpoints: ARCGIS_ENDPOINTS,
                     hasImportFence: !!spatialFilter,
@@ -3663,14 +3265,14 @@ async function _promptNetworkLinkAfterImport(dataset) {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountNetworkLinksDialog } = await import('../react/tools/mountNetworkLinksDialog.jsx');
+                const { mountNetworkLinksDialog } = await import('../../react/tools/mountNetworkLinksDialog.jsx');
                 const mounted = mountNetworkLinksDialog(root, {
                     hrefs,
                     onDismiss: () => close(),
                     onFetch: async () => {
                         try {
-                            const { mergeNetworkLinksIntoDataset } = await import('./import/kml-networklink.js');
-                            const { TaskRunner } = await import('./core/task-runner.js');
+                            const { mergeNetworkLinksIntoDataset } = await import('../import/kml-networklink.js');
+                            const { TaskRunner } = await import('../core/task-runner.js');
                             const task = new TaskRunner('Network links', 'Import');
                             const { failures, skippedRelative, addedFeatures, totalFeatures } =
                                 await mergeNetworkLinksIntoDataset(dataset, hrefs, task);
@@ -3711,7 +3313,7 @@ async function _promptNetworkLinkAfterImport(dataset) {
 // ============================
 // Export handler
 // ============================
-async function doExport(format) {
+export async function doExport(format) {
     const layer = getActiveLayer();
     if (!layer) return showToast('No active layer', 'warning');
 
@@ -3782,7 +3384,7 @@ async function _showKmzExportPicker(allLayers, activeLayer, format) {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountKmlExportPickerDialog } = await import('../react/tools/mountKmlExportPickerDialog.jsx');
+                const { mountKmlExportPickerDialog } = await import('../../react/tools/mountKmlExportPickerDialog.jsx');
                 const mounted = mountKmlExportPickerDialog(root, {
                     layers,
                     activeLayerId: activeLayer.id,
@@ -3806,7 +3408,7 @@ async function _showKmzExportPicker(allLayers, activeLayer, format) {
 // ============================
 
 // ????????? Draw Layer ?????????
-function createDrawLayer() {
+export function createDrawLayer() {
     const activeLayer = getActiveLayer();
     const hasActiveSpatial = activeLayer && activeLayer.type === 'spatial';
 
@@ -3830,7 +3432,7 @@ function createDrawLayer() {
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
                 if (!root) return;
-                const { mountDrawLayerChooserDialog } = await import('../react/tools/mountDrawLayerChooserDialog.jsx');
+                const { mountDrawLayerChooserDialog } = await import('../../react/tools/mountDrawLayerChooserDialog.jsx');
                 const mounted = mountDrawLayerChooserDialog(root, {
                     options: items,
                     onChoose: (action) => {
@@ -3877,7 +3479,7 @@ function _openDrawToolbarOnMap(layerId, layerName) {
     drawManager.showToolbar(layerId, layerName);
 }
 
-async function handleMergeLayers() {
+export async function handleMergeLayers() {
     const layers = getLayers();
     if (layers.length < 2) return showToast('Need at least 2 layers to merge', 'warning');
 
@@ -3891,7 +3493,7 @@ async function handleMergeLayers() {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountMergeLayersDialog } = await import('../react/tools/mountMergeLayersDialog.jsx');
+            const { mountMergeLayersDialog } = await import('../../react/tools/mountMergeLayersDialog.jsx');
             const mounted = mountMergeLayersDialog(root, {
                 layers: mergeLayers,
                 onCancel: () => close(null),
@@ -3914,7 +3516,7 @@ async function handleMergeLayers() {
     refreshUI();
 }
 
-function handleUndo() {
+export function handleUndo() {
     const entry = undoHistory();
     if (entry) {
         const layer = getLayers().find(l => l.id === entry.layerId);
@@ -3933,7 +3535,7 @@ function handleUndo() {
     }
 }
 
-function handleRedo() {
+export function handleRedo() {
     const entry = redoHistory();
     if (entry) {
         const layer = getLayers().find(l => l.id === entry.layerId);
@@ -3955,7 +3557,7 @@ function handleRedo() {
 // ============================
 // Feature Editor ? edit a single feature's attributes from popup
 // ============================
-function openFeatureEditor(layerId, featureIndex) {
+export function openFeatureEditor(layerId, featureIndex) {
     const layers = getLayers();
     const layer = layers.find((l) => l.id === layerId);
     if (!layer || layer.type !== 'spatial') return showToast('Layer not found', 'warning');
@@ -3975,7 +3577,7 @@ function openFeatureEditor(layerId, featureIndex) {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountFeatureEditorDialog } = await import('../react/tools/mountFeatureEditorDialog.jsx');
+            const { mountFeatureEditorDialog } = await import('../../react/tools/mountFeatureEditorDialog.jsx');
             const mounted = mountFeatureEditorDialog(root, {
                 layerName: layer.name,
                 featureIndex,
@@ -4016,7 +3618,7 @@ function openFeatureEditor(layerId, featureIndex) {
     });
 }
 
-function showDataTable() {
+export function showDataTable() {
     const layer = getActiveLayer();
     if (!layer) return;
 
@@ -4039,7 +3641,7 @@ function showDataTable() {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountDataTableDialog } = await import('../react/tools/mountDataTableDialog.jsx');
+            const { mountDataTableDialog } = await import('../../react/tools/mountDataTableDialog.jsx');
             const mounted = mountDataTableDialog(root, {
                 layerName: layer.name,
                 fields,
@@ -4071,22 +3673,22 @@ function showDataTable() {
 // ============================
 // Field management
 // ============================
-function toggleField(fieldName, selected) {
+export function toggleField(fieldName, selected) {
     const layer = getActiveLayer();
     if (!layer) return;
     const field = layer.schema?.fields?.find(f => f.name === fieldName);
     if (field) {
         field.selected = selected;
-        _renderReactRightPanel();
+        refreshUI();
     }
 }
 
-function selectAllFields(selected) {
+export function selectAllFields(selected) {
     const layer = getActiveLayer();
     if (!layer) return;
     for (const f of (layer.schema?.fields || [])) f.selected = selected;
-    _renderReactLeftPanel();
-    _renderReactRightPanel();
+    refreshUI();
+    refreshUI();
 }
 
 function filterFields(query) {
@@ -4098,7 +3700,7 @@ function filterFields(query) {
     });
 }
 
-function fixAGOL() {
+export function fixAGOL() {
     const layer = getActiveLayer();
     if (!layer) return;
     const { nameMapping } = checkAGOLCompatibility(layer);
@@ -4112,7 +3714,7 @@ function fixAGOL() {
 // ============================
 // Rename Layer
 // ============================
-function renameLayer(layerId, el) {
+export function renameLayer(layerId, el) {
     const layer = getLayers().find(l => l.id === layerId);
     if (!layer) return;
 
@@ -4122,8 +3724,8 @@ function renameLayer(layerId, el) {
             newName = newName.trim();
             if (newName && newName !== layer.name) {
                 layer.name = newName;
-                _renderReactLeftPanel();
-                _renderReactRightPanel();
+                refreshUI();
+                refreshUI();
                 showToast(`Layer renamed to "${newName}"`, 'success', { duration: 2000 });
             }
         });
@@ -4134,8 +3736,8 @@ function renameLayer(layerId, el) {
     const newName = prompt('Rename layer:', layer.name);
     if (newName && newName.trim() && newName.trim() !== layer.name) {
         layer.name = newName.trim();
-        _renderReactLeftPanel();
-        _renderReactRightPanel();
+        refreshUI();
+        refreshUI();
         showToast(`Layer renamed to "${layer.name}"`, 'success', { duration: 2000 });
     }
 }
@@ -4143,7 +3745,7 @@ function renameLayer(layerId, el) {
 // ============================
 // Rename Field
 // ============================
-function renameField(fieldName, el) {
+export function renameField(fieldName, el) {
     const layer = getActiveLayer();
     if (!layer) return;
     const field = layer.schema?.fields?.find(f => f.name === fieldName);
@@ -4156,8 +3758,8 @@ function renameField(fieldName, el) {
             newName = newName.trim();
             if (newName && newName !== currentName) {
                 field.outputName = newName;
-                _renderReactLeftPanel();
-                _renderReactRightPanel();
+                refreshUI();
+                refreshUI();
                 showToast(`Field renamed to "${newName}"`, 'success', { duration: 2000 });
             }
         });
@@ -4167,8 +3769,8 @@ function renameField(fieldName, el) {
     const newName = prompt('Rename field output name:', currentName);
     if (newName && newName.trim() && newName.trim() !== currentName) {
         field.outputName = newName.trim();
-        _renderReactLeftPanel();
-        _renderReactRightPanel();
+        refreshUI();
+        refreshUI();
         showToast(`Field renamed to "${field.outputName}"`, 'success', { duration: 2000 });
     }
 }
@@ -4176,7 +3778,7 @@ function renameField(fieldName, el) {
 // ============================
 // Add New Field
 // ============================
-function addField() {
+export function addField() {
     const layer = getActiveLayer();
     if (!layer) return showToast('No layer selected', 'warning');
 
@@ -4264,8 +3866,8 @@ function addField() {
                     }
                 }
 
-                _renderReactLeftPanel();
-                _renderReactRightPanel();
+                refreshUI();
+                refreshUI();
                 mapService.refreshLayerData(layer);
                 showToast(`Field "${name}" added`, 'success', { duration: 2000 });
                 close();
@@ -4313,18 +3915,33 @@ function startInlineEdit(el, currentValue, onSave) {
 // ============================
 // Tool Info / Help Guide
 // ============================
-function showToolInfo() {
+export function showToolInfo() {
     const rootId = `tool-guide-react-${Date.now()}`;
     showModal('Guide', `<div id="${rootId}"></div>`, {
         width: '560px',
         onMount: async (overlay) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
-            const { mountToolGuideDialog } = await import('../react/tools/mountToolGuideDialog.jsx');
+            const { mountToolGuideDialog } = await import('../../react/tools/mountToolGuideDialog.jsx');
             const mounted = mountToolGuideDialog(root, { showTitle: true });
             watchOverlayUnmount(overlay, () => mounted.unmount?.());
         }
     });
+}
+
+
+export function getAppActions() {
+    return APP_ACTIONS;
+}
+
+export function invokeAppAction(action, arg) {
+    if (!action) return;
+    const fn = APP_ACTIONS[action];
+    if (typeof fn !== 'function') return;
+    if (arg == null) { fn(); return; }
+    if (arg === 'true') { fn(true); return; }
+    if (arg === 'false') { fn(false); return; }
+    fn(arg);
 }
 
 const APP_ACTIONS = {
@@ -4404,7 +4021,7 @@ logger.subscribe(() => {
 });
 
 // Setup logs toolbar
-document.addEventListener('DOMContentLoaded', () => {
+export function setupLogsPanel() {
     const searchInput = document.getElementById('logs-search');
     const levelSelect = document.getElementById('logs-level');
     if (searchInput) {
@@ -4514,4 +4131,4 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btn && btn === activeBtn) hide();
         }, true);
     })();
-});
+}

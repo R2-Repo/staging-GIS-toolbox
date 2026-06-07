@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { LayerDataToolsPanel } from './LayerDataToolsPanel.jsx';
 
 export function LayerListPanel({
     layers = [],
@@ -202,10 +203,10 @@ export function FieldListPanel({
     );
 }
 
-export function DataPrepToolsPanel({ html = '', gisTools = null }) {
+export function DataPrepToolsPanel({ activeLayer = null, gisTools = null }) {
     return (
         <>
-            {html ? <div dangerouslySetInnerHTML={{ __html: html }} /> : null}
+            <LayerDataToolsPanel activeLayer={activeLayer} />
             <div className="panel-section">
                 <div className="panel-section-header" data-collapsible="true">
                     GIS Tools <span className="arrow">▼</span>

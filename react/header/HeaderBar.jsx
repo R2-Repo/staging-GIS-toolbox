@@ -11,7 +11,12 @@ export function HeaderBar({
     onBasemapChange,
     onDimensionChange,
     onLogs,
-    onInfo
+    onInfo,
+    canUndo = false,
+    canRedo = false,
+    showMerge = false,
+    basemap = 'voyager',
+    dimension = '2d'
 }) {
     return (
         <>
@@ -38,9 +43,9 @@ export function HeaderBar({
                     <span className="btn-icon-text">✏️</span><span>Draw</span>
                 </button>
                 <div className="header-sep"></div>
-                <button className="btn btn-ghost btn-sm" id="btn-undo" disabled title="Undo" onClick={() => onUndo?.()}>↩</button>
-                <button className="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo" onClick={() => onRedo?.()}>↪</button>
-                <button className="btn btn-secondary btn-sm hidden" id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
+                <button className="btn btn-ghost btn-sm" id="btn-undo" disabled={!canUndo} title="Undo" onClick={() => onUndo?.()}>↩</button>
+                <button className="btn btn-ghost btn-sm" id="btn-redo" disabled={!canRedo} title="Redo" onClick={() => onRedo?.()}>↪</button>
+                <button className={`btn btn-secondary btn-sm${showMerge ? '' : ' hidden'}`} id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
                 <div className="header-sep"></div>
                 <button className="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor" onClick={() => onWorkflow?.()}>
                     <span className="btn-icon-text">🧩</span><span>Data Pipeline Editor</span>
@@ -52,12 +57,12 @@ export function HeaderBar({
             </div>
             <div className="header-right">
                 <div className="header-toggle" id="basemap-toggle">
-                    <button className="header-toggle-option active" data-value="voyager" onClick={() => onBasemapChange?.('voyager')}>🗺️ Map</button>
-                    <button className="header-toggle-option" data-value="satellite" onClick={() => onBasemapChange?.('satellite')}>🛰️ Satellite</button>
+                    <button className={`header-toggle-option${basemap === 'voyager' ? ' active' : ''}`} data-value="voyager" onClick={() => onBasemapChange?.('voyager')}>🗺️ Map</button>
+                    <button className={`header-toggle-option${basemap === 'satellite' ? ' active' : ''}`} data-value="satellite" onClick={() => onBasemapChange?.('satellite')}>🛰️ Satellite</button>
                 </div>
                 <div className="header-toggle" id="dimension-toggle">
-                    <button className="header-toggle-option active" data-value="2d" onClick={() => onDimensionChange?.('2d')}>2D</button>
-                    <button className="header-toggle-option" data-value="3d" onClick={() => onDimensionChange?.('3d')}>3D</button>
+                    <button className={`header-toggle-option${dimension === '2d' ? ' active' : ''}`} data-value="2d" onClick={() => onDimensionChange?.('2d')}>2D</button>
+                    <button className={`header-toggle-option${dimension === '3d' ? ' active' : ''}`} data-value="3d" onClick={() => onDimensionChange?.('3d')}>3D</button>
                 </div>
                 <button className="btn btn-ghost btn-sm" id="btn-logs" title="Logs" onClick={() => onLogs?.()}>📋</button>
                 <button

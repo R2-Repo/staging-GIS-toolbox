@@ -6,8 +6,9 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 
 | Area | Role |
 |------|------|
-| `index.html` | Shell, script tags, UI chrome |
-| `js/app.js` | Main wiring and event handlers |
+| `index.html` | Minimal shell (`#root`), Vite entry `react/main.jsx` |
+| `react/App.jsx` | React-owned page layout, providers, boot wiring |
+| `js/tools/tool-handlers.js` | Tool handlers, `APP_ACTIONS`, bus wiring |
 | `js/core/` | State, session, events, errors, logging |
 | `js/map/` | MapLibre map, draw tools |
 | `js/import/`, `js/export/` | Format handlers |

@@ -22,6 +22,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "maplibre-gl": "4.7.1",
     "@mapbox/togeojson": "^0.16.2",
     "@xyflow/react": "^12.11.0",
     "exifr": "^7.1.3",

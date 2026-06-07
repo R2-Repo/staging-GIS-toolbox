@@ -1,15 +1,18 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     preflightFiles,
     formatBytes,
+    preflightFile,
     PREFLIGHT_LEVEL
 } from '../../js/import/import-preflight.js';
 import { scanFilesForImport } from '../../js/import/import-scan.js';
 import { mergeScanFieldNames } from '../../js/import/import-field-filter.js';
+import { detectFormat } from '../../js/import/importer.js';
+import { assessImportRoute, assessImportRouteFromScans } from '../../js/import/import-routing.js';
 import {
-    buildLargeDatasetNotice,
+    buildNoticeForRoute,
     buildImportProgressReductionNotice,
-    scansNeedLargeDatasetNotice
+    shouldShowImportProgressNotice
 } from '../../js/import/import-size-notices.js';
 import { ImportFieldSelector } from './ImportFieldSelector.jsx';
 import { ImportProgressPanel } from './ImportProgressPanel.jsx';
@@ -21,7 +24,10 @@ export function ImportFlowDialog({
     onOpenArcGIS,
     onOpenPhotoMapper,
     onOpenFence,
-    onOptimizeImport
+    onOptimizeImport,
+    initialFiles = null,
+    initialScans = null,
+    startAtFieldPick = false
 }) {
     const fileInputRef = useRef(null);
     const cancelImportRef = useRef(null);
@@ -33,6 +39,7 @@ export function ImportFlowDialog({
     const [fieldNames, setFieldNames] = useState([]);
     const [selectedFields, setSelectedFields] = useState([]);
     const [importScans, setImportScans] = useState([]);
+    const [routeAssessment, setRouteAssessment] = useState(null);
     const [readyToImport, setReadyToImport] = useState(false);
     const [importing, setImporting] = useState(false);
     const [importProgress, setImportProgress] = useState({ percent: 0, step: 'Starting import…' });
@@ -42,6 +49,7 @@ export function ImportFlowDialog({
         setFieldNames([]);
         setSelectedFields([]);
         setImportScans([]);
+        setRouteAssessment(null);
         setScanning(false);
         setImporting(false);
         setImportProgress({ percent: 0, step: 'Starting import…' });
@@ -54,6 +62,16 @@ export function ImportFlowDialog({
         setPreflight(files.length ? preflightFiles(files) : null);
         resetImportStep();
         return files;
+    };
+
+    const applyScans = (files, scans) => {
+        setImportScans(scans);
+        const names = mergeScanFieldNames(scans);
+        setFieldNames(names);
+        setSelectedFields(names);
+        setRouteAssessment(assessImportRouteFromScans(scans));
+        setReadyToImport(true);
+        setPreflight(preflightFiles(files));
     };
 
     const startImport = async (files, importOptions = {}, uiFromParent = null) => {
@@ -84,6 +102,7 @@ export function ImportFlowDialog({
             await onImportFiles?.(files, {
                 preflightConfirmed: true,
                 selectedFields: fieldNames.length ? fields : null,
+                useWorkspace: importOptions.useWorkspace ?? routeAssessment?.useWorkspace,
                 ...importOptions
             }, {
                 ...ui,
@@ -95,16 +114,12 @@ export function ImportFlowDialog({
         }
     };
 
-    const prepareImportOptions = async (files) => {
+    const prepareImportOptions = async (files, existingScans = null) => {
         setScanning(true);
         setError('');
         try {
-            const scans = await scanFilesForImport(files);
-            setImportScans(scans);
-            const names = mergeScanFieldNames(scans);
-            setFieldNames(names);
-            setSelectedFields(names);
-            setReadyToImport(true);
+            const scans = existingScans ?? await scanFilesForImport(files);
+            applyScans(files, scans);
         } catch (err) {
             setError(err?.message || 'Could not scan files.');
             setReadyToImport(true);
@@ -121,16 +136,58 @@ export function ImportFlowDialog({
             setError(check.messages.join(' '));
             return;
         }
-        if (check.level === PREFLIGHT_LEVEL.SOFT && onOptimizeImport) {
+
+        const shouldPreScan = files.some((f) => {
+            const pf = preflightFile(f);
+            const fmt = detectFormat(f);
+            return pf.level === PREFLIGHT_LEVEL.SOFT || fmt === 'zip' || fmt === 'kmz';
+        });
+
+        let scans = [];
+        if (shouldPreScan) {
+            setScanning(true);
+            try {
+                scans = await scanFilesForImport(files);
+            } catch (err) {
+                setScanning(false);
+                setError(err?.message || 'Could not scan files.');
+                return;
+            }
+            setScanning(false);
+        }
+
+        const assessment = await assessImportRoute(files, { scans });
+        if (assessment.route === 'optimizer' && onOptimizeImport) {
             onOptimizeImport(files);
             return;
         }
-        await prepareImportOptions(files);
+
+        if (scans.length) {
+            applyScans(files, scans);
+        } else {
+            await prepareImportOptions(files);
+        }
     };
 
-    const showLargeDatasetNotice = scansNeedLargeDatasetNotice(importScans);
-    const largeDatasetNotice = showLargeDatasetNotice ? buildLargeDatasetNotice(importScans) : null;
-    const progressNotice = showLargeDatasetNotice ? buildImportProgressReductionNotice() : null;
+    useEffect(() => {
+        if (!startAtFieldPick || !initialFiles?.length) return;
+        const files = Array.from(initialFiles);
+        setPendingFiles(files);
+        setPreflight(preflightFiles(files));
+        if (initialScans?.length) {
+            applyScans(files, initialScans);
+        } else {
+            void prepareImportOptions(files);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only bootstrap
+    }, []);
+
+    const reductionNotice = useMemo(() => {
+        if (!routeAssessment || routeAssessment.route !== 'optimizer') return null;
+        return buildNoticeForRoute({ ...routeAssessment, scans: importScans });
+    }, [routeAssessment, importScans]);
+
+    const showProgressNotice = shouldShowImportProgressNotice(routeAssessment);
 
     if (importing) {
         return (
@@ -139,7 +196,7 @@ export function ImportFlowDialog({
                     step={importProgress.step}
                     percent={importProgress.percent}
                     fileName={importProgress.fileName}
-                    notice={progressNotice}
+                    notice={showProgressNotice ? buildImportProgressReductionNotice() : null}
                     onCancel={cancelImportRef.current ? () => cancelImportRef.current?.() : null}
                 />
             </div>
@@ -177,15 +234,15 @@ export function ImportFlowDialog({
 
             {readyToImport && !scanning ? (
                 <div className="mb-8">
-                    {largeDatasetNotice ? (
-                        <ImportReductionNotice {...largeDatasetNotice} />
+                    {reductionNotice ? (
+                        <ImportReductionNotice {...reductionNotice} />
                     ) : null}
                     <div className="text-xs mb-4"><strong>Attributes to import</strong></div>
                     <ImportFieldSelector
                         fields={fieldNames}
                         selected={selectedFields}
                         onChange={setSelectedFields}
-                        hint={largeDatasetNotice
+                        hint={reductionNotice
                             ? 'Uncheck fields you do not need — only selected attributes are stored (part of the size reduction plan).'
                             : 'Uncheck fields you do not need — deselected attributes are not stored.'}
                     />
@@ -198,7 +255,7 @@ export function ImportFlowDialog({
                 </div>
             ) : null}
 
-            {!readyToImport ? (
+            {!readyToImport && !startAtFieldPick ? (
                 <>
                     <p className="text-xs text-muted mb-8">
                         Supported: GeoJSON, JSON, CSV/TSV, Excel, KML, KMZ, Shapefile ZIP (.shp inside),

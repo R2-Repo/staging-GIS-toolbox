@@ -26,6 +26,7 @@ import { getLayerDefaultColor } from '../map/layer-palette.js';
 import { getActiveTask } from '../core/task-runner.js';
 import { buildImportSummary, formatImportSummaryToast } from '../import/import-summary.js';
 import { guardFilesBeforeImport } from '../import/import-guard.js';
+import { assessImportRoute, shouldConvertToWorkspace, arcgisShouldUseWorkspace } from '../import/import-routing.js';
 import { ErrorCategory } from '../core/error-handler.js';
 import { getAvailableFormats, exportDataset, exportMultiLayerKMZFile, exportMultiLayerKMLFile, setExportMapManager } from '../export/exporter.js';
 import mapService from '../map/map-service.js';
@@ -413,7 +414,7 @@ export function setupDragDrop() {
 
         // Import data files (GIS formats)
         if (dataFiles.length > 0) {
-            await handleFileImport(dataFiles);
+            await openImportForFiles(dataFiles);
         }
         // Import image files (photo mapper)
         if (imageFiles.length > 0) {
@@ -489,10 +490,13 @@ async function _addImportedDatasets(datasets, importOpts = {}) {
     const INCREMENTAL_THRESHOLD = 10000;
     for (const raw of datasets) {
         let ds = raw;
-        if (ds.type === 'spatial' && !isWorkspaceLayer(ds) && importOpts.useWorkspace !== false) {
-            ds = await convertSpatialDatasetToWorkspace(ds);
-            if (ds.storage === 'workspace' && raw.geojson?.features?.length) {
-                raw.geojson.features.length = 0;
+        if (ds.type === 'spatial' && !isWorkspaceLayer(ds)) {
+            const featureCount = ds.geojson?.features?.length ?? 0;
+            if (shouldConvertToWorkspace(featureCount, importOpts)) {
+                ds = await convertSpatialDatasetToWorkspace(ds);
+                if (ds.storage === 'workspace' && raw.geojson?.features?.length) {
+                    raw.geojson.features.length = 0;
+                }
             }
         }
 
@@ -685,74 +689,136 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
 }
 
 export function openImportFlow() {
+    _openImportFlowModal();
+}
+
+function _openImportOptimizerModal(files) {
+    const optRootId = `import-opt-${Date.now()}`;
+    showModal('Import Optimizer', `<div id="${optRootId}"></div>`, {
+        width: '560px',
+        onMount: async (optOverlay, optClose) => {
+            const optRoot = optOverlay.querySelector(`#${optRootId}`);
+            const { mountImportOptimizerDialog } = await import('../../react/tools/mountImportOptimizerDialog.jsx');
+            const optMounted = mountImportOptimizerDialog(optRoot, {
+                files,
+                onCancel: () => optClose(),
+                onConfirm: async (opts, ui) => {
+                    await handleFileImport(files, _fenceBbox, {
+                        preflightConfirmed: true,
+                        importMode: opts.importMode,
+                        useWorkspace: opts.useWorkspace,
+                        selectedFields: opts.selectedFields,
+                        onProgress: ui?.onProgress,
+                        onCancelReady: ui?.onCancelReady,
+                        onAborted: ui?.onAborted,
+                        onComplete: () => {
+                            ui?.close?.();
+                            optClose();
+                        }
+                    });
+                }
+            });
+            watchOverlayUnmount(optOverlay, () => optMounted.unmount?.());
+        }
+    });
+}
+
+function _openImportFlowModal(flowProps = {}) {
     const rootId = `import-flow-react-${Date.now()}`;
-        showModal('Import Files', `<div id="${rootId}"></div>`, {
-            width: '560px',
-            onMount: async (overlay, close) => {
-                const root = overlay.querySelector(`#${rootId}`);
-                if (!root) return;
-                const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
-                const mounted = mountImportFlowDialog(root, {
-                    onCancel: () => close(),
-                    onImportFiles: async (files, importOpts = {}, ui = {}) => {
-                        await handleFileImport(files, _fenceBbox, {
-                            preflightConfirmed: importOpts.preflightConfirmed,
-                            importMode: importOpts.importMode,
-                            useWorkspace: importOpts.useWorkspace,
-                            selectedFields: importOpts.selectedFields,
-                            onProgress: ui.onProgress,
-                            onCancelReady: ui.onCancelReady,
-                            onAborted: ui.onAborted,
-                            onComplete: () => ui.close?.()
-                        });
-                    },
-                    onOptimizeImport: (files) => {
-                        close();
-                        const optRootId = `import-opt-${Date.now()}`;
-                        showModal('Import Optimizer', `<div id="${optRootId}"></div>`, {
-                            width: '560px',
-                            onMount: async (optOverlay, optClose) => {
-                                const optRoot = optOverlay.querySelector(`#${optRootId}`);
-                                const { mountImportOptimizerDialog } = await import('../../react/tools/mountImportOptimizerDialog.jsx');
-                                const optMounted = mountImportOptimizerDialog(optRoot, {
-                                    files,
-                                    onCancel: () => optClose(),
-                                    onConfirm: async (opts, ui) => {
-                                        await handleFileImport(files, _fenceBbox, {
-                                            preflightConfirmed: true,
-                                            importMode: opts.importMode,
-                                            useWorkspace: opts.useWorkspace,
-                                            selectedFields: opts.selectedFields,
-                                            onProgress: ui?.onProgress,
-                                            onCancelReady: ui?.onCancelReady,
-                                            onAborted: ui?.onAborted,
-                                            onComplete: () => {
-                                                ui?.close?.();
-                                                optClose();
-                                            }
-                                        });
-                                    }
-                                });
-                                watchOverlayUnmount(optOverlay, () => optMounted.unmount?.());
-                            }
-                        });
-                    },
-                    onOpenArcGIS: () => {
-                        close();
-                        openArcGISImporter();
-                    },
-                    onOpenPhotoMapper: () => {
-                        close();
-                        openPhotoMapper();
-                    },
-                    onOpenFence: () => {
-                        close();
-                        startImportFence();
-                    }
-                });
-                watchOverlayUnmount(overlay, () => mounted.unmount?.());
-            }
+    showModal('Import Files', `<div id="${rootId}"></div>`, {
+        width: '560px',
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+            const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
+            const mounted = mountImportFlowDialog(root, {
+                onCancel: () => close(),
+                onImportFiles: async (files, importOpts = {}, ui = {}) => {
+                    await handleFileImport(files, _fenceBbox, {
+                        preflightConfirmed: importOpts.preflightConfirmed,
+                        importMode: importOpts.importMode,
+                        useWorkspace: importOpts.useWorkspace,
+                        selectedFields: importOpts.selectedFields,
+                        onProgress: ui.onProgress,
+                        onCancelReady: ui.onCancelReady,
+                        onAborted: ui.onAborted,
+                        onComplete: () => ui.close?.()
+                    });
+                },
+                onOptimizeImport: (files) => {
+                    close();
+                    _openImportOptimizerModal(files);
+                },
+                onOpenArcGIS: () => {
+                    close();
+                    openArcGISImporter();
+                },
+                onOpenPhotoMapper: () => {
+                    close();
+                    openPhotoMapper();
+                },
+                onOpenFence: () => {
+                    close();
+                    startImportFence();
+                },
+                ...flowProps
+            });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
+        }
+    });
+}
+
+/**
+ * Shared entry for drag-drop, toolbar, and routed imports — guard + route before parse.
+ * @param {File[]} files
+ * @param {Array|null} [fenceBbox]
+ */
+export async function openImportForFiles(files, fenceBbox = null) {
+    if (!files?.length) return;
+
+    try {
+        await guardFilesBeforeImport(files, {
+            source: 'openImportForFiles',
+            getLayers
         });
+    } catch (e) {
+        handleError(e, { toast: true, source: 'openImportForFiles' });
+        return;
+    }
+
+    const { scanFilesForImport } = await import('../import/import-scan.js');
+    const { preflightFile, PREFLIGHT_LEVEL } = await import('../import/import-preflight.js');
+    const { detectFormat } = await import('../import/importer.js');
+    const { mergeScanFieldNames } = await import('../import/import-field-filter.js');
+
+    const shouldPreScan = files.some((f) => {
+        const pf = preflightFile(f);
+        const fmt = detectFormat(f);
+        return pf.level === PREFLIGHT_LEVEL.SOFT || fmt === 'zip' || fmt === 'kmz';
+    });
+
+    let scans = shouldPreScan ? await scanFilesForImport(files) : [];
+    const assessment = await assessImportRoute(files, { scans });
+
+    if (assessment.route === 'optimizer') {
+        _openImportOptimizerModal(files);
+        return;
+    }
+
+    if (!scans.length) {
+        scans = await scanFilesForImport(files);
+    }
+    const fieldNames = mergeScanFieldNames(scans);
+    if (fieldNames.length > 0) {
+        _openImportFlowModal({
+            initialFiles: files,
+            initialScans: scans,
+            startAtFieldPick: true
+        });
+        return;
+    }
+
+    await handleFileImport(files, fenceBbox ?? _fenceBbox, { preflightConfirmed: true });
 }
 
 function setBasemapToggleActive(value) {
@@ -832,7 +898,7 @@ export function setupAppWiring() {
     _importInputEl.addEventListener('change', () => {
         if (_importInputEl.files.length > 0) {
             const files = Array.from(_importInputEl.files);
-            handleFileImport(files, _fenceBbox);
+            openImportForFiles(files, _fenceBbox);
         }
     });
 
@@ -1053,7 +1119,7 @@ function setupDualScreenMode() {
             bus.emit('draw:featureDeleted', { layerId, featureIndex });
         },
         openFeatureEditor,
-        handleFileImport: (files) => handleFileImport(files, _fenceBbox),
+        handleFileImport: (files) => openImportForFiles(files, _fenceBbox),
         handlePhotoImport: async (imageFiles) => {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
@@ -3375,7 +3441,7 @@ export async function openArcGISImporter() {
                                     outFields: '*',
                                     where: '1=1',
                                     returnGeometry: true,
-                                    useWorkspace: true
+                                    useWorkspace: arcgisShouldUseWorkspace(meta.totalCount, { spatialFilter })
                                 };
                                 if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
 

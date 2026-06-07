@@ -1,5 +1,5 @@
 /**
- * KMZ importer — worker parse path + GIS strip mode by default
+ * KMZ importer — worker parse path; preserve styling by default
  */
 import { importKML } from './kml-importer.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
@@ -17,7 +17,7 @@ import { extractKmlFromKmzBuffer } from './parsers/parse-kmz-buffer.js';
 /** Max embedded asset size when rewriting KMZ hrefs (bytes). */
 export const KMZ_EMBEDDED_ASSET_MAX_BYTES = 5 * 1024 * 1024;
 
-export const DEFAULT_KMZ_IMPORT_MODE = 'gis';
+export const DEFAULT_KMZ_IMPORT_MODE = 'preserve';
 
 function _guessMimeFromPath(p) {
     const low = p.toLowerCase();

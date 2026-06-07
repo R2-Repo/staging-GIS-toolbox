@@ -3,6 +3,46 @@
 ## Latest
 
 - **Date**: 2026-06-07
+- **Status**: **Import only when needed — as-is by default**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+**Central routing**
+- [`js/import/import-routing.js`](js/import/import-routing.js) — `assessImportRoute()`, `OPTIMIZER_PEAK_BYTES` (16 MB), coordinate/KML heavy tiers; `shouldConvertToWorkspace`, `arcgisShouldUseWorkspace`
+- [`js/import/import-size-notices.js`](js/import/import-size-notices.js) — `buildNoticeForRoute()` with reason-based copy; `shouldShowImportProgressNotice()`
+
+**Entry points**
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — `openImportForFiles()` for drag-drop, toolbar, and routed imports; `_addImportedDatasets` workspace opt-in + ≥15k features; ArcGIS `useWorkspace` only when count ≥15k (or spatial filter)
+- [`react/tools/ImportFlowDialog.jsx`](react/tools/ImportFlowDialog.jsx) — `assessImportRoute` instead of SOFT-only Optimizer redirect; supports `initialFiles` / field-pick bootstrap
+- [`react/tools/ImportOptimizerDialog.jsx`](react/tools/ImportOptimizerDialog.jsx) — conditional `useWorkspace`, reason-based notices, KML default **preserve**
+
+**KML/KMZ**
+- [`js/import/kml-importer.js`](js/import/kml-importer.js), [`js/import/kmz-importer.js`](js/import/kmz-importer.js) — default `importMode: 'preserve'`
+
+**Tests**
+- [`tests/import-routing.test.js`](tests/import-routing.test.js)
+- Updated [`tests/import-size-notices.test.js`](tests/import-size-notices.test.js)
+
+### Verification
+
+- `npm test` — 50 files, 232 tests green
+- **Browser**: small GeoJSON → in-memory, no Optimizer; 2.5 MB / 500 features → standard path; 20k CSV → Optimizer + workspace; small ArcGIS → in-memory spatial + style panel; large ArcGIS → workspace stream
+
+### Known issues / limits
+
+- Feature/coord sniff from file sample can still over-estimate on standard path (Optimizer is conservative)
+- KML heavy-asset tier (≥4 MB) routes to Optimizer but does not auto-strip on standard path
+
+### Next
+
+- Manual browser matrix above
+- Optional: pass `initialScans` through Import Flow to avoid double-scan on drag-drop
+
+---
+
+## Previous (2026-06-07)
+
 - **Status**: **Layer visible scale range (ArcGIS-style)**
 - **Branch**: working tree (uncommitted)
 

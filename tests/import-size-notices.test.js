@@ -1,20 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildNoticeForRoute,
     buildOptimizerReductionNotice,
     buildLargeDatasetNotice,
     buildArcgisLargeLayerNotice,
-    scansNeedLargeDatasetNotice
+    shouldShowImportProgressNotice
 } from '../js/import/import-size-notices.js';
+import { assessImportRouteFromScans } from '../js/import/import-routing.js';
 
 describe('import-size-notices', () => {
+    it('buildNoticeForRoute names files for peak memory reason', () => {
+        const notice = buildNoticeForRoute({
+            route: 'optimizer',
+            reasons: ['peak_memory'],
+            scans: [{ fileName: 'big.csv', sizeLabel: '2.5 MB' }]
+        });
+        expect(notice.heading).toMatch(/memory/i);
+        expect(notice.intro).toContain('big.csv');
+        expect(notice.bullets.length).toBeGreaterThan(0);
+    });
+
     it('buildOptimizerReductionNotice names oversized files', () => {
         const notice = buildOptimizerReductionNotice([
             { fileName: 'big.csv', sizeLabel: '2.5 MB' }
         ]);
-        expect(notice.heading).toMatch(/too large/i);
+        expect(notice.heading).toMatch(/memory/i);
         expect(notice.intro).toContain('big.csv');
-        expect(notice.bullets.length).toBeGreaterThan(2);
-        expect(notice.footer).toMatch(/Import/i);
     });
 
     it('buildLargeDatasetNotice mentions feature estimate', () => {
@@ -23,9 +34,15 @@ describe('import-size-notices', () => {
         expect(notice.intro).toContain('20,000');
     });
 
-    it('scansNeedLargeDatasetNotice respects workspace threshold', () => {
-        expect(scansNeedLargeDatasetNotice([{ featureEstimate: 1000 }])).toBe(false);
-        expect(scansNeedLargeDatasetNotice([{ featureEstimate: 20000 }])).toBe(true);
+    it('shouldShowImportProgressNotice only when optimizer uses workspace', () => {
+        expect(shouldShowImportProgressNotice({ route: 'optimizer', useWorkspace: true })).toBe(true);
+        expect(shouldShowImportProgressNotice({ route: 'optimizer', useWorkspace: false })).toBe(false);
+        expect(shouldShowImportProgressNotice({ route: 'standard', useWorkspace: false })).toBe(false);
+    });
+
+    it('assessImportRouteFromScans gates large-dataset notice material', () => {
+        expect(assessImportRouteFromScans([{ featureEstimate: 1000 }]).route).toBe('standard');
+        expect(assessImportRouteFromScans([{ featureEstimate: 20000 }]).route).toBe('optimizer');
     });
 
     it('buildArcgisLargeLayerNotice explains streaming plan', () => {

@@ -13,7 +13,7 @@ import { stripKmlPresentationFromGeoJSON } from './parsers/kml-strip.js';
  * @param {{ sourceFileName?: string, text?: string, byteSize?: number, importMode?: 'gis'|'preserve', geojson?: object, networkHrefs?: string[] }} [meta]
  */
 export async function importKML(file, task, meta = {}) {
-    const importMode = meta.importMode ?? 'gis';
+    const importMode = meta.importMode ?? 'preserve';
 
     let geojson;
     let networkHrefs = meta.networkHrefs || [];

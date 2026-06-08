@@ -2356,6 +2356,64 @@ class MapManager {
         return entry;
     }
 
+    removeTempFeature(entry) {
+        if (entry) this._removeTempFeature(entry);
+    }
+
+    clearTempFeatures() {
+        const entries = [...this._tempLayers];
+        for (const entry of entries) {
+            this._removeTempFeature(entry);
+        }
+    }
+
+    /**
+     * Route milepost widget preview: red route lines, bright-green milepost points.
+     * Features should set properties._preview to route | centerline_segment | start_mp | end_mp.
+     */
+    showRouteMilepostPreview(geojson, duration = 0) {
+        const srcId = this._nextId('temp');
+        this.map.addSource(srcId, { type: 'geojson', data: geojson });
+        const layerIds = [];
+
+        const routeLineId = srcId + '-route-line';
+        this.map.addLayer({
+            id: routeLineId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['in', ['get', '_preview'], ['literal', ['route', 'centerline_segment']]]
+            ],
+            paint: { 'line-color': '#ff0000', 'line-width': 4 }
+        });
+        layerIds.push(routeLineId);
+
+        const mpCircleId = srcId + '-mp-circle';
+        this.map.addLayer({
+            id: mpCircleId,
+            type: 'circle',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['Point', 'MultiPoint']),
+                ['in', ['get', '_preview'], ['literal', ['start_mp', 'end_mp']]]
+            ],
+            paint: {
+                'circle-radius': 10,
+                'circle-color': '#00ff00',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            }
+        });
+        layerIds.push(mpCircleId);
+
+        const entry = { srcId, layerIds };
+        this._tempLayers.push(entry);
+
+        if (duration > 0) setTimeout(() => this._removeTempFeature(entry), duration);
+        return entry;
+    }
+
     _removeTempFeature(entry) {
         for (const lid of entry.layerIds) { if (this.map?.getLayer(lid)) this.map.removeLayer(lid); }
         if (this.map?.getSource(entry.srcId)) this.map.removeSource(entry.srcId);

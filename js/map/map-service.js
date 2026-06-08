@@ -205,6 +205,15 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         showTempFeature(geojson, duration) {
             return mapAdapter.showTempFeature(geojson, duration);
         },
+        showRouteMilepostPreview(geojson, duration) {
+            return mapAdapter.showRouteMilepostPreview?.(geojson, duration);
+        },
+        removeTempFeature(entry) {
+            return mapAdapter.removeTempFeature?.(entry);
+        },
+        clearTempFeatures() {
+            return mapAdapter.clearTempFeatures?.();
+        },
         hasPopupHits() {
             return Array.isArray(mapAdapter._popupHits) && mapAdapter._popupHits.length > 0;
         },

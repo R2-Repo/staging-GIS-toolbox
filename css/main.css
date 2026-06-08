@@ -262,6 +262,29 @@ html, body {
     border-left: 1px solid var(--border);
     flex-shrink: 0;
 }
+.panel-right-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.panel-right.widget-panel-dock-active .panel-body {
+    padding-bottom: var(--widget-dock-reserve, 0px);
+}
+.widget-panel-dock {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 10;
+    pointer-events: none;
+    padding: var(--widget-panel-dock-pad, 8px);
+}
+.widget-panel-dock:not(:empty) {
+    pointer-events: none;
+}
 .panel.collapsed { width: 0 !important; min-width: 0 !important; overflow: hidden; border: none; }
 
 /* Expand tabs — fixed to viewport edges, visible when panel is collapsed */
@@ -792,6 +815,132 @@ textarea { resize: vertical; min-height: 60px; }
     gap: 8px;
     padding: 14px 18px;
     border-top: 1px solid var(--border);
+}
+
+/* GIS widget modals — docked, draggable, non-blocking */
+.modal-overlay--docked {
+    background: transparent;
+    pointer-events: none;
+    align-items: stretch;
+    justify-content: flex-start;
+    animation: none;
+}
+.modal--docked {
+    pointer-events: auto;
+    max-height: calc(100vh - var(--header-h) - 32px);
+    z-index: 1001;
+}
+.modal-overlay--panel-dock {
+    position: static;
+    display: block;
+    inset: auto;
+    background: transparent;
+    pointer-events: none;
+    animation: none;
+}
+.modal--panel-dock {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    max-height: min(380px, 48vh);
+    margin: 0;
+    position: relative;
+    pointer-events: auto;
+    box-shadow: var(--shadow-lg);
+}
+.modal--panel-dock .modal-body {
+    max-height: min(280px, 36vh);
+}
+.modal-header--draggable {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+.modal-header--draggable:active {
+    cursor: grabbing;
+}
+
+/* Route Milepost Segment widget — compact panel-dock layout */
+.modal--panel-dock .modal-body:has(.route-mp-widget),
+.modal--docked .modal-body:has(.route-mp-widget) {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+}
+.route-mp-widget {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+.route-mp-widget__scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.route-mp-widget__footer {
+    flex-shrink: 0;
+    margin-top: 8px;
+}
+.route-mp-widget__footer .modal-footer {
+    padding: 8px 0 0;
+    border-top: 1px solid var(--border);
+}
+.route-mp-widget__input {
+    width: 100%;
+    margin-top: 4px;
+}
+.route-mp-widget__mp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.route-mp-widget__route-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.route-mp-widget__change-btn {
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+}
+.route-search-results {
+    margin-top: 6px;
+    max-height: 100px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.route-search-result {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 8px;
+    margin: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+}
+.route-search-result:last-child {
+    border-bottom: none;
+}
+.route-search-result:hover {
+    background: var(--bg-surface);
+}
+.route-mp-widget__warnings {
+    padding-left: 16px;
+    margin: 0;
+    max-height: 2.6em;
+    overflow: hidden;
+}
+.modal--panel-dock .route-mp-widget {
+    font-size: 12px;
 }
 
 /* Bottom sheet for mobile */

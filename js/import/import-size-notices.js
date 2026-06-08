@@ -101,8 +101,9 @@ export function buildLargeDatasetNotice(scans = []) {
     });
 }
 
-/** @param {{ route?: string, useWorkspace?: boolean }} assessment */
-export function shouldShowImportProgressNotice(assessment = {}) {
+/** @param {{ route?: string, useWorkspace?: boolean }|null|undefined} assessment */
+export function shouldShowImportProgressNotice(assessment) {
+    if (!assessment) return false;
     return assessment.route === 'optimizer' && assessment.useWorkspace === true;
 }
 

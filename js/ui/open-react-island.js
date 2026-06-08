@@ -27,6 +27,7 @@ export async function openReactIsland({ title, width, mountPath, mountExport, ge
 
     showModal(title, `<div id="${rootId}"></div>`, {
         width,
+        docked: true,
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;

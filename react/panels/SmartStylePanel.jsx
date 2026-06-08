@@ -18,6 +18,7 @@ import {
     mergeDefaultStyleForDisplay,
     applyPaletteToVariables
 } from '../../js/map/style-panel-helpers.js';
+import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
 const SYMBOL_OPTIONS = ['circle', 'square', 'triangle', 'diamond', 'star', 'pin'];
 const SYMBOL_LABELS = { circle: '●', square: '■', triangle: '▲', diamond: '◆', star: '★', pin: '📍' };
@@ -540,23 +541,18 @@ export function SmartStylePanel({ layer, style: externalStyle, defaultColor = '#
     };
 
     return (
-        <div className="panel-section style-panel smart-style-panel">
-            <div className="panel-section-header" data-collapsible="true">
-                Layer Style <span className="arrow">▼</span>
+        <CollapsibleSection title="Layer Style" className="style-panel smart-style-panel">
+            <div className="smart-style-tabs">
+                <button type="button" className={`btn btn-sm ${tab === 'simple' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => handleTab('simple')}>Simple</button>
+                <button type="button" className={`btn btn-sm ${tab === 'smart' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => handleTab('smart')}>Smart</button>
             </div>
-            <div className="panel-section-body">
-                <div className="smart-style-tabs">
-                    <button type="button" className={`btn btn-sm ${tab === 'simple' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => handleTab('simple')}>Simple</button>
-                    <button type="button" className={`btn btn-sm ${tab === 'smart' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => handleTab('smart')}>Smart</button>
-                </div>
-                {tab === 'simple' ? (
-                    <SimpleStyleSection style={style} geomTypes={geomTypes} onChange={pushStyle} />
-                ) : (
-                    <SmartStyleSection layer={layer} style={style} onChange={pushStyle} onConvertEmbedded={handleConvertEmbedded} />
-                )}
-            </div>
-        </div>
+            {tab === 'simple' ? (
+                <SimpleStyleSection style={style} geomTypes={geomTypes} onChange={pushStyle} />
+            ) : (
+                <SmartStyleSection layer={layer} style={style} onChange={pushStyle} onConvertEmbedded={handleConvertEmbedded} />
+            )}
+        </CollapsibleSection>
     );
 }

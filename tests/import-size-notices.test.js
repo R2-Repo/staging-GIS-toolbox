@@ -38,6 +38,7 @@ describe('import-size-notices', () => {
         expect(shouldShowImportProgressNotice({ route: 'optimizer', useWorkspace: true })).toBe(true);
         expect(shouldShowImportProgressNotice({ route: 'optimizer', useWorkspace: false })).toBe(false);
         expect(shouldShowImportProgressNotice({ route: 'standard', useWorkspace: false })).toBe(false);
+        expect(shouldShowImportProgressNotice(null)).toBe(false);
     });
 
     it('assessImportRouteFromScans gates large-dataset notice material', () => {

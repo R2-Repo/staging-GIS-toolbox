@@ -1,4 +1,5 @@
 import { WidgetPanel } from './WidgetPanel.jsx';
+import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
 const DATA_PREP_ACTIONS = [
     { action: 'openSplitColumn', label: 'Split Column' },
@@ -18,44 +19,34 @@ export function LayerDataToolsPanel({ activeLayer = null }) {
 
     return (
         <>
-            <div className="panel-section">
-                <div className="panel-section-header" data-collapsible="true">
-                    Layer Data Tools <span className="arrow">▼</span>
+            <CollapsibleSection title="Layer Data Tools">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {DATA_PREP_ACTIONS.map((tool) => {
+                        const isFilter = tool.filterAware;
+                        const className = isFilter && hasFilter
+                            ? 'btn btn-sm btn-primary'
+                            : 'btn btn-sm btn-secondary';
+                        const label = isFilter && hasFilter ? '⚙ Filter ✓' : tool.label;
+                        return (
+                            <button
+                                key={tool.action}
+                                type="button"
+                                className={className}
+                                data-app-action={tool.action}
+                            >
+                                {label}
+                            </button>
+                        );
+                    })}
                 </div>
-                <div className="panel-section-body">
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {DATA_PREP_ACTIONS.map((tool) => {
-                            const isFilter = tool.filterAware;
-                            const className = isFilter && hasFilter
-                                ? 'btn btn-sm btn-primary'
-                                : 'btn btn-sm btn-secondary';
-                            const label = isFilter && hasFilter ? '⚙ Filter ✓' : tool.label;
-                            return (
-                                <button
-                                    key={tool.action}
-                                    type="button"
-                                    className={className}
-                                    data-app-action={tool.action}
-                                >
-                                    {label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
+            </CollapsibleSection>
 
-            <div className="panel-section">
-                <div className="panel-section-header" data-collapsible="true">
-                    GIS Widgets <span className="arrow">▼</span>
+            <CollapsibleSection title="GIS Widgets">
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                    Pre-built workflows for common GIS tasks.
                 </div>
-                <div className="panel-section-body">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Pre-built workflows for common GIS tasks.
-                    </div>
-                    <WidgetPanel />
-                </div>
-            </div>
+                <WidgetPanel />
+            </CollapsibleSection>
         </>
     );
 }

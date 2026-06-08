@@ -5,6 +5,7 @@ import {
     getCurrentMapScale,
     normalizeScaleRange
 } from '../../js/map/scale-range.js';
+import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
 function formatScale(scale) {
     if (scale == null || !Number.isFinite(scale)) return '';
@@ -135,74 +136,71 @@ export function VisibilityRangeSection({
     const currentScale = formatScale(getCurrentMapScale(mapZoom, mapLatitude));
 
     return (
-        <div className="panel-section">
-            <div className="panel-section-header">Visibility Range</div>
-            <div className="panel-section-body">
-                <label className="toggle mb-8">
-                    <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-                    <span className="toggle-track"></span>
-                    <span>Use scale range</span>
-                </label>
-                <p className="text-muted text-xs mb-8">
-                    ArcGIS-style visible scale. Current map: 1:{currentScale} (zoom {mapZoom?.toFixed?.(1) ?? mapZoom})
-                </p>
+        <CollapsibleSection title="Visibility Range" defaultOpen={false}>
+            <label className="toggle mb-8">
+                <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
+                <span className="toggle-track"></span>
+                <span>Use scale range</span>
+            </label>
+            <p className="text-muted text-xs mb-8">
+                ArcGIS-style visible scale. Current map: 1:{currentScale} (zoom {mapZoom?.toFixed?.(1) ?? mapZoom})
+            </p>
 
-                <div className="style-row">
-                    <label title="Farthest zoomed-out scale where layer stays visible">Out beyond (1:)</label>
-                    <input
-                        type="text"
-                        className="input input-sm"
-                        placeholder="e.g. 500,000"
-                        value={formatScale(minScale)}
-                        disabled={!enabled}
-                        onChange={(e) => onMinScaleChange(e.target.value)}
-                    />
-                    <input
-                        type="number"
-                        className="input input-sm"
-                        style={{ width: 64 }}
-                        placeholder="zoom"
-                        step="0.1"
-                        value={minZoom ?? ''}
-                        disabled={!enabled}
-                        onChange={(e) => onMinZoomChange(e.target.value)}
-                    />
-                </div>
-
-                <div className="style-row">
-                    <label title="Farthest zoomed-in scale where layer stays visible">In beyond (1:)</label>
-                    <input
-                        type="text"
-                        className="input input-sm"
-                        placeholder="e.g. 10,000"
-                        value={formatScale(maxScale)}
-                        disabled={!enabled}
-                        onChange={(e) => onMaxScaleChange(e.target.value)}
-                    />
-                    <input
-                        type="number"
-                        className="input input-sm"
-                        style={{ width: 64 }}
-                        placeholder="zoom"
-                        step="0.1"
-                        value={maxZoom ?? ''}
-                        disabled={!enabled}
-                        onChange={(e) => onMaxZoomChange(e.target.value)}
-                    />
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                    <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={setFromMapMin}>
-                        Set min from map
-                    </button>
-                    <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={setFromMapMax}>
-                        Set max from map
-                    </button>
-                    <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={clearRange}>
-                        Clear
-                    </button>
-                </div>
+            <div className="style-row">
+                <label title="Farthest zoomed-out scale where layer stays visible">Out beyond (1:)</label>
+                <input
+                    type="text"
+                    className="input input-sm"
+                    placeholder="e.g. 500,000"
+                    value={formatScale(minScale)}
+                    disabled={!enabled}
+                    onChange={(e) => onMinScaleChange(e.target.value)}
+                />
+                <input
+                    type="number"
+                    className="input input-sm"
+                    style={{ width: 64 }}
+                    placeholder="zoom"
+                    step="0.1"
+                    value={minZoom ?? ''}
+                    disabled={!enabled}
+                    onChange={(e) => onMinZoomChange(e.target.value)}
+                />
             </div>
-        </div>
+
+            <div className="style-row">
+                <label title="Farthest zoomed-in scale where layer stays visible">In beyond (1:)</label>
+                <input
+                    type="text"
+                    className="input input-sm"
+                    placeholder="e.g. 10,000"
+                    value={formatScale(maxScale)}
+                    disabled={!enabled}
+                    onChange={(e) => onMaxScaleChange(e.target.value)}
+                />
+                <input
+                    type="number"
+                    className="input input-sm"
+                    style={{ width: 64 }}
+                    placeholder="zoom"
+                    step="0.1"
+                    value={maxZoom ?? ''}
+                    disabled={!enabled}
+                    onChange={(e) => onMaxZoomChange(e.target.value)}
+                />
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={setFromMapMin}>
+                    Set min from map
+                </button>
+                <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={setFromMapMax}>
+                    Set max from map
+                </button>
+                <button type="button" className="btn btn-sm btn-secondary" disabled={!enabled} onClick={clearRange}>
+                    Clear
+                </button>
+            </div>
+        </CollapsibleSection>
     );
 }

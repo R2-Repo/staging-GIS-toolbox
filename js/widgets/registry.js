@@ -1,6 +1,7 @@
 import { openSpatialAnalyzer } from './spatial-analyzer/controller.js';
 import { openBulkUpdate } from './bulk-update/controller.js';
 import { openProximityJoin } from './proximity-join/controller.js';
+import { openRouteMilepostSegment } from './route-milepost-segment/controller.js';
 
 /** @typedef {import('./widget-types.js').WidgetContext} WidgetContext */
 
@@ -28,6 +29,14 @@ export const GIS_WIDGETS = [
         icon: '↔️',
         tip: 'Copy attributes from the nearest feature in a target layer to each source feature.',
         open: openProximityJoin
+    },
+    {
+        type: 'route-milepost-segment',
+        action: 'openRouteMilepostSegment',
+        label: 'Route Milepost Segment Builder',
+        icon: '🛣️',
+        tip: 'Build a road centerline segment between two UDOT mileposts.',
+        open: openRouteMilepostSegment
     }
 ];
 

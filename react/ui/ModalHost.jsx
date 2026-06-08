@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { dismissModal, triggerProgressCancel } from '../../js/ui/modals.js';
 import { formatBytes } from '../../js/import/import-preflight.js';
+import { DockedWidgetModal } from './DockedWidgetModal.jsx';
 
 function BasicModal({ modal }) {
     const overlayRef = useRef(null);
@@ -16,6 +17,17 @@ function BasicModal({ modal }) {
         if (mountedRef.current) return;
         const overlay = overlayRef.current;
         if (!overlay) return;
+
+        const body = overlay.querySelector('.modal-body');
+        if (body) {
+            body.innerHTML = modal.contentHtml || '';
+        }
+
+        const footer = overlay.querySelector('.modal-footer-slot');
+        if (footer && modal.options?.footer) {
+            footer.innerHTML = modal.options.footer;
+        }
+
         mountedRef.current = true;
         overlay._close = close;
         overlay._resolve = () => {};
@@ -38,9 +50,9 @@ function BasicModal({ modal }) {
                     <span>{modal.title}</span>
                     <button className="btn-icon close-modal" aria-label="Close" onClick={() => close(null)}>✕</button>
                 </div>
-                <div className="modal-body" dangerouslySetInnerHTML={{ __html: modal.contentHtml || '' }} />
+                <div className="modal-body" />
                 {modal.options?.footer ? (
-                    <div className="modal-footer" dangerouslySetInnerHTML={{ __html: modal.options.footer }} />
+                    <div className="modal-footer modal-footer-slot" />
                 ) : null}
             </div>
         </div>
@@ -92,7 +104,9 @@ export function ModalHost({ modals = [], progresses = [] }) {
     return (
         <>
             {modals.map((modal) => (
-                <BasicModal key={`modal-${modal.id}`} modal={modal} />
+                modal.options?.docked
+                    ? <DockedWidgetModal key={`modal-${modal.id}`} modal={modal} />
+                    : <BasicModal key={`modal-${modal.id}`} modal={modal} />
             ))}
             {progresses.map((progress) => (
                 <ProgressModal key={`progress-${progress.id}`} progress={progress} />

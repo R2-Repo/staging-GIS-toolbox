@@ -61,6 +61,7 @@ import { GisToolsPanel } from './panels/GisToolsPanel.jsx';
 import { RightPanel } from './panels/RightPanel.jsx';
 import { mountModalHost } from './ui/mountModalHost.jsx';
 import { mountToastHost } from './ui/mountToastHost.jsx';
+import { CollapsibleSection } from './ui/CollapsibleSection.jsx';
 
 function SaveIndicator() {
     const [status, setStatus] = useState(null);
@@ -166,16 +167,6 @@ function AppShell() {
         toggleAgolCompat();
     }, [toggleAgolCompat]);
 
-    const onSectionHeaderClick = useCallback((event) => {
-        const header = event.target.closest('.panel-section-header[data-collapsible="true"]');
-        if (!header) return;
-        header.classList.toggle('collapsed');
-        const body = header.nextElementSibling;
-        if (body) body.classList.toggle('hidden');
-        const arrow = header.querySelector('.arrow');
-        if (arrow) arrow.textContent = header.classList.contains('collapsed') ? '▶' : '▼';
-    }, []);
-
     return (
         <>
             <MobileGate />
@@ -204,7 +195,7 @@ function AppShell() {
 
             <SaveIndicator />
 
-            <div className="app-layout" onClick={onSectionHeaderClick}>
+            <div className="app-layout">
                 <aside className={`panel panel-left${leftPanel.collapsed ? ' collapsed' : ''}`}>
                     <div className="panel-header">
                         <span>Layers & Fields</span>
@@ -219,30 +210,20 @@ function AppShell() {
                         </button>
                     </div>
                     <div className="panel-body">
-                        <div className="panel-section">
-                            <div className="panel-section-header" data-collapsible="true">
-                                Layers <span className="arrow">▼</span>
-                            </div>
-                            <div className="panel-section-body" id="layer-list">
-                                <LayerListPanel
-                                    layers={layersForPanel}
-                                    activeLayerId={activeLayer?.id || null}
-                                    actions={panelActions}
-                                />
-                            </div>
-                        </div>
-                        <div className="panel-section">
-                            <div className="panel-section-header" data-collapsible="true">
-                                Fields <span className="arrow">▼</span>
-                            </div>
-                            <div className="panel-section-body" id="field-list">
-                                <FieldListPanel
-                                    activeLayer={activeLayer}
-                                    fields={fields}
-                                    actions={panelActions}
-                                />
-                            </div>
-                        </div>
+                        <CollapsibleSection title="Layers" bodyId="layer-list">
+                            <LayerListPanel
+                                layers={layersForPanel}
+                                activeLayerId={activeLayer?.id || null}
+                                actions={panelActions}
+                            />
+                        </CollapsibleSection>
+                        <CollapsibleSection title="Fields" bodyId="field-list" defaultOpen={false}>
+                            <FieldListPanel
+                                activeLayer={activeLayer}
+                                fields={fields}
+                                actions={panelActions}
+                            />
+                        </CollapsibleSection>
                         <div id="dataprep-tools">
                             <DataPrepToolsPanel
                                 activeLayer={activeLayer}
@@ -297,16 +278,19 @@ function AppShell() {
                         </button>
                         <span>Output & Export</span>
                     </div>
-                    <div className="panel-body" id="output-panel-content">
-                        <RightPanel
-                            snapshot={rightSnapshot}
-                            onToggleAgol={onToggleAgol}
-                            onExport={doExport}
-                            onFixAgol={fixAGOL}
-                            onShowDataTable={showDataTable}
-                            onStyleChange={handleLayerStyleChange}
-                            onScaleRangeChange={handleLayerScaleRangeChange}
-                        />
+                    <div className="panel-right-body">
+                        <div className="panel-body" id="output-panel-content">
+                            <RightPanel
+                                snapshot={rightSnapshot}
+                                onToggleAgol={onToggleAgol}
+                                onExport={doExport}
+                                onFixAgol={fixAGOL}
+                                onShowDataTable={showDataTable}
+                                onStyleChange={handleLayerStyleChange}
+                                onScaleRangeChange={handleLayerScaleRangeChange}
+                            />
+                        </div>
+                        <div id="widget-panel-dock" className="widget-panel-dock" aria-live="polite" />
                     </div>
                 </aside>
             </div>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { isSpatialLayer, getLayerFeatureCount } from '../../js/core/data-model.js';
 import { LayerDataToolsPanel } from './LayerDataToolsPanel.jsx';
+import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
 export function LayerListPanel({
     layers = [],
@@ -219,14 +220,9 @@ export function DataPrepToolsPanel({ activeLayer = null, gisTools = null }) {
     return (
         <>
             <LayerDataToolsPanel activeLayer={activeLayer} />
-            <div className="panel-section">
-                <div className="panel-section-header" data-collapsible="true">
-                    GIS Tools <span className="arrow">▼</span>
-                </div>
-                <div className="panel-section-body">
-                    {gisTools}
-                </div>
-            </div>
+            <CollapsibleSection title="GIS Tools">
+                {gisTools}
+            </CollapsibleSection>
         </>
     );
 }

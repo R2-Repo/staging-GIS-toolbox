@@ -730,6 +730,7 @@ function _openImportFlowModal(flowProps = {}) {
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
+            try {
             const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
             const mounted = mountImportFlowDialog(root, {
                 onCancel: () => close(),
@@ -764,6 +765,10 @@ function _openImportFlowModal(flowProps = {}) {
                 ...flowProps
             });
             watchOverlayUnmount(overlay, () => mounted.unmount?.());
+            } catch (e) {
+            const classified = handleError(e, 'Import', 'ImportFlowDialog mount');
+            showErrorToast(classified);
+            }
         }
     });
 }
@@ -782,14 +787,15 @@ export async function openImportForFiles(files, fenceBbox = null) {
             getLayers
         });
     } catch (e) {
-        handleError(e, { toast: true, source: 'openImportForFiles' });
+        const classified = handleError(e, 'Import', 'openImportForFiles guard');
+        showErrorToast(classified);
         return;
     }
 
+    try {
     const { scanFilesForImport } = await import('../import/import-scan.js');
     const { preflightFile, PREFLIGHT_LEVEL } = await import('../import/import-preflight.js');
     const { detectFormat } = await import('../import/importer.js');
-    const { mergeScanFieldNames } = await import('../import/import-field-filter.js');
 
     const shouldPreScan = files.some((f) => {
         const pf = preflightFile(f);
@@ -805,20 +811,12 @@ export async function openImportForFiles(files, fenceBbox = null) {
         return;
     }
 
-    if (!scans.length) {
-        scans = await scanFilesForImport(files);
-    }
-    const fieldNames = mergeScanFieldNames(scans);
-    if (fieldNames.length > 0) {
-        _openImportFlowModal({
-            initialFiles: files,
-            initialScans: scans,
-            startAtFieldPick: true
-        });
-        return;
-    }
-
+    // Standard route: import as-is (in-memory). Field picking stays in the Import Files dialog.
     await handleFileImport(files, fenceBbox ?? _fenceBbox, { preflightConfirmed: true });
+    } catch (e) {
+        const classified = handleError(e, 'Import', 'openImportForFiles');
+        showErrorToast(classified);
+    }
 }
 
 function setBasemapToggleActive(value) {
@@ -844,13 +842,6 @@ export function applyDimensionHeaderSelection(value) {
     if (value === '3d') mapService.enable3D();
     else mapService.disable3D();
     setDimensionToggleActive(value);
-}
-
-function togglePanelSectionHeader(header) {
-    if (!header) return;
-    header.classList.toggle('collapsed');
-    const body = header.nextElementSibling;
-    if (body) body.classList.toggle('hidden');
 }
 
 export function setPanelCollapsed(side, collapsed) {
@@ -1045,20 +1036,6 @@ export function setupAppWiring() {
         if (!fieldToggle) return;
         toggleField(fieldToggle.dataset.fieldToggle, fieldToggle.checked);
     });
-
-    // Panel section collapse/expand (replaces inline onclick handlers)
-    document.addEventListener('click', (event) => {
-        const header = closestFromEvent(event, '.panel-section-header');
-        if (!header) return;
-        if (header.dataset.collapsible !== 'true') return;
-        togglePanelSectionHeader(header);
-    });
-
-    // Panel collapse
-    document.getElementById('toggle-left-panel')?.addEventListener('click', () => togglePanelCollapsed('left'));
-    document.getElementById('expand-left-panel')?.addEventListener('click', () => setPanelCollapsed('left', false));
-    document.getElementById('toggle-right-panel')?.addEventListener('click', () => togglePanelCollapsed('right'));
-    document.getElementById('expand-right-panel')?.addEventListener('click', () => setPanelCollapsed('right', false));
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);

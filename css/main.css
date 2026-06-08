@@ -138,6 +138,9 @@ html, body {
     transform: translateY(0);
 }
 .header .btn-icon-text { font-size: 14px; }
+.header .btn-icon-svg { width: 14px; height: 14px; flex-shrink: 0; }
+.header .btn .btn-icon-svg { margin-right: 2px; }
+.header #btn-workflow .btn-icon-svg { color: var(--gold); }
 
 /* Header button overrides for dark background */
 .header .btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); border: 1px solid #dbac3f; }
@@ -842,14 +845,14 @@ textarea { resize: vertical; min-height: 60px; }
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    max-height: min(380px, 48vh);
+    max-height: min(440px, 54vh);
     margin: 0;
     position: relative;
     pointer-events: auto;
     box-shadow: var(--shadow-lg);
 }
 .modal--panel-dock .modal-body {
-    max-height: min(280px, 36vh);
+    max-height: min(340px, 42vh);
 }
 .modal-header--draggable {
     cursor: grab;
@@ -860,31 +863,89 @@ textarea { resize: vertical; min-height: 60px; }
     cursor: grabbing;
 }
 
-/* Route Milepost Segment widget — compact panel-dock layout */
-.modal--panel-dock .modal-body:has(.route-mp-widget),
-.modal--docked .modal-body:has(.route-mp-widget) {
+/* GIS widgets — compact panel-dock layout */
+.modal--panel-dock .modal-body:has(.gis-widget),
+.modal--docked .modal-body:has(.gis-widget) {
     display: flex;
     flex-direction: column;
     padding: 12px;
 }
-.route-mp-widget {
+.gis-widget {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
 }
-.route-mp-widget__scroll {
+.gis-widget__scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
 }
-.route-mp-widget__footer {
+.gis-widget__footer {
     flex-shrink: 0;
     margin-top: 8px;
 }
-.route-mp-widget__footer .modal-footer {
+.gis-widget__footer .modal-footer {
     padding: 8px 0 0;
     border-top: 1px solid var(--border);
+}
+.modal--panel-dock .gis-widget {
+    font-size: 12px;
+}
+.modal--panel-dock .gis-widget .form-group {
+    margin-bottom: 8px;
+}
+.gis-widget__row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+.gis-widget__row .btn-sm {
+    align-self: flex-start;
+}
+.gis-widget__btn-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.gis-widget__preview-table {
+    max-height: 120px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px;
+}
+.gis-widget__link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.gis-widget__link-btn:hover {
+    color: var(--primary-hover, var(--primary));
+}
+.gis-widget__running {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 30px 12px;
+}
+.gis-widget__spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: gis-widget-spin 0.8s linear infinite;
+}
+@keyframes gis-widget-spin {
+    to { transform: rotate(360deg); }
 }
 .route-mp-widget__input {
     width: 100%;
@@ -938,9 +999,6 @@ textarea { resize: vertical; min-height: 60px; }
     margin: 0;
     max-height: 2.6em;
     overflow: hidden;
-}
-.modal--panel-dock .route-mp-widget {
-    font-size: 12px;
 }
 
 /* Bottom sheet for mobile */

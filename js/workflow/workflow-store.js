@@ -102,15 +102,15 @@ export class WorkflowStore {
 
     /**
      * Load pipeline structure from sessionStorage into engine.
-     * Returns true if a pipeline was loaded.
-     * Call restoreNodeData() afterwards to restore cached data from IndexedDB.
+     * @returns {{ loaded: boolean, skipped: string[] }}
      */
     static load(engine) {
+        const skipped = [];
         try {
             const raw = sessionStorage.getItem(STORAGE_KEY);
-            if (!raw) return false;
+            if (!raw) return { loaded: false, skipped };
             const data = JSON.parse(raw);
-            if (!data?.nodes?.length) return false;
+            if (!data?.nodes?.length) return { loaded: false, skipped };
 
             engine.clear();
 
@@ -125,7 +125,10 @@ export class WorkflowStore {
             // Recreate nodes from definitions
             for (const nd of data.nodes) {
                 const def = findNodeDef(nd.type);
-                if (!def) continue;
+                if (!def) {
+                    skipped.push(nd.type);
+                    continue;
+                }
                 const node = def.create();
                 // Restore saved state
                 node.id = nd.id;
@@ -140,10 +143,10 @@ export class WorkflowStore {
                 engine.addWire(w);
             }
 
-            return true;
+            return { loaded: true, skipped };
         } catch (e) {
             console.warn('[WorkflowStore] load failed', e);
-            return false;
+            return { loaded: false, skipped };
         }
     }
 

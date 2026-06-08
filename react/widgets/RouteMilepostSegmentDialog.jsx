@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RunPreviewFooter } from './shared/RunPreviewFooter.jsx';
+import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
 import { validateMilepostRange, validateMilepostValue } from '../../js/widgets/route-milepost-segment/engine.js';
 
 const PREVIEW_DEBOUNCE_MS = 500;
@@ -176,118 +176,106 @@ export function RouteMilepostSegmentDialog({
     }, [preview, routeWarnings]);
 
     return (
-        <div className="route-mp-widget">
-            <div className="route-mp-widget__scroll">
-                {statusText ? (
-                    <div
-                        className="text-xs mb-4 route-mp-widget__status"
-                        style={{ color: error ? 'var(--danger)' : 'var(--text-muted)' }}
-                    >
-                        {statusText}
+        <WidgetPanelShell
+            className="route-mp-widget"
+            status={statusText}
+            statusTone={error ? 'danger' : 'muted'}
+            onCancel={onCancel}
+            onRun={createLayer}
+            runLabel="Create Layer"
+            running={running}
+            disabled={!canCreate || running}
+        >
+            {routePickerOpen || !selectedRoute ? (
+                <div className="route-mp-widget__route-search mb-8">
+                    <label className="text-xs text-muted" htmlFor="route-search">Search routes</label>
+                    <input
+                        id="route-search"
+                        type="search"
+                        placeholder="e.g. I-15"
+                        value={searchText}
+                        onChange={(e) => setSearchText(e.target.value)}
+                        className="route-mp-widget__input"
+                    />
+                    {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
+                    <div className="route-search-results">
+                        {searchResults.map((route) => (
+                            <button
+                                key={route.routeAlias}
+                                type="button"
+                                className="route-search-result"
+                                onClick={() => selectRoute(route)}
+                            >
+                                {route.routeAlias}
+                            </button>
+                        ))}
+                        {!searching && searchText.trim().length >= 2 && searchResults.length === 0 ? (
+                            <div className="text-xs text-muted p-4">No routes matched.</div>
+                        ) : null}
                     </div>
-                ) : null}
+                </div>
+            ) : (
+                <div className="route-mp-widget__route-chip mb-8">
+                    <span className="text-xs text-muted">Route:</span>{' '}
+                    <strong>{selectedRoute.routeAlias}</strong>
+                    <button type="button" className="btn btn-sm btn-secondary route-mp-widget__change-btn" onClick={changeRoute}>
+                        Change
+                    </button>
+                </div>
+            )}
 
-                {routePickerOpen || !selectedRoute ? (
-                    <div className="route-mp-widget__route-search mb-8">
-                        <label className="text-xs text-muted" htmlFor="route-search">Search routes</label>
+            <div className="route-mp-widget__mileposts">
+                <div className="route-mp-widget__mp-grid">
+                    <div>
+                        <label className="text-xs text-muted" htmlFor="start-mp">Start MP</label>
                         <input
-                            id="route-search"
-                            type="search"
-                            placeholder="e.g. I-15"
-                            value={searchText}
-                            onChange={(e) => setSearchText(e.target.value)}
+                            ref={startMpRef}
+                            id="start-mp"
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0"
+                            value={startMilepost}
+                            onChange={(e) => { setStartMilepost(e.target.value); setPreview(null); }}
+                            disabled={!selectedRoute}
                             className="route-mp-widget__input"
                         />
-                        {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
-                        <div className="route-search-results">
-                            {searchResults.map((route) => (
-                                <button
-                                    key={route.routeAlias}
-                                    type="button"
-                                    className="route-search-result"
-                                    onClick={() => selectRoute(route)}
-                                >
-                                    {route.routeAlias}
-                                </button>
-                            ))}
-                            {!searching && searchText.trim().length >= 2 && searchResults.length === 0 ? (
-                                <div className="text-xs text-muted p-4">No routes matched.</div>
-                            ) : null}
-                        </div>
                     </div>
-                ) : (
-                    <div className="route-mp-widget__route-chip mb-8">
-                        <span className="text-xs text-muted">Route:</span>{' '}
-                        <strong>{selectedRoute.routeAlias}</strong>
-                        <button type="button" className="btn btn-sm btn-secondary route-mp-widget__change-btn" onClick={changeRoute}>
-                            Change
-                        </button>
+                    <div>
+                        <label className="text-xs text-muted" htmlFor="end-mp">End MP</label>
+                        <input
+                            id="end-mp"
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0"
+                            value={endMilepost}
+                            onChange={(e) => { setEndMilepost(e.target.value); setPreview(null); }}
+                            disabled={!selectedRoute}
+                            className="route-mp-widget__input"
+                        />
                     </div>
-                )}
-
-                <div className="route-mp-widget__mileposts">
-                    <div className="route-mp-widget__mp-grid">
-                        <div>
-                            <label className="text-xs text-muted" htmlFor="start-mp">Start MP</label>
-                            <input
-                                ref={startMpRef}
-                                id="start-mp"
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="0"
-                                value={startMilepost}
-                                onChange={(e) => { setStartMilepost(e.target.value); setPreview(null); }}
-                                disabled={!selectedRoute}
-                                className="route-mp-widget__input"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-xs text-muted" htmlFor="end-mp">End MP</label>
-                            <input
-                                id="end-mp"
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="0"
-                                value={endMilepost}
-                                onChange={(e) => { setEndMilepost(e.target.value); setPreview(null); }}
-                                disabled={!selectedRoute}
-                                className="route-mp-widget__input"
-                            />
-                        </div>
-                    </div>
-                    {!milepostValidation.valid && (startMilepost || endMilepost) ? (
-                        <div className="text-xs mt-4" style={{ color: 'var(--danger)' }}>
-                            {milepostValidation.errors?.[0]}
-                        </div>
-                    ) : null}
                 </div>
-
-                {preview?.summary ? (
-                    <div className="route-mp-widget__summary text-xs mt-8">
-                        Segment: {formatLength(preview.summary.lengthMiles)}
-                        {' · '}
-                        MP {formatMilepost(preview.summary.startMp)}–{formatMilepost(preview.summary.endMp)}
+                {!milepostValidation.valid && (startMilepost || endMilepost) ? (
+                    <div className="text-xs mt-4" style={{ color: 'var(--danger)' }}>
+                        {milepostValidation.errors?.[0]}
                     </div>
                 ) : null}
-
-                {warnings.length > 0 ? (
-                    <ul className="route-mp-widget__warnings text-xs text-muted mt-4">
-                        {warnings.map((warning) => (
-                            <li key={warning}>{warning}</li>
-                        ))}
-                    </ul>
-                ) : null}
             </div>
 
-            <div className="route-mp-widget__footer">
-                <RunPreviewFooter
-                    onCancel={onCancel}
-                    onRun={createLayer}
-                    runLabel="Create Layer"
-                    running={running}
-                    disabled={!canCreate || running}
-                />
-            </div>
-        </div>
+            {preview?.summary ? (
+                <div className="route-mp-widget__summary text-xs mt-8">
+                    Segment: {formatLength(preview.summary.lengthMiles)}
+                    {' · '}
+                    MP {formatMilepost(preview.summary.startMp)}–{formatMilepost(preview.summary.endMp)}
+                </div>
+            ) : null}
+
+            {warnings.length > 0 ? (
+                <ul className="route-mp-widget__warnings text-xs text-muted mt-4">
+                    {warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                    ))}
+                </ul>
+            ) : null}
+        </WidgetPanelShell>
     );
 }

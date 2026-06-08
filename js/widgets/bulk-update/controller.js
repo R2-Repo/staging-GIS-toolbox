@@ -6,7 +6,7 @@ import { applyBulkUpdateToLayer } from './engine.js';
 export async function openBulkUpdate(ctx) {
     await openReactIsland({
         title: 'Bulk Update',
-        width: '560px',
+        width: '480px',
         mountPath: '../../../react/widgets/mountBulkUpdateDialog.jsx',
         mountExport: 'mountBulkUpdateDialog',
         getProps: (close) => ({

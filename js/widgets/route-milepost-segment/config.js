@@ -1,4 +1,4 @@
-/** UDOT ArcGIS layer URLs and field mappings for Route Milepost Segment Builder. */
+/** UDOT ArcGIS layer URLs and field mappings for Route Centerline widget. */
 export const UDOT_ROUTE_SEGMENT_CONFIG = {
     routeLayerUrl: 'https://services.arcgis.com/pA2nEVnB6tquxgOW/ArcGIS/rest/services/UDOT_Routes_ALRS/FeatureServer/0',
     milepostWholeLayerUrl: 'https://roads.udot.utah.gov/server/rest/services/Public/Mile_Point_Measures_Open_Data/MapServer/0',

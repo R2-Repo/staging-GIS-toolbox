@@ -8,7 +8,7 @@ export async function openSpatialAnalyzer(ctx) {
 
     await openReactIsland({
         title: 'Find Features in Area',
-        width: '560px',
+        width: '480px',
         mountPath: '../../../react/widgets/mountSpatialAnalyzerDialog.jsx',
         mountExport: 'mountSpatialAnalyzerDialog',
         getProps: (close) => ({

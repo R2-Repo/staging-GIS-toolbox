@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import bus from '../../js/core/event-bus.js';
+import { isLinearPipeline } from '../../js/workflow/workflow-graph-utils.js';
+import { PipelineIcon } from '../ui/PipelineIcon.jsx';
 import { PipelineEditor } from './PipelineEditor.jsx';
 import { WorkflowPalette } from './WorkflowPalette.jsx';
+import { WorkflowStepsPanel } from './WorkflowStepsPanel.jsx';
 import { InspectorPanel } from './InspectorPanel.jsx';
 import { DataPreviewPanel } from './DataPreviewPanel.jsx';
 
@@ -10,10 +13,13 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
     const previewRef = useRef(null);
     const canvasRef = useRef(null);
 
+    const [manifest, setManifest] = useState(null);
+    const [manifestError, setManifestError] = useState(false);
     const [examplesOpen, setExamplesOpen] = useState(false);
-    const [examples, setExamples] = useState(null);
-    const [examplesError, setExamplesError] = useState(false);
+    const [moreOpen, setMoreOpen] = useState(false);
     const [running, setRunning] = useState(false);
+    const [nodeCount, setNodeCount] = useState(() => engine.nodes.size);
+    const [viewMode, setViewMode] = useState('graph');
 
     useEffect(() => {
         controller.setPreviewApi({
@@ -23,11 +29,24 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
     }, [controller]);
 
     useEffect(() => {
-        fetch('./pipelines/index.json')
+        fetch('./pipelines/manifest.json')
             .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
-            .then((files) => setExamples(files))
-            .catch(() => setExamplesError(true));
+            .then((entries) => setManifest(entries))
+            .catch(() => setManifestError(true));
     }, []);
+
+    const syncNodeCount = useCallback(() => {
+        setNodeCount(engine.nodes.size);
+    }, [engine]);
+
+    useEffect(() => {
+        const unsubs = [
+            bus.on('workflow:engine-changed', syncNodeCount),
+            bus.on('workflow:run-start', syncNodeCount),
+            bus.on('workflow:run-done', syncNodeCount)
+        ];
+        return () => unsubs.forEach((off) => { try { off(); } catch { /* noop */ } });
+    }, [syncNodeCount]);
 
     useEffect(() => {
         const unsub = bus.on('workflow:delete-node', ({ nodeId }) => {
@@ -87,21 +106,44 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
     }, [controller, engine.isRunning, running]);
 
     const onClear = useCallback(() => {
+        if (!window.confirm('Clear the entire pipeline? This cannot be undone.')) return;
         controller.clearPipeline();
+        setViewMode('graph');
+    }, [controller]);
+
+    const onFitView = useCallback(() => {
+        bus.emit('workflow:fit-view');
+    }, []);
+
+    const loadRecipe = useCallback(async (file, linear) => {
+        await controller.loadExample(file);
+        setViewMode(linear ? 'steps' : 'graph');
     }, [controller]);
 
     const examplesWrapperRef = useRef(null);
+    const moreWrapperRef = useRef(null);
 
     useEffect(() => {
-        if (!examplesOpen) return undefined;
-        const closeDropdown = (e) => {
-            if (!examplesWrapperRef.current?.contains(e.target)) {
+        if (!examplesOpen && !moreOpen) return undefined;
+        const closeDropdowns = (e) => {
+            if (examplesOpen && !examplesWrapperRef.current?.contains(e.target)) {
                 setExamplesOpen(false);
             }
+            if (moreOpen && !moreWrapperRef.current?.contains(e.target)) {
+                setMoreOpen(false);
+            }
         };
-        document.addEventListener('click', closeDropdown);
-        return () => document.removeEventListener('click', closeDropdown);
-    }, [examplesOpen]);
+        document.addEventListener('click', closeDropdowns);
+        return () => document.removeEventListener('click', closeDropdowns);
+    }, [examplesOpen, moreOpen]);
+
+    const linearAvailable = useMemo(() => isLinearPipeline(engine), [engine, nodeCount]);
+
+    useEffect(() => {
+        if (!linearAvailable && viewMode === 'steps') {
+            setViewMode('graph');
+        }
+    }, [linearAvailable, viewMode]);
 
     return (
         <div id="wf-overlay" className="wf-overlay">
@@ -109,49 +151,102 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
                 <button type="button" className="wf-topbar-btn" id="wf-back" title="Back to map" onClick={() => controller.close()}>
                     ← Back to Map
                 </button>
-                <span className="wf-topbar-title">Data Pipeline Editor</span>
+                <span className="wf-topbar-title">
+                    <PipelineIcon className="wf-title-icon" size={14} />
+                    Data Pipeline Editor
+                </span>
                 <div className="wf-topbar-actions">
+                    <div className="wf-view-toggle" role="group" aria-label="View mode">
+                        <button
+                            type="button"
+                            className={`wf-view-toggle-btn${viewMode === 'graph' ? ' active' : ''}`}
+                            onClick={() => setViewMode('graph')}
+                        >
+                            Graph
+                        </button>
+                        <button
+                            type="button"
+                            className={`wf-view-toggle-btn${viewMode === 'steps' ? ' active' : ''}`}
+                            disabled={!linearAvailable}
+                            title={linearAvailable ? 'Step-by-step view' : 'Steps view works for simple left-to-right pipelines.'}
+                            onClick={() => setViewMode('steps')}
+                        >
+                            Steps
+                        </button>
+                    </div>
+
                     <div className="wf-examples-wrapper" id="wf-examples-wrapper" ref={examplesWrapperRef}>
                         <button
                             type="button"
                             className="wf-topbar-btn wf-topbar-io"
                             id="wf-examples-btn"
                             title="Load a preconfigured example"
-                            onClick={(e) => { e.stopPropagation(); setExamplesOpen((o) => !o); }}
+                            onClick={(e) => { e.stopPropagation(); setExamplesOpen((o) => !o); setMoreOpen(false); }}
                         >
-                            📋 Examples ▾
+                            Examples ▾
                         </button>
                         <div className={`wf-examples-dropdown${examplesOpen ? ' open' : ''}`} id="wf-examples-dropdown">
                             <div className="wf-examples-title">Preconfigured Examples</div>
                             <div className="wf-examples-list" id="wf-examples-list">
-                                {examplesError && 'Failed to load examples.'}
-                                {!examplesError && examples === null && 'Loading…'}
-                                {!examplesError && examples?.length === 0 && 'No examples available.'}
-                                {!examplesError && examples?.map((file) => (
+                                {manifestError && 'Failed to load examples.'}
+                                {!manifestError && manifest === null && 'Loading…'}
+                                {!manifestError && manifest?.length === 0 && 'No examples available.'}
+                                {!manifestError && manifest?.map((entry) => (
                                     <button
-                                        key={file}
+                                        key={entry.file}
                                         type="button"
                                         className="wf-examples-item"
                                         onClick={() => {
                                             setExamplesOpen(false);
-                                            void controller.loadExample(file);
+                                            void loadRecipe(entry.file, entry.linear);
                                         }}
                                     >
-                                        {file.replace(/\.json$/i, '')}
+                                        {entry.title || entry.file.replace(/\.json$/i, '')}
                                     </button>
                                 ))}
                             </div>
                         </div>
                     </div>
-                    <button type="button" className="wf-topbar-btn wf-topbar-io" id="wf-import-config" title="Import workflow config" onClick={() => controller.importConfig()}>
-                        📂 Import
+
+                    <button type="button" className="wf-topbar-btn" id="wf-fit-view" title="Fit pipeline to view" onClick={onFitView}>
+                        Fit view
                     </button>
-                    <button type="button" className="wf-topbar-btn wf-topbar-io" id="wf-export-config" title="Export workflow config" onClick={() => controller.exportConfig()}>
-                        💾 Export
-                    </button>
-                    <button type="button" className="wf-topbar-btn" id="wf-clear" title="Clear pipeline" onClick={onClear}>
-                        🗑️ Clear
-                    </button>
+
+                    <div className="wf-examples-wrapper" ref={moreWrapperRef}>
+                        <button
+                            type="button"
+                            className="wf-topbar-btn wf-topbar-io"
+                            id="wf-more-btn"
+                            title="Import, export, and clear"
+                            onClick={(e) => { e.stopPropagation(); setMoreOpen((o) => !o); setExamplesOpen(false); }}
+                        >
+                            More ▾
+                        </button>
+                        <div className={`wf-examples-dropdown wf-more-dropdown${moreOpen ? ' open' : ''}`}>
+                            <button
+                                type="button"
+                                className="wf-examples-item"
+                                onClick={() => { setMoreOpen(false); controller.importConfig(); }}
+                            >
+                                Import workflow JSON
+                            </button>
+                            <button
+                                type="button"
+                                className="wf-examples-item"
+                                onClick={() => { setMoreOpen(false); controller.exportConfig(); }}
+                            >
+                                Export workflow JSON
+                            </button>
+                            <button
+                                type="button"
+                                className="wf-examples-item wf-examples-item-danger"
+                                onClick={() => { setMoreOpen(false); onClear(); }}
+                            >
+                                Clear pipeline
+                            </button>
+                        </div>
+                    </div>
+
                     <button
                         type="button"
                         className="wf-topbar-btn wf-topbar-run"
@@ -160,7 +255,7 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
                         disabled={running || engine.isRunning}
                         onClick={() => void onRun()}
                     >
-                        {running || engine.isRunning ? '⏳ Running…' : '▶ Run Pipeline'}
+                        {running || engine.isRunning ? 'Running…' : '▶ Run Pipeline'}
                     </button>
                     <button
                         type="button"
@@ -170,7 +265,7 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
                         title="Open map in a second window (Dual Screen)"
                         onClick={() => { if (typeof window._toggleDualScreen === 'function') window._toggleDualScreen(); }}
                     >
-                        🖥 Dual Screen
+                        Dual Screen
                     </button>
                 </div>
             </div>
@@ -182,7 +277,11 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
                 onDragLeave={onDragEvent}
                 onDrop={onDragEvent}
             >
-                <WorkflowPalette />
+                {viewMode === 'steps' && linearAvailable ? (
+                    <WorkflowStepsPanel engine={engine} />
+                ) : (
+                    <WorkflowPalette />
+                )}
                 <div
                     className="wf-canvas-area"
                     ref={canvasRef}

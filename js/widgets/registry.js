@@ -33,9 +33,9 @@ export const GIS_WIDGETS = [
     {
         type: 'route-milepost-segment',
         action: 'openRouteMilepostSegment',
-        label: 'Route Milepost Segment Builder',
+        label: 'Route Centerline',
         icon: '🛣️',
-        tip: 'Build a road centerline segment between two UDOT mileposts.',
+        tip: 'Build a road centerline between two UDOT mileposts.',
         open: openRouteMilepostSegment
     }
 ];

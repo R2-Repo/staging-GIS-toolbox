@@ -6,6 +6,23 @@ import { applyTemplate } from '../../dataprep/template-builder.js';
 import { typeConvert } from '../../dataprep/transforms.js';
 import { convertFeatureCoords } from '../../tools/coordinates.js';
 
+/** Map legacy/camelCase filter operator names to canonical snake_case keys. */
+export const FILTER_OPERATOR_ALIASES = {
+    greaterThan: 'greater_than',
+    lessThan: 'less_than',
+    notEquals: 'not_equals',
+    notContains: 'not_contains',
+    startsWith: 'starts_with',
+    endsWith: 'ends_with',
+    isNull: 'is_null',
+    isNotNull: 'is_not_null'
+};
+
+export function normalizeFilterOperator(operator) {
+    if (!operator) return operator;
+    return FILTER_OPERATOR_ALIASES[operator] || operator;
+}
+
 // ==============================
 // Filter Rows
 // ==============================
@@ -57,7 +74,7 @@ export class FilterRowsNode extends NodeBase {
         const val = raw == null ? '' : String(raw);
         const cmp = String(rule.value ?? '');
 
-        switch (rule.operator) {
+        switch (normalizeFilterOperator(rule.operator)) {
             case 'equals': return val === cmp;
             case 'not_equals': return val !== cmp;
             case 'contains': return val.toLowerCase().includes(cmp.toLowerCase());
@@ -795,7 +812,7 @@ export class ConditionalValueNode extends NodeBase {
         const raw = props[rule.field];
         const val = raw == null ? '' : String(raw);
         const cmp = String(rule.value ?? '');
-        switch (rule.operator) {
+        switch (normalizeFilterOperator(rule.operator)) {
             case 'equals': return val === cmp;
             case 'not_equals': return val !== cmp;
             case 'contains': return val.toLowerCase().includes(cmp.toLowerCase());

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
 
 export function SpatialAnalyzerDialog({
     layers = [],
@@ -87,106 +88,100 @@ export function SpatialAnalyzerDialog({
         setMessage('');
     };
 
-    return (
-        <div>
-            {error ? (
-                <div className="info-box text-xs mb-8" style={{ color: 'var(--danger)' }}>{error}</div>
-            ) : null}
-            {message ? (
-                <div className="info-box text-xs mb-8">{message}</div>
-            ) : null}
+    if (result) {
+        const relationLabel = relationOptions.find((entry) => entry.value === spatialRelation)?.label || spatialRelation;
 
-            {result ? (
-                <div>
-                    <div className="form-group">
-                        <label>Results</label>
-                        <div className="text-xs">
-                            <div><strong>{result.matched}</strong> of <strong>{result.total}</strong> features matched</div>
-                            <div>Spatial relation: {relationOptions.find((entry) => entry.value === spatialRelation)?.label || spatialRelation}</div>
-                            <div>Points: {result.stats?.points || 0}</div>
-                            <div>Lines: {result.stats?.lines || 0}</div>
-                            <div>Polygons: {result.stats?.polygons || 0}</div>
-                            {result.stats?.totalLength ? <div>Total length: {result.stats.totalLength}</div> : null}
-                            {result.stats?.totalArea ? <div>Total area: {result.stats.totalArea}</div> : null}
-                        </div>
+        return (
+            <WidgetPanelShell
+                onCancel={onCancel}
+                onRun={() => onAddResults?.(result)}
+                runLabel="Add Results Layer"
+                cancelLabel="Done"
+                disabled={!result?.features?.length}
+            >
+                <div className="form-group">
+                    <label>Results</label>
+                    <div className="text-xs">
+                        <div><strong>{result.matched}</strong> of <strong>{result.total}</strong> features matched</div>
+                        <div>Spatial relation: {relationLabel}</div>
+                        <div>Points: {result.stats?.points || 0}</div>
+                        <div>Lines: {result.stats?.lines || 0}</div>
+                        <div>Polygons: {result.stats?.polygons || 0}</div>
+                        {result.stats?.totalLength ? <div>Total length: {result.stats.totalLength}</div> : null}
+                        {result.stats?.totalArea ? <div>Total area: {result.stats.totalArea}</div> : null}
                     </div>
-                    <div className="modal-footer">
-                        <button className="btn btn-secondary cancel-btn" onClick={reset}>Start Over</button>
+                </div>
+                <div className="gis-widget__btn-row">
+                    <button type="button" className="gis-widget__link-btn" onClick={reset}>
+                        New search
+                    </button>
+                    {analysisArea ? (
                         <button
-                            className="btn btn-secondary apply-btn"
+                            type="button"
+                            className="gis-widget__link-btn"
                             onClick={() => onAddArea?.({ analysisArea, areaSource })}
-                            disabled={!analysisArea}
                         >
-                            Add Area Layer
+                            Add area as layer
                         </button>
-                        <button
-                            className="btn btn-primary apply-btn"
-                            onClick={() => onAddResults?.(result)}
-                            disabled={!result?.features?.length}
-                        >
-                            Add Results Layer
-                        </button>
-                    </div>
+                    ) : null}
                 </div>
-            ) : (
-                <div>
-                    <div className="form-group">
-                        <label>Target layer</label>
-                        <select value={targetLayerId} onChange={(e) => setTargetLayerId(e.target.value)}>
-                            <option value="">- choose a layer -</option>
-                            {layers.map((layer) => (
-                                <option key={layer.id} value={layer.id}>
-                                    {layer.name} ({layer.featureCount})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
+            </WidgetPanelShell>
+        );
+    }
 
-                    <div className="form-group">
-                        <label>Define search area</label>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                            <button className="btn btn-secondary btn-sm" onClick={() => drawArea('rectangle')}>Draw Rectangle</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => drawArea('polygon')}>Draw Polygon</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => drawArea('circle')}>Draw Circle</button>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                            <select value={areaLayerId} onChange={(e) => setAreaLayerId(e.target.value)}>
-                                <option value="">- polygon layer -</option>
-                                {polygonLayers.map((layer) => (
-                                    <option key={`poly-${layer.id}`} value={layer.id}>{layer.name}</option>
-                                ))}
-                            </select>
-                            <button className="btn btn-secondary btn-sm" onClick={useLayerArea} disabled={!areaLayerId}>
-                                Use Layer
-                            </button>
-                        </div>
-                        <div className="text-xs text-muted" style={{ marginTop: 6 }}>
-                            {analysisArea ? `Area ready (${areaSource || 'draw'})` : 'No area defined yet.'}
-                        </div>
-                    </div>
+    const statusText = error || message || (analysisArea ? `Area ready (${areaSource || 'draw'})` : '');
 
-                    <div className="form-group">
-                        <label>Spatial relationship</label>
-                        <select value={spatialRelation} onChange={(e) => setSpatialRelation(e.target.value)}>
-                            {relationOptions.map((entry) => (
-                                <option key={entry.value} value={entry.value}>{entry.label}</option>
-                            ))}
-                        </select>
-                        <div className="text-xs text-muted" style={{ marginTop: 4 }}>{selectedRelationTip}</div>
-                    </div>
+    return (
+        <WidgetPanelShell
+            status={statusText}
+            statusTone={error ? 'danger' : 'muted'}
+            onCancel={onCancel}
+            onRun={runAnalysis}
+            runLabel="Find Features"
+            running={running}
+            disabled={running || !targetLayerId || !analysisArea}
+        >
+            <div className="form-group">
+                <label>Target layer</label>
+                <select value={targetLayerId} onChange={(e) => setTargetLayerId(e.target.value)}>
+                    <option value="">- choose a layer -</option>
+                    {layers.map((layer) => (
+                        <option key={layer.id} value={layer.id}>
+                            {layer.name} ({layer.featureCount})
+                        </option>
+                    ))}
+                </select>
+            </div>
 
-                    <div className="modal-footer">
-                        <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
-                        <button
-                            className="btn btn-primary apply-btn"
-                            onClick={runAnalysis}
-                            disabled={running || !targetLayerId || !analysisArea}
-                        >
-                            {running ? 'Running...' : 'Find Features'}
-                        </button>
-                    </div>
+            <div className="form-group">
+                <label>Define search area</label>
+                <div className="gis-widget__btn-row">
+                    <button className="btn btn-secondary btn-sm" onClick={() => drawArea('rectangle')}>Draw Rectangle</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => drawArea('polygon')}>Draw Polygon</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => drawArea('circle')}>Draw Circle</button>
                 </div>
-            )}
-        </div>
+                <div className="gis-widget__row" style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    <select value={areaLayerId} onChange={(e) => setAreaLayerId(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                        <option value="">- polygon layer -</option>
+                        {polygonLayers.map((layer) => (
+                            <option key={`poly-${layer.id}`} value={layer.id}>{layer.name}</option>
+                        ))}
+                    </select>
+                    <button className="btn btn-secondary btn-sm" onClick={useLayerArea} disabled={!areaLayerId}>
+                        Use Layer
+                    </button>
+                </div>
+            </div>
+
+            <div className="form-group">
+                <label>Spatial relationship</label>
+                <select value={spatialRelation} onChange={(e) => setSpatialRelation(e.target.value)}>
+                    {relationOptions.map((entry) => (
+                        <option key={entry.value} value={entry.value}>{entry.label}</option>
+                    ))}
+                </select>
+                <div className="text-xs text-muted" style={{ marginTop: 4 }}>{selectedRelationTip}</div>
+            </div>
+        </WidgetPanelShell>
     );
 }

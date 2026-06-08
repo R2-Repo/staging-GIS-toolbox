@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LayerSelect } from './shared/LayerSelect.jsx';
-import { ApplyToSelector } from '../../tools/ApplyToSelector.jsx';
+import { ApplyToSelector } from '../tools/ApplyToSelector.jsx';
+import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
 
 export function BulkUpdateDialog({
     layers = [],
@@ -18,6 +19,7 @@ export function BulkUpdateDialog({
     const [applyTo, setApplyTo] = useState('selection');
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
+    const [running, setRunning] = useState(false);
 
     const selectedLayer = useMemo(
         () => layers.find((layer) => layer.id === layerId) || null,
@@ -54,6 +56,7 @@ export function BulkUpdateDialog({
     const applyBulkUpdate = async () => {
         setError('');
         setMessage('');
+        setRunning(true);
         try {
             const validUpdates = updates.filter((entry) => entry.field);
             if (!layerId) throw new Error('Choose a target layer.');
@@ -68,18 +71,28 @@ export function BulkUpdateDialog({
             );
         } catch (err) {
             setError(err?.message || 'Bulk update failed.');
+        } finally {
+            setRunning(false);
         }
     };
 
-    return (
-        <div>
-            {error ? (
-                <div className="info-box text-xs mb-8" style={{ color: 'var(--danger)' }}>{error}</div>
-            ) : null}
-            {message ? (
-                <div className="info-box text-xs mb-8">{message}</div>
-            ) : null}
+    const statusText = error || message || '';
+    const canApply = Boolean(
+        selectedLayer &&
+        updates.length > 0 &&
+        (applyTo !== 'selection' || selectionCount > 0)
+    );
 
+    return (
+        <WidgetPanelShell
+            status={statusText}
+            statusTone={error ? 'danger' : 'muted'}
+            onCancel={onCancel}
+            onRun={applyBulkUpdate}
+            runLabel="Apply Bulk Update"
+            running={running}
+            disabled={!canApply || running}
+        >
             <LayerSelect
                 label="Target layer"
                 value={layerId}
@@ -104,7 +117,7 @@ export function BulkUpdateDialog({
                     />
                     <div className="form-group">
                         <label>Selection shortcuts</label>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <div className="gis-widget__btn-row">
                             <button className="btn btn-secondary btn-sm" onClick={() => onSelectAll?.(layerId)}>
                                 Select All
                             </button>
@@ -129,7 +142,7 @@ export function BulkUpdateDialog({
                         <div className="text-xs text-muted mb-8">No fields added yet.</div>
                     ) : null}
                     {updates.map((entry, idx) => (
-                        <div key={`update-${idx}`} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                        <div key={`update-${idx}`} className="gis-widget__row">
                             <select value={entry.field} onChange={(e) => patchUpdateRow(idx, { field: e.target.value })}>
                                 {selectedLayer.fields.map((field) => (
                                     <option key={`${idx}-${field}`} value={field}>{field}</option>
@@ -141,23 +154,12 @@ export function BulkUpdateDialog({
                                 placeholder="new value"
                                 onChange={(e) => patchUpdateRow(idx, { value: e.target.value })}
                             />
-                            <button className="btn btn-secondary btn-sm" onClick={() => removeUpdateRow(idx)}>X</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => removeUpdateRow(idx)}>Remove</button>
                         </div>
                     ))}
                     <button className="btn btn-secondary btn-sm" onClick={addUpdateRow}>+ Add Field</button>
                 </div>
             ) : null}
-
-            <div className="modal-footer">
-                <button className="btn btn-secondary cancel-btn" onClick={() => onCancel?.()}>Cancel</button>
-                <button
-                    className="btn btn-primary apply-btn"
-                    onClick={applyBulkUpdate}
-                    disabled={!selectedLayer || updates.length === 0 || (applyTo === 'selection' && selectionCount === 0)}
-                >
-                    Apply Bulk Update
-                </button>
-            </div>
-        </div>
+        </WidgetPanelShell>
     );
 }

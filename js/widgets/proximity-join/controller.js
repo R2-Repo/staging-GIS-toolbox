@@ -11,7 +11,7 @@ import {
 export async function openProximityJoin(ctx) {
     await openReactIsland({
         title: 'Proximity Join',
-        width: '560px',
+        width: '480px',
         mountPath: '../../../react/widgets/mountProximityJoinDialog.jsx',
         mountExport: 'mountProximityJoinDialog',
         getProps: (close) => ({

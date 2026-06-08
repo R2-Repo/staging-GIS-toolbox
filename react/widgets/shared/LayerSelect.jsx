@@ -4,10 +4,11 @@ export function LayerSelect({
     onChange,
     layers = [],
     placeholder = '- select layer -',
-    formatOption = (layer) => `${layer.name} (${layer.featureCount})`
+    formatOption = (layer) => `${layer.name} (${layer.featureCount})`,
+    className = ''
 }) {
     return (
-        <div className="form-group">
+        <div className={['form-group', className].filter(Boolean).join(' ')}>
             <label>{label}</label>
             <select value={value} onChange={(e) => onChange?.(e.target.value)}>
                 <option value="">{placeholder}</option>

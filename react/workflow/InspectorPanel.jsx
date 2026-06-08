@@ -122,11 +122,13 @@ export function InspectorPanel({ engine, getLayers, importFile }) {
         if (!node) return;
         Object.assign(node.config, partial);
         bumpRefresh();
+        bus.emit('workflow:engine-changed');
     }, [node, bumpRefresh]);
 
     const onCommentChange = useCallback((comment) => {
         if (!node) return;
         node.comment = comment;
+        bus.emit('workflow:engine-changed');
     }, [node]);
 
     const onDelete = useCallback(() => {

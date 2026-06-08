@@ -205,7 +205,7 @@ export async function openRouteMilepostSegment(ctx) {
     };
 
     await openReactIsland({
-        title: 'Route Milepost Segment Builder',
+        title: 'Route Centerline',
         width: '480px',
         mountPath: '../../../react/widgets/mountRouteMilepostSegmentDialog.jsx',
         mountExport: 'mountRouteMilepostSegmentDialog',

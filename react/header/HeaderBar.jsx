@@ -1,3 +1,5 @@
+import { PipelineIcon } from '../ui/PipelineIcon.jsx';
+
 export function HeaderBar({
     onImport,
     onFence,
@@ -48,7 +50,7 @@ export function HeaderBar({
                 <button className={`btn btn-secondary btn-sm${showMerge ? '' : ' hidden'}`} id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
                 <div className="header-sep"></div>
                 <button className="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor" onClick={() => onWorkflow?.()}>
-                    <span className="btn-icon-text">🧩</span><span>Data Pipeline Editor</span>
+                    <PipelineIcon className="btn-icon-svg" size={14} /><span>Pipeline</span>
                 </button>
                 <div className="header-sep dual-screen-header-sep dual-screen-desktop-only" aria-hidden="true"></div>
                 <button className="btn btn-secondary btn-sm dual-screen-desktop-only" id="btn-dual-screen" title="Open map in a second window (Dual Screen)">

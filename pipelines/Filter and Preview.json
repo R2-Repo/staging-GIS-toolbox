@@ -37,7 +37,7 @@
   "pipeline": {
     "nodes": [
       { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 200 }, "config": { "fileName": "Utah Trailheads.geojson" }, "comment": "Loads a sample dataset of 10 trailhead locations across Utah with name, elevation, difficulty, and county." },
-      { "id": "node-2", "type": "filter-rows", "position": { "x": 360, "y": 200 }, "config": { "rules": [{ "field": "elevation_ft", "operator": "greaterThan", "value": "7000" }], "logic": "AND" }, "comment": "Keeps only trailheads above 7,000 feet elevation. This removes lower-elevation trails from the results." },
+      { "id": "node-2", "type": "filter-rows", "position": { "x": 360, "y": 200 }, "config": { "rules": [{ "field": "elevation_ft", "operator": "greater_than", "value": "7000" }], "logic": "AND" }, "comment": "Keeps only trailheads above 7,000 feet elevation. This removes lower-elevation trails from the results." },
       { "id": "node-3", "type": "preview", "position": { "x": 640, "y": 120 }, "config": { "maxRows": 500 }, "comment": "Shows the filtered trailheads in a table so you can inspect the data." },
       { "id": "node-4", "type": "add-to-map", "position": { "x": 640, "y": 280 }, "config": { "layerName": "High-Elevation Trailheads" }, "comment": "Adds the filtered high-elevation trailheads to the map as a new layer." }
     ],

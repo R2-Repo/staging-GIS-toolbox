@@ -8,6 +8,9 @@ import { WorkflowEngine } from './workflow-engine.js';
 import { findNodeDef } from './node-catalog.js';
 import { WorkflowStore } from './workflow-store.js';
 import { resetNodeIdCounter } from './nodes/node-base.js';
+import { collectInvalidNodes } from './workflow-validation.js';
+
+const SAVE_DEBOUNCE_MS = 1000;
 
 export function createWorkflowController(deps) {
     const {
@@ -24,8 +27,16 @@ export function createWorkflowController(deps) {
     let rootEl = null;
     let reactUnmount = null;
     let previewApi = null;
+    let saveTimer = null;
 
     const emitEngineChanged = () => bus.emit('workflow:engine-changed');
+
+    const scheduleSave = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => WorkflowStore.save(engine), SAVE_DEBOUNCE_MS);
+    };
+
+    bus.on('workflow:engine-changed', scheduleSave);
 
     const refreshCanvasViews = ({ center = false } = {}) => {
         if (center) bus.emit('workflow:fit-view');
@@ -158,6 +169,18 @@ export function createWorkflowController(deps) {
     const runPipeline = async () => {
         if (engine.isRunning) return;
 
+        const invalid = collectInvalidNodes(engine);
+        if (invalid.length > 0) {
+            const summary = invalid
+                .slice(0, 3)
+                .map(({ node, message }) => `${node.name}: ${message}`)
+                .join('; ');
+            const extra = invalid.length > 3 ? ` (+${invalid.length - 3} more)` : '';
+            showToast(`Fix configuration before running — ${summary}${extra}`, 'error');
+            bus.emit('workflow:node-selected', { nodeId: invalid[0].node.id });
+            return;
+        }
+
         try {
             const context = {
                 getLayers: () => getLayers(),
@@ -180,14 +203,6 @@ export function createWorkflowController(deps) {
 
     bus.on('workflow:node-data-ready', ({ nodeId }) => {
         WorkflowStore.save(engine);
-        const node = engine.nodes.get(nodeId);
-        if (node?.type === 'file-import' && node._cachedResult?.type === 'spatial') {
-            addToMap(
-                node._cachedResult,
-                node._cachedResult.name || node.config.fileName,
-                { workflow: true }
-            );
-        }
     });
 
     const controller = {
@@ -218,9 +233,13 @@ export function createWorkflowController(deps) {
             rootEl.firstElementChild?.classList.add('visible');
 
             if (!engineLoaded) {
-                WorkflowStore.load(engine);
+                const loadResult = WorkflowStore.load(engine);
                 await WorkflowStore.restoreNodeData(engine);
                 engineLoaded = true;
+                if (loadResult?.skipped?.length) {
+                    const types = [...new Set(loadResult.skipped)].join(', ');
+                    showToast(`Restored pipeline; skipped unknown node type(s): ${types}`, 'warn');
+                }
             }
             refreshCanvasViews({ center: true });
             bus.emit('workflow:opened');

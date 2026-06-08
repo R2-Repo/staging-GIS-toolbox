@@ -1,7 +1,29 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/** Serve and copy repo-root pipelines/ (example JSON + manifest). */
+function pipelinesStaticPlugin() {
+  const root = __dirname;
+  return {
+    name: 'pipelines-static',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split('?')[0] || '';
+        if (!url.startsWith('/pipelines/')) return next();
+        const filePath = join(root, url.slice(1));
+        if (!existsSync(filePath)) return next();
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(readFileSync(filePath));
+      });
+    },
+    closeBundle() {
+      cpSync(join(root, 'pipelines'), join(root, 'dist/pipelines'), { recursive: true });
+    }
+  };
+}
 
 function inPath(id, segment) {
   return id.includes(`/` + segment + `/`) || id.includes(`\\` + segment + `\\`);
@@ -34,6 +56,7 @@ export default defineConfig({
   base: './',
   plugins: [
     react(),
+    pipelinesStaticPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',

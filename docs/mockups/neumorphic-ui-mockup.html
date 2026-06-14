@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIS Toolbox — Neumorphic UI Mockup</title>
+    <script>
+        (function () {
+            var saved = localStorage.getItem('gis-mockup-theme');
+            if (saved === 'dark' || saved === 'light') {
+                document.documentElement.setAttribute('data-theme', saved);
+            }
+        })();
+    </script>
+    <style>
+        /* ── Theme tokens ── */
+        :root,
+        [data-theme="light"] {
+            color-scheme: light;
+            --neo-page-bg: #e8ecf1;
+            --neo-bg: #e8ecf1;
+            --neo-shadow-dark: #b8bec7;
+            --neo-shadow-light: #ffffff;
+            --neo-text: #4a5568;
+            --neo-text-strong: #2d3748;
+            --neo-text-muted: #718096;
+            --neo-divider: rgba(184, 190, 199, 0.5);
+            --neo-divider-soft: rgba(184, 190, 199, 0.35);
+            --neo-divider-inset: rgba(184, 190, 199, 0.25);
+            --neo-panel-edge: rgba(184, 190, 199, 0.35);
+            --neo-canvas-dot: rgba(197, 205, 216, 0.45);
+            --neo-scrim: rgba(232, 236, 241, 0.75);
+            --mock-flat-bg: #d5dbe3;
+            --mock-flat-border: #c5ccd6;
+            --mock-success: #16a34a;
+            --mock-warning: #b45309;
+            --mock-error: #dc2626;
+            --mock-danger: #dc2626;
+            --mock-cat-input: #d97706;
+            --mock-cat-transform: #2563eb;
+            --mock-cat-output: #16a34a;
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            /* Neutral charcoal neumo (music-player refs) — black core, warm greys, no blue cast */
+            --neo-page-bg: #121214;
+            --neo-bg: #1a1b1e;
+            --neo-shadow-dark: #0a0a0b;
+            --neo-shadow-light: #2c2d32;
+            --neo-text: #b3b3b8;
+            --neo-text-strong: #f0f0f2;
+            --neo-text-muted: #8a8a90;
+            --neo-divider: rgba(255, 255, 255, 0.07);
+            --neo-divider-soft: rgba(255, 255, 255, 0.05);
+            --neo-divider-inset: rgba(0, 0, 0, 0.35);
+            --neo-panel-edge: rgba(0, 0, 0, 0.55);
+            --neo-canvas-dot: rgba(90, 90, 96, 0.32);
+            --neo-scrim: rgba(14, 14, 16, 0.9);
+            --mock-flat-bg: #0e0e10;
+            --mock-flat-border: #252528;
+            --mock-success: #4ade80;
+            --mock-warning: #fbbf24;
+            --mock-error: #f87171;
+            --mock-danger: #f87171;
+            --mock-cat-input: #f59e0b;
+            --mock-cat-transform: #93c5fd;
+            --mock-cat-output: #4ade80;
+        }
+
+        :root {
+            --neo-accent: #ff5e13;
+            --neo-accent-deep: #ff2a00;
+            --neo-accent-shadow: #b43613;
+            --neo-accent-glow: rgba(255, 94, 19, 0.35);
+            --neo-active-gradient: linear-gradient(135deg, #ff5e13 0%, #ff2a00 100%);
+            --neo-active-ring: 0 0 0 2px #ff5e13;
+            --neo-shadow-active-inset: inset 3px 3px 10px #b43613;
+            --neo-shadow-active: var(--neo-active-ring), var(--neo-shadow-active-inset);
+            --neo-radius-sm: 10px;
+            --neo-radius-md: 16px;
+            --neo-radius-pill: 999px;
+            --neo-shadow-raised: 6px 6px 12px var(--neo-shadow-dark), -6px -6px 12px var(--neo-shadow-light);
+            --neo-shadow-raised-sm: 1.5px 1.5px 3px var(--neo-shadow-dark), -1.5px -1.5px 3px var(--neo-shadow-light);
+            --neo-shadow-raised-lg: 8px 8px 16px var(--neo-shadow-dark), -8px -8px 16px var(--neo-shadow-light);
+            --neo-shadow-pressed: inset 4px 4px 8px var(--neo-shadow-dark), inset -4px -4px 8px var(--neo-shadow-light);
+            --neo-shadow-inset: inset 3px 3px 6px var(--neo-shadow-dark), inset -3px -3px 6px var(--neo-shadow-light);
+            --neo-shadow-toggle-track: -6px -3px 7px var(--neo-shadow-light),
+                6px 3px 10px var(--neo-shadow-dark),
+                3px 3px 5px color-mix(in srgb, var(--neo-shadow-dark) 55%, transparent) inset,
+                -3px -3px 5px color-mix(in srgb, var(--neo-shadow-light) 95%, transparent) inset;
+            --neo-shadow-knob: 0 2px 7px color-mix(in srgb, var(--neo-shadow-dark) 90%, transparent),
+                0 1.5px 5px color-mix(in srgb, var(--neo-shadow-light) 65%, transparent);
+            --pill-track-w: 52px;
+            --pill-track-h: 28px;
+            --pill-knob: 22px;
+            --pill-pad: 3px;
+            --mock-header-h: 52px;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        [data-theme="dark"] {
+            --neo-accent-glow: rgba(255, 94, 19, 0.45);
+            --neo-shadow-toggle-track: -6px -3px 8px rgba(44, 45, 50, 0.55),
+                6px 3px 12px rgba(0, 0, 0, 0.88),
+                3px 3px 6px rgba(0, 0, 0, 0.78) inset,
+                -3px -3px 6px rgba(50, 51, 56, 0.38) inset;
+            --neo-shadow-knob: 0 2px 8px rgba(0, 0, 0, 0.88),
+                0 1px 5px rgba(35, 36, 40, 0.65);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            font-family: var(--font);
+            font-size: 14px;
+            color: var(--neo-text-strong);
+            background: var(--neo-page-bg);
+            transition: background 0.35s ease, color 0.25s ease;
+        }
+
+        html[data-theme="dark"] body {
+            background: radial-gradient(130% 90% at 50% -15%, #1e1f22 0%, var(--neo-page-bg) 55%, #0a0a0b 100%);
+        }
+
+        /* ── Neumorphic utilities (from neumorphic.css) ── */
+        .neo-raised { background: var(--neo-bg); border: none; box-shadow: var(--neo-shadow-raised); }
+        .neo-raised-sm { background: var(--neo-bg); border: none; box-shadow: var(--neo-shadow-raised-sm); }
+        .neo-inset { background: var(--neo-bg); border: none; box-shadow: var(--neo-shadow-inset); }
+        .neo-pressed { box-shadow: var(--neo-shadow-pressed); }
+        .neo-surface-active {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+            color: #ffffff;
+            border: none;
+        }
+
+        .neo-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            color: var(--neo-text-strong);
+            background: var(--neo-bg);
+            border: none;
+            border-radius: var(--neo-radius-sm);
+            box-shadow: var(--neo-shadow-raised-sm);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: box-shadow 0.15s ease, color 0.15s ease;
+        }
+        .neo-btn:hover:not(:disabled) { box-shadow: var(--neo-shadow-raised); color: var(--neo-accent); }
+        .neo-btn:active:not(:disabled) { box-shadow: var(--neo-shadow-pressed); }
+        .neo-btn--sm { padding: 5px 10px; font-size: 12px; }
+        .neo-btn--accent {
+            color: #ffffff;
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+        }
+        .neo-btn--accent:hover:not(:disabled) { color: #ffffff; box-shadow: var(--neo-shadow-active); }
+        .neo-btn--ghost {
+            background: transparent;
+            box-shadow: none;
+            color: var(--neo-text-muted);
+        }
+        .neo-btn--ghost:hover:not(:disabled) { color: var(--neo-text-strong); box-shadow: var(--neo-shadow-raised-sm); }
+
+        .neo-input {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            color: var(--neo-text-strong);
+            background: var(--neo-bg);
+            border: none;
+            border-radius: var(--neo-radius-sm);
+            box-shadow: var(--neo-shadow-inset);
+            outline: none;
+        }
+        .neo-input:focus { box-shadow: var(--neo-shadow-inset), 0 0 0 2px var(--neo-accent-glow); }
+
+        .neo-select {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            color: var(--neo-text-strong);
+            background: var(--neo-bg);
+            border: none;
+            border-radius: var(--neo-radius-sm);
+            box-shadow: var(--neo-shadow-inset);
+            outline: none;
+            cursor: pointer;
+        }
+        .neo-select:focus { box-shadow: var(--neo-shadow-inset), 0 0 0 2px var(--neo-accent-glow); }
+
+        .neo-modal-backdrop {
+            background: var(--neo-scrim);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .neo-modal-panel {
+            background: var(--neo-bg);
+            border: none;
+            border-radius: var(--neo-radius-md);
+            box-shadow: var(--neo-shadow-raised-lg);
+        }
+        .neo-modal-header {
+            box-shadow: inset 0 -2px 4px var(--neo-divider-inset);
+        }
+
+        /* Theme toggle in header */
+        .mock-theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--neo-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .mock-theme-toggle .mock-theme-icon-light,
+        .mock-theme-toggle .mock-theme-icon-dark { font-size: 13px; line-height: 1; }
+        .mock-theme-toggle .mock-theme-icon-dark { display: none; }
+        [data-theme="dark"] .mock-theme-toggle .mock-theme-icon-light { display: none; }
+        [data-theme="dark"] .mock-theme-toggle .mock-theme-icon-dark { display: inline; }
+        [data-theme="dark"] .mock-theme-toggle .mock-theme-label::after { content: 'Dark'; }
+        .mock-theme-toggle .mock-theme-label::after { content: 'Light'; }
+
+        /* ── Mockup page shell ── */
+        .mock-page {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .mock-page-label {
+            padding: 8px 16px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--neo-text-muted);
+            background: var(--neo-bg);
+            box-shadow: inset 0 -1px 0 var(--neo-divider);
+        }
+
+        /* ── Header ── */
+        .mock-header {
+            height: var(--mock-header-h);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 10px;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+            flex-shrink: 0;
+            position: relative;
+            z-index: 10;
+        }
+        .mock-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .mock-logo {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+        }
+        .mock-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--neo-text-strong);
+        }
+        .mock-title-com { font-size: 0.65em; font-weight: 400; color: var(--neo-text-muted); }
+        .mock-header-center {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .mock-header-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .mock-sep {
+            width: 1px;
+            height: 20px;
+            background: var(--neo-divider-soft);
+            margin: 0 4px;
+        }
+
+        /* Segmented toggle — grooved track + raised pills */
+        .mock-toggle {
+            display: inline-flex;
+            padding: 4px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-toggle-track);
+            gap: 4px;
+        }
+        .mock-toggle-option {
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            border: none;
+            border-radius: 8px;
+            background: var(--neo-bg);
+            color: var(--neo-text-muted);
+            cursor: pointer;
+            font-family: inherit;
+            box-shadow: var(--neo-shadow-raised-sm);
+            transition: box-shadow 0.2s ease, color 0.15s ease, background 0.2s ease;
+        }
+        .mock-toggle-option.active {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+            color: #fff;
+        }
+        .mock-toggle-option:not(.active):hover {
+            color: var(--neo-text-strong);
+            box-shadow: var(--neo-shadow-raised);
+        }
+        .mock-toggle-option:active:not(.active) {
+            box-shadow: var(--neo-shadow-pressed);
+        }
+
+        /* ── 3-panel layout ── */
+        .mock-app-layout {
+            display: flex;
+            flex: 1;
+            min-height: 480px;
+            overflow: hidden;
+        }
+
+        .mock-panel {
+            display: flex;
+            flex-direction: column;
+            background: var(--neo-bg);
+            overflow: hidden;
+        }
+        .mock-panel-left {
+            width: 320px;
+            min-width: 240px;
+            flex-shrink: 0;
+            box-shadow: 4px 0 8px var(--neo-panel-edge);
+        }
+        .mock-panel-right {
+            width: 300px;
+            min-width: 240px;
+            flex-shrink: 0;
+            box-shadow: -4px 0 8px var(--neo-panel-edge);
+        }
+        .mock-panel-center {
+            flex: 1;
+            min-width: 200px;
+            position: relative;
+        }
+
+        .mock-panel-header {
+            padding: 12px 14px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--neo-text-strong);
+            box-shadow: inset 0 -2px 4px var(--neo-divider-inset);
+            flex-shrink: 0;
+        }
+        .mock-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        /* Flat placeholders (NOT neumorphic) */
+        .mock-map-placeholder,
+        .mock-canvas-placeholder {
+            width: 100%;
+            height: 100%;
+            min-height: 200px;
+            background: var(--mock-flat-bg);
+            border: 1px inset var(--mock-flat-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 8px;
+            color: var(--neo-text-muted);
+            box-shadow: none;
+        }
+        .mock-map-placeholder-label,
+        .mock-canvas-placeholder-label {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--neo-text);
+        }
+        .mock-map-placeholder-hint,
+        .mock-canvas-placeholder-hint {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        /* Layer items */
+        .mock-layer-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+            cursor: pointer;
+            transition: box-shadow 0.15s ease;
+        }
+        .mock-layer-item:hover { box-shadow: var(--neo-shadow-raised); }
+        .mock-layer-item.active {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+            color: #fff;
+        }
+        .mock-layer-item.active .mock-layer-meta { color: rgba(255,255,255,0.85); }
+        .mock-layer-icon { font-size: 18px; flex-shrink: 0; }
+        .mock-layer-name { font-weight: 600; font-size: 13px; }
+        .mock-layer-meta { font-size: 11px; color: var(--neo-text-muted); margin-top: 2px; }
+
+        /* Collapsible section */
+        .mock-section {
+            margin-bottom: 10px;
+            border-radius: var(--neo-radius-sm);
+            overflow: hidden;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+        }
+        .mock-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--neo-text-strong);
+            cursor: pointer;
+            user-select: none;
+        }
+        .mock-section-header .arrow { color: var(--neo-text-muted); font-size: 10px; }
+        .mock-section-body { padding: 10px 12px 12px; }
+        .mock-section-body.collapsed { display: none; }
+
+        .mock-form-group { margin-bottom: 12px; }
+        .mock-form-group label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--neo-text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .mock-field-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px solid var(--neo-divider-soft);
+        }
+        .mock-field-row:last-child { border-bottom: none; }
+        .mock-field-type { color: var(--neo-text-muted); font-size: 11px; }
+
+        /* ── Pipeline overlay section ── */
+        .mock-pipeline-section {
+            border-top: 2px solid var(--neo-divider);
+            display: flex;
+            flex-direction: column;
+            min-height: 360px;
+        }
+
+        .mock-wf-topbar {
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+            flex-shrink: 0;
+        }
+        .mock-wf-title {
+            font-weight: 600;
+            font-size: 14px;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mock-wf-body {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+        .mock-wf-palette {
+            width: 260px;
+            flex-shrink: 0;
+            background: var(--neo-bg);
+            box-shadow: 4px 0 8px var(--neo-panel-edge);
+            padding: 10px;
+            overflow-y: auto;
+        }
+        .mock-wf-palette-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--neo-text-muted);
+            margin-bottom: 10px;
+        }
+        .mock-wf-cat { margin-bottom: 12px; }
+        .mock-wf-cat-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--neo-text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .mock-wf-node-pill {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            font-family: inherit;
+            color: var(--neo-text-strong);
+            background: var(--neo-bg);
+            border: none;
+            border-radius: var(--neo-radius-sm);
+            box-shadow: var(--neo-shadow-raised-sm);
+            cursor: pointer;
+        }
+        .mock-wf-node-pill:hover { box-shadow: var(--neo-shadow-raised); color: var(--neo-accent); }
+
+        .mock-wf-stage {
+            flex: 1;
+            min-width: 0;
+            position: relative;
+        }
+        .mock-canvas-placeholder {
+            background-color: var(--neo-bg);
+            background-image: radial-gradient(var(--neo-canvas-dot) 1px, transparent 1px);
+            background-size: 16px 16px;
+            border: 1px inset var(--mock-flat-border);
+            box-shadow: var(--neo-shadow-inset);
+        }
+
+        .mock-wf-inspector {
+            width: 280px;
+            flex-shrink: 0;
+            background: var(--neo-bg);
+            box-shadow: -4px 0 8px var(--neo-panel-edge);
+            padding: 12px;
+            overflow-y: auto;
+        }
+        .mock-wf-inspector-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--neo-text-strong);
+        }
+
+        /* ── Modal ── */
+        .mock-modal-wrap {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .mock-modal-wrap.hidden { display: none; }
+        .mock-modal-wrap .neo-modal-backdrop {
+            position: absolute;
+            inset: 0;
+        }
+
+        .mock-modal {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            max-height: 90vh;
+        }
+        .mock-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .mock-modal-close {
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 8px;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--neo-text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .mock-modal-close:hover { color: var(--neo-accent); box-shadow: var(--neo-shadow-raised); }
+        .mock-modal-body { padding: 18px; overflow-y: auto; flex: 1; }
+        .mock-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 18px;
+            box-shadow: inset 0 2px 4px var(--neo-divider-inset);
+        }
+
+        .mock-drop-zone {
+            padding: 32px 20px;
+            text-align: center;
+            border-radius: var(--neo-radius-md);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            color: var(--neo-text-muted);
+            font-size: 13px;
+            margin-bottom: 14px;
+        }
+        .mock-drop-zone strong { color: var(--neo-text-strong); display: block; margin-bottom: 4px; }
+
+        /* ── View 3: component gallery ── */
+        .mock-gallery {
+            border-top: 2px solid var(--neo-divider);
+            padding: 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            align-items: start;
+        }
+        .mock-gallery-card {
+            border-radius: var(--neo-radius-md);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised);
+            overflow: hidden;
+        }
+        .mock-gallery-card-title {
+            padding: 10px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--neo-text-muted);
+            box-shadow: inset 0 -2px 4px var(--neo-divider-inset);
+        }
+        .mock-gallery-card-body { padding: 14px; }
+
+        /* Dropdown / popup menu */
+        .mock-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .mock-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 200px;
+            padding: 6px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-lg);
+            z-index: 50;
+        }
+        .mock-dropdown-menu.hidden { display: none; }
+        .mock-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            font-family: inherit;
+            font-size: 13px;
+            color: var(--neo-text-strong);
+            cursor: pointer;
+            text-align: left;
+        }
+        .mock-menu-item:hover { box-shadow: var(--neo-shadow-inset); color: var(--neo-accent); }
+        .mock-menu-item .icon { width: 18px; text-align: center; flex-shrink: 0; }
+        .mock-menu-sep { height: 1px; margin: 4px 6px; background: var(--neo-divider); }
+
+        /* Context menu (chrome example — not map) */
+        .mock-ctx-menu {
+            padding: 6px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-lg);
+            min-width: 180px;
+        }
+        .mock-ctx-header {
+            padding: 6px 10px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--neo-text-muted);
+        }
+
+        /* Toasts */
+        .mock-toast-stack { display: flex; flex-direction: column; gap: 8px; }
+        .mock-toast {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised);
+            font-size: 13px;
+            border-left: 3px solid var(--neo-text-muted);
+        }
+        .mock-toast--success { border-left-color: var(--mock-success); }
+        .mock-toast--warning { border-left-color: var(--mock-warning); }
+        .mock-toast--error { border-left-color: var(--mock-error); }
+        .mock-toast--info { border-left-color: var(--neo-accent); }
+        .mock-toast-msg { flex: 1; color: var(--neo-text-strong); }
+        .mock-toast-close {
+            border: none;
+            background: none;
+            color: var(--neo-text-muted);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0 2px;
+        }
+
+        /* Progress bar */
+        .mock-progress-track {
+            height: 10px;
+            border-radius: var(--neo-radius-pill);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            overflow: hidden;
+            margin: 10px 0 6px;
+        }
+        .mock-progress-fill {
+            height: 100%;
+            width: 62%;
+            border-radius: var(--neo-radius-pill);
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+        }
+        .mock-progress-label { font-size: 12px; color: var(--neo-text-muted); }
+
+        /* Wizard steps */
+        .mock-wizard {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            margin-bottom: 12px;
+        }
+        .mock-wizard-step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--neo-text-muted);
+        }
+        .mock-wizard-step.active { color: var(--neo-text-strong); font-weight: 600; }
+        .mock-wizard-step.done { color: var(--mock-success); }
+        .mock-wizard-num {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            color: var(--neo-text-muted);
+        }
+        .mock-wizard-step.active .mock-wizard-num {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+            color: #fff;
+        }
+        .mock-wizard-step.done .mock-wizard-num {
+            background: var(--mock-success);
+            box-shadow: 0 0 0 2px var(--mock-success), inset 2px 2px 6px color-mix(in srgb, var(--mock-success) 55%, #000);
+            color: #fff;
+        }
+
+        /* Widget shell */
+        .mock-widget {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+        .mock-widget-desc {
+            font-size: 12px;
+            color: var(--neo-text-muted);
+            margin-bottom: 12px;
+            line-height: 1.45;
+        }
+        .mock-widget-preview {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            font-size: 11px;
+            color: var(--neo-text-muted);
+        }
+        .mock-widget-preview table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+        .mock-widget-preview th,
+        .mock-widget-preview td {
+            padding: 4px 6px;
+            text-align: left;
+            border-bottom: 1px solid var(--neo-divider-soft);
+        }
+        .mock-widget-preview th { color: var(--neo-text-muted); font-weight: 600; }
+        .mock-widget-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 12px;
+            box-shadow: inset 0 2px 4px var(--neo-divider-inset);
+        }
+
+        /* Tabs */
+        .mock-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            margin-bottom: 12px;
+        }
+        .mock-tab {
+            flex: 1;
+            padding: 7px 10px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--neo-text-muted);
+            cursor: pointer;
+        }
+        .mock-tab.active {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+            color: #fff;
+        }
+        .mock-tab:not(.active):hover { box-shadow: var(--neo-shadow-raised-sm); color: var(--neo-text-strong); }
+
+        /* GIS tools grid */
+        .mock-tools-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .mock-tool-btn {
+            padding: 10px 6px;
+            border: none;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-sm);
+            font-family: inherit;
+            font-size: 11px;
+            color: var(--neo-text-strong);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .mock-tool-btn span:first-child { font-size: 18px; }
+        .mock-tool-btn:hover { box-shadow: var(--neo-shadow-raised); color: var(--neo-accent); }
+
+        /* Logs panel */
+        .mock-logs {
+            font-family: 'Consolas', 'SF Mono', monospace;
+            font-size: 11px;
+            padding: 10px;
+            border-radius: var(--neo-radius-sm);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-inset);
+            max-height: 120px;
+            overflow-y: auto;
+            color: var(--neo-text);
+            line-height: 1.5;
+        }
+        .mock-logs .log-warn { color: var(--mock-warning); }
+        .mock-logs .log-ok { color: var(--mock-success); }
+        .mock-logs .log-err { color: var(--mock-error); }
+
+        .mock-cat-input { color: var(--mock-cat-input); }
+        .mock-cat-transform { color: var(--mock-cat-transform); }
+        .mock-cat-output { color: var(--mock-cat-output); }
+        .mock-menu-item--danger { color: var(--mock-danger) !important; }
+
+        .neo-btn--danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            box-shadow: 0 0 0 2px #ef4444, inset 3px 3px 10px #991b1b;
+            color: #fff;
+        }
+
+        /* Smooth theme transitions on surfaces */
+        .mock-header, .mock-panel, .mock-layer-item, .mock-section,
+        .neo-btn, .neo-input, .neo-select, .neo-modal-panel,
+        .mock-gallery-card, .mock-toast, .mock-demo-bar, .mock-save-indicator {
+            transition: background 0.35s ease, box-shadow 0.35s ease, color 0.25s ease, border-color 0.25s ease;
+        }
+
+        /* Checkbox row */
+        .mock-check-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .mock-check-row input { accent-color: var(--neo-accent); width: 16px; height: 16px; }
+
+        /* Pill toggle — layered track / indicator / knob (Uiverse-style) */
+        .mock-pill-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--neo-text-muted);
+        }
+        .mock-pill-switch {
+            display: block;
+            padding: 0;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font: inherit;
+        }
+        .mock-pill-switch:focus-visible {
+            outline: 2px solid var(--neo-accent);
+            outline-offset: 3px;
+            border-radius: var(--neo-radius-pill);
+        }
+        .mock-pill-track {
+            position: relative;
+            display: block;
+            width: var(--pill-track-w);
+            height: var(--pill-track-h);
+            border-radius: var(--neo-radius-pill);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-toggle-track);
+        }
+        .mock-pill-indicator {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-toggle-track);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+        .mock-pill-indicator.on {
+            background: var(--neo-active-gradient);
+            box-shadow: var(--neo-shadow-active);
+        }
+        .mock-pill-knob {
+            position: absolute;
+            top: var(--pill-pad);
+            left: var(--pill-pad);
+            width: var(--pill-knob);
+            height: var(--pill-knob);
+            border-radius: 50%;
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-knob);
+            transition: left 0.4s cubic-bezier(0.85, 0.05, 0.18, 1.35),
+                box-shadow 0.15s ease;
+        }
+        .mock-pill-indicator.on .mock-pill-knob {
+            left: calc(var(--pill-track-w) - var(--pill-knob) - var(--pill-pad));
+        }
+        .mock-pill-switch:active .mock-pill-knob {
+            box-shadow: var(--neo-shadow-pressed);
+        }
+        /* Standalone demo toggle (reference-style, larger) */
+        .mock-neo-toggle-demo {
+            display: flex;
+            justify-content: center;
+            padding: 8px 0;
+        }
+        .mock-neo-toggle-demo .mock-pill-track {
+            --pill-track-w: 60px;
+            --pill-track-h: 30px;
+            --pill-knob: 24px;
+            --pill-pad: 3px;
+        }
+
+        /* Wide modal for widgets */
+        .mock-modal--wide { max-width: 640px; }
+        .mock-modal--lg { max-width: 720px; }
+
+        /* Save indicator */
+        .mock-save-indicator {
+            position: fixed;
+            top: 60px;
+            right: 16px;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--neo-text-strong);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised);
+            border-radius: var(--neo-radius-sm);
+            z-index: 900;
+        }
+
+        /* Demo controls */
+        .mock-demo-bar {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            left: 16px;
+            z-index: 1100;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            padding: 10px 12px;
+            border-radius: var(--neo-radius-md);
+            background: var(--neo-bg);
+            box-shadow: var(--neo-shadow-raised-lg);
+        }
+        .mock-demo-bar-label {
+            width: 100%;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--neo-text-muted);
+            margin-bottom: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="mock-page">
+        <div class="mock-page-label">View 1 — Main app shell (neumorphic chrome)</div>
+
+        <!-- Header -->
+        <header class="mock-header">
+            <div class="mock-header-left">
+                <div class="mock-logo" aria-hidden="true">🗺️</div>
+                <h1 class="mock-title">GIS-Toolbox<span class="mock-title-com">.com</span></h1>
+            </div>
+            <div class="mock-header-center">
+                <button type="button" class="neo-btn neo-btn--sm" id="btn-show-import">📂 Import</button>
+                <button type="button" class="neo-btn neo-btn--sm">⛶ Import Fence</button>
+                <button type="button" class="neo-btn neo-btn--sm">📷 Photos</button>
+                <button type="button" class="neo-btn neo-btn--sm">🌐 ArcGIS</button>
+                <button type="button" class="neo-btn neo-btn--sm">✏️ Draw</button>
+                <span class="mock-sep"></span>
+                <button type="button" class="neo-btn neo-btn--sm neo-btn--ghost">↩</button>
+                <button type="button" class="neo-btn neo-btn--sm neo-btn--ghost">↪</button>
+                <span class="mock-sep"></span>
+                <button type="button" class="neo-btn neo-btn--sm">Pipeline</button>
+            </div>
+            <div class="mock-header-right">
+                <div class="mock-theme-toggle" title="Toggle dark theme">
+                    <span class="mock-theme-icon-light" aria-hidden="true">☀️</span>
+                    <span class="mock-theme-icon-dark" aria-hidden="true">🌙</span>
+                    <span class="mock-theme-label"></span>
+                    <button type="button" class="mock-pill-switch" id="theme-toggle" role="switch" aria-checked="false" aria-label="Dark theme">
+                        <span class="mock-pill-track">
+                            <span class="mock-pill-indicator" id="theme-toggle-indicator">
+                                <span class="mock-pill-knob"></span>
+                            </span>
+                        </span>
+                    </button>
+                </div>
+                <span class="mock-sep"></span>
+                <div class="mock-toggle">
+                    <button type="button" class="mock-toggle-option active">🗺️ Map</button>
+                    <button type="button" class="mock-toggle-option">🛰️ Satellite</button>
+                </div>
+                <div class="mock-toggle">
+                    <button type="button" class="mock-toggle-option active">2D</button>
+                    <button type="button" class="mock-toggle-option">3D</button>
+                </div>
+                <button type="button" class="neo-btn neo-btn--sm neo-btn--ghost">📋</button>
+            </div>
+        </header>
+
+        <!-- 3-panel layout -->
+        <div class="mock-app-layout">
+            <aside class="mock-panel mock-panel-left">
+                <div class="mock-panel-header">Layers</div>
+                <div class="mock-panel-body">
+                    <div class="mock-layer-item active">
+                        <span class="mock-layer-icon">🗺️</span>
+                        <div>
+                            <div class="mock-layer-name">Trails_2024</div>
+                            <div class="mock-layer-meta">1,247 features · LineString</div>
+                        </div>
+                    </div>
+                    <div class="mock-layer-item">
+                        <span class="mock-layer-icon">🗺️</span>
+                        <div>
+                            <div class="mock-layer-name">Parcels</div>
+                            <div class="mock-layer-meta">3,891 features · Polygon</div>
+                        </div>
+                    </div>
+                    <div class="mock-layer-item">
+                        <span class="mock-layer-icon">📊</span>
+                        <div>
+                            <div class="mock-layer-name">Survey_Points.csv</div>
+                            <div class="mock-layer-meta">856 rows · table</div>
+                        </div>
+                    </div>
+
+                    <div class="mock-section" style="margin-top: 16px;">
+                        <div class="mock-section-header" data-toggle-section>
+                            <span>Data Prep</span>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="mock-section-body collapsed">
+                            <p style="font-size: 12px; color: var(--neo-text-muted);">Filter, dedupe, split columns…</p>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="mock-panel mock-panel-center">
+                <div class="mock-map-placeholder">
+                    <span class="mock-map-placeholder-label">Map area (unchanged)</span>
+                    <span class="mock-map-placeholder-hint">MapLibre viewport — flat placeholder, no neumorphic styling</span>
+                </div>
+            </main>
+
+            <aside class="mock-panel mock-panel-right">
+                <div class="mock-panel-header">Layer: Trails_2024</div>
+                <div class="mock-panel-body">
+                    <div class="mock-section">
+                        <div class="mock-section-header" data-toggle-section>
+                            <span>Style</span>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="mock-section-body">
+                            <div class="mock-form-group">
+                                <label>Stroke color</label>
+                                <input type="text" class="neo-input" value="#2563eb" readonly>
+                            </div>
+                            <div class="mock-form-group">
+                                <label>Stroke width</label>
+                                <input type="number" class="neo-input" value="2" readonly>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mock-section">
+                        <div class="mock-section-header" data-toggle-section>
+                            <span>Export</span>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="mock-section-body">
+                            <div class="mock-form-group">
+                                <label>Format</label>
+                                <select class="neo-select">
+                                    <option>GeoJSON</option>
+                                    <option>Shapefile</option>
+                                    <option>KML</option>
+                                </select>
+                            </div>
+                            <button type="button" class="neo-btn neo-btn--accent" style="width: 100%; justify-content: center;">Export GeoJSON</button>
+                        </div>
+                    </div>
+
+                    <div class="mock-section">
+                        <div class="mock-section-header" data-toggle-section>
+                            <span>Output Schema (4 fields)</span>
+                            <span class="arrow">▶</span>
+                        </div>
+                        <div class="mock-section-body collapsed">
+                            <div class="mock-field-row"><span>trail_id</span><span class="mock-field-type">String</span></div>
+                            <div class="mock-field-row"><span>name</span><span class="mock-field-type">String</span></div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Pipeline overlay -->
+        <div class="mock-pipeline-section">
+            <div class="mock-page-label">View 2 — Pipeline editor chrome (canvas unchanged)</div>
+            <div class="mock-wf-topbar">
+                <button type="button" class="neo-btn neo-btn--sm">← Back</button>
+                <div class="mock-wf-title">⚙️ Pipeline Editor</div>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="neo-btn neo-btn--sm">Save</button>
+                    <button type="button" class="neo-btn neo-btn--sm neo-btn--accent">▶ Run</button>
+                </div>
+            </div>
+            <div class="mock-wf-body">
+                <aside class="mock-wf-palette">
+                    <div class="mock-wf-palette-title">Node palette</div>
+                    <div class="mock-wf-cat">
+                        <div class="mock-wf-cat-label mock-cat-input">Inputs</div>
+                        <button type="button" class="mock-wf-node-pill">📁 File Import</button>
+                        <button type="button" class="mock-wf-node-pill">🗺️ Layer Input</button>
+                    </div>
+                    <div class="mock-wf-cat">
+                        <div class="mock-wf-cat-label mock-cat-transform">Transform</div>
+                        <button type="button" class="mock-wf-node-pill">🔀 Filter Rows</button>
+                        <button type="button" class="mock-wf-node-pill">📋 Select Fields</button>
+                    </div>
+                    <div class="mock-wf-cat">
+                        <div class="mock-wf-cat-label mock-cat-output">Output</div>
+                        <button type="button" class="mock-wf-node-pill">💾 Save Layer</button>
+                    </div>
+                </aside>
+                <div class="mock-wf-stage">
+                    <div class="mock-canvas-placeholder">
+                        <span class="mock-canvas-placeholder-label">Workflow canvas (unchanged)</span>
+                        <span class="mock-canvas-placeholder-hint">React Flow nodes &amp; wires — flat placeholder</span>
+                    </div>
+                </div>
+                <aside class="mock-wf-inspector">
+                    <div class="mock-wf-inspector-title">Filter Rows</div>
+                    <div class="mock-form-group">
+                        <label>Field</label>
+                        <select class="neo-select">
+                            <option>trail_id</option>
+                            <option>name</option>
+                            <option>length_m</option>
+                        </select>
+                    </div>
+                    <div class="mock-form-group">
+                        <label>Operator</label>
+                        <select class="neo-select">
+                            <option>equals</option>
+                            <option>contains</option>
+                            <option>greater than</option>
+                        </select>
+                    </div>
+                    <div class="mock-form-group">
+                        <label>Value</label>
+                        <input type="text" class="neo-input" placeholder="Enter value…">
+                    </div>
+                </aside>
+            </div>
+        </div>
+
+        <!-- View 3: component gallery -->
+        <div class="mock-page-label">View 3 — UI component gallery (menus, toasts, widgets)</div>
+        <div class="mock-gallery">
+            <!-- Dropdown menu -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Dropdown menu</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-dropdown" id="demo-dropdown">
+                        <button type="button" class="neo-btn neo-btn--sm" id="btn-export-menu">Export ▾</button>
+                        <div class="mock-dropdown-menu hidden" id="export-dropdown">
+                            <button type="button" class="mock-menu-item"><span class="icon">📄</span> GeoJSON</button>
+                            <button type="button" class="mock-menu-item"><span class="icon">📦</span> Shapefile (.zip)</button>
+                            <button type="button" class="mock-menu-item"><span class="icon">🌍</span> KML / KMZ</button>
+                            <div class="mock-menu-sep"></div>
+                            <button type="button" class="mock-menu-item"><span class="icon">📊</span> CSV (table)</button>
+                            <button type="button" class="mock-menu-item"><span class="icon">📗</span> Excel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Context menu example -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Layer actions menu</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-ctx-menu">
+                        <div class="mock-ctx-header">Layer: Trails_2024</div>
+                        <button type="button" class="mock-menu-item"><span class="icon">🔍</span> Zoom to layer</button>
+                        <button type="button" class="mock-menu-item"><span class="icon">✏️</span> Rename</button>
+                        <button type="button" class="mock-menu-item"><span class="icon">🔀</span> Filter…</button>
+                        <div class="mock-menu-sep"></div>
+                        <button type="button" class="mock-menu-item"><span class="icon">📋</span> Open data table</button>
+                        <button type="button" class="mock-menu-item mock-menu-item--danger"><span class="icon">🗑️</span> Remove layer</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toasts -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Toast notifications</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-toast-stack">
+                        <div class="mock-toast mock-toast--success">
+                            <span>✅</span>
+                            <span class="mock-toast-msg">Imported <strong>Trails_2024.shp</strong> — 1,247 features</span>
+                            <button type="button" class="mock-toast-close">✕</button>
+                        </div>
+                        <div class="mock-toast mock-toast--warning">
+                            <span>⚠️</span>
+                            <span class="mock-toast-msg">3 features skipped (invalid geometry)</span>
+                            <button type="button" class="mock-toast-close">✕</button>
+                        </div>
+                        <div class="mock-toast mock-toast--info">
+                            <span>ℹ️</span>
+                            <span class="mock-toast-msg">Session saved to browser storage</span>
+                            <button type="button" class="mock-toast-close">✕</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Import progress</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-progress-label">Importing Parcels.zip…</div>
+                    <div class="mock-progress-track"><div class="mock-progress-fill"></div></div>
+                    <div class="mock-progress-label">File 2 of 3 · 62%</div>
+                </div>
+            </div>
+
+            <!-- Wizard steps -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Widget step wizard</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-wizard">
+                        <div class="mock-wizard-step done"><span class="mock-wizard-num">✓</span> Layers</div>
+                        <div class="mock-wizard-step active"><span class="mock-wizard-num">2</span> Options</div>
+                        <div class="mock-wizard-step"><span class="mock-wizard-num">3</span> Preview</div>
+                        <div class="mock-wizard-step"><span class="mock-wizard-num">4</span> Run</div>
+                    </div>
+                    <p style="font-size: 12px; color: var(--neo-text-muted);">Used by multi-step GIS widgets (Proximity Join, Route Milepost, etc.)</p>
+                </div>
+            </div>
+
+            <!-- GIS tools grid -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">GIS tools panel</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-tabs">
+                        <button type="button" class="mock-tab active">Vector</button>
+                        <button type="button" class="mock-tab">Analysis</button>
+                        <button type="button" class="mock-tab">Widgets</button>
+                    </div>
+                    <div class="mock-tools-grid">
+                        <button type="button" class="mock-tool-btn"><span>⭕</span> Buffer</button>
+                        <button type="button" class="mock-tool-btn"><span>✂️</span> Clip</button>
+                        <button type="button" class="mock-tool-btn"><span>🔗</span> Join</button>
+                        <button type="button" class="mock-tool-btn"><span>📐</span> Measure</button>
+                        <button type="button" class="mock-tool-btn"><span>🧩</span> Dissolve</button>
+                        <button type="button" class="mock-tool-btn" id="btn-open-proximity"><span>📍</span> Proximity</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Neumorphic toggle (reference-style) -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Neumorphic toggle</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-neo-toggle-demo">
+                        <button type="button" class="mock-pill-switch" role="switch" aria-checked="false" aria-label="Demo toggle" data-pill-toggle>
+                            <span class="mock-pill-track">
+                                <span class="mock-pill-indicator">
+                                    <span class="mock-pill-knob"></span>
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                    <p style="font-size: 11px; color: var(--neo-text-muted); text-align: center; margin-top: 8px;">Grooved track + floating knob · click to toggle</p>
+                </div>
+            </div>
+
+            <!-- Form controls -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Form controls</div>
+                <div class="mock-gallery-card-body">
+                    <label class="mock-check-row"><input type="checkbox" checked> AGOL compatible export</label>
+                    <label class="mock-check-row"><input type="checkbox"> Selection only</label>
+                    <div style="margin-top: 12px;" class="mock-pill-toggle">
+                        <span>Write distance field</span>
+                        <button type="button" class="mock-pill-switch" role="switch" aria-checked="true" data-pill-toggle>
+                            <span class="mock-pill-track">
+                                <span class="mock-pill-indicator on">
+                                    <span class="mock-pill-knob"></span>
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                    <div style="margin-top: 10px;" class="mock-pill-toggle">
+                        <span>Include attributes</span>
+                        <button type="button" class="mock-pill-switch" role="switch" aria-checked="false" data-pill-toggle>
+                            <span class="mock-pill-track">
+                                <span class="mock-pill-indicator">
+                                    <span class="mock-pill-knob"></span>
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs -->
+            <div class="mock-gallery-card">
+                <div class="mock-gallery-card-title">Logs panel</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-logs">
+                        <div><span class="log-ok">[12:04:01]</span> Layer activated: Trails_2024</div>
+                        <div><span class="log-warn">[12:04:15]</span> CRS inferred as EPSG:4326</div>
+                        <div>[12:05:22] Export started → GeoJSON</div>
+                        <div><span class="log-err">[12:05:23]</span> ArcGIS token expired (retry)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inline widget preview: Bulk Update -->
+            <div class="mock-gallery-card" style="grid-column: span 2;">
+                <div class="mock-gallery-card-title">Widget preview — Bulk Update (inline)</div>
+                <div class="mock-gallery-card-body">
+                    <div class="mock-widget">
+                        <p class="mock-widget-desc">Update field values across all features (or selection) using expressions or constants.</p>
+                        <div class="mock-form-group">
+                            <label>Target layer</label>
+                            <select class="neo-select"><option>Trails_2024</option><option>Parcels</option></select>
+                        </div>
+                        <div class="mock-form-group">
+                            <label>Field to update</label>
+                            <select class="neo-select"><option>status</option><option>maintainer</option></select>
+                        </div>
+                        <div class="mock-form-group">
+                            <label>New value</label>
+                            <input type="text" class="neo-input" value="INSPECTED" placeholder="Value or expression">
+                        </div>
+                        <label class="mock-check-row"><input type="checkbox"> Apply to selected features only</label>
+                        <div class="mock-widget-footer">
+                            <button type="button" class="neo-btn neo-btn--sm" id="btn-open-bulk">Open full dialog</button>
+                            <button type="button" class="neo-btn neo-btn--sm neo-btn--accent">Run update</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mock-save-indicator">Session saved</div>
+
+    <!-- Import modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="import-modal" role="dialog" aria-labelledby="modal-title">
+        <div class="neo-modal-panel mock-modal">
+            <div class="neo-modal-header mock-modal-header">
+                <span id="modal-title">Import Data</span>
+                <button type="button" class="mock-modal-close" data-close-modal="import-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <div class="mock-drop-zone">
+                    <strong>Drop files here</strong>
+                    Shapefile, GeoJSON, KML, CSV, Excel…
+                </div>
+                <div class="mock-form-group">
+                    <label>Or paste URL</label>
+                    <input type="url" class="neo-input" placeholder="https://…">
+                </div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="import-modal">Cancel</button>
+                <button type="button" class="neo-btn neo-btn--accent">Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="progress-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal" style="max-width: 400px;">
+            <div class="neo-modal-header mock-modal-header">
+                <span>Importing files…</span>
+            </div>
+            <div class="mock-modal-body">
+                <div class="mock-progress-label">Parcels.zip (4.2 MB)</div>
+                <div class="mock-progress-track"><div class="mock-progress-fill" style="width: 62%;"></div></div>
+                <div class="mock-progress-label">File 2 of 3 · 62%</div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="progress-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="confirm-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal" style="max-width: 420px;">
+            <div class="neo-modal-header mock-modal-header">
+                <span>Remove layer?</span>
+                <button type="button" class="mock-modal-close" data-close-modal="confirm-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <p style="font-size: 14px; line-height: 1.5; color: var(--neo-text);">
+                    Remove <strong>Parcels</strong> from the map? This cannot be undone unless restored from session.
+                </p>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="confirm-modal">Cancel</button>
+                <button type="button" class="neo-btn neo-btn--accent neo-btn--danger">Remove</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Proximity Join widget modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="proximity-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal mock-modal--wide">
+            <div class="neo-modal-header mock-modal-header">
+                <span>📍 Proximity Join</span>
+                <button type="button" class="mock-modal-close" data-close-modal="proximity-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <div class="mock-wizard">
+                    <div class="mock-wizard-step done"><span class="mock-wizard-num">✓</span> Layers</div>
+                    <div class="mock-wizard-step active"><span class="mock-wizard-num">2</span> Options</div>
+                    <div class="mock-wizard-step"><span class="mock-wizard-num">3</span> Field map</div>
+                    <div class="mock-wizard-step"><span class="mock-wizard-num">4</span> Run</div>
+                </div>
+                <p class="mock-widget-desc">Find nearest features in a target layer and copy attributes to the source layer.</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="mock-form-group">
+                        <label>Source layer</label>
+                        <select class="neo-select"><option>Survey_Points.csv</option></select>
+                    </div>
+                    <div class="mock-form-group">
+                        <label>Target layer</label>
+                        <select class="neo-select"><option>Parcels</option></select>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="mock-form-group">
+                        <label>Max radius</label>
+                        <input type="number" class="neo-input" value="500">
+                    </div>
+                    <div class="mock-form-group">
+                        <label>Units</label>
+                        <select class="neo-select"><option>feet</option><option>meters</option><option>miles</option></select>
+                    </div>
+                </div>
+                <label class="mock-check-row"><input type="checkbox" checked> Write distance field</label>
+                <label class="mock-check-row"><input type="checkbox"> Selection only</label>
+                <div class="mock-widget-preview">
+                    <strong>Preview (first 3 matches)</strong>
+                    <table>
+                        <thead><tr><th>source_id</th><th>parcel_id</th><th>distance_ft</th></tr></thead>
+                        <tbody>
+                            <tr><td>SP-001</td><td>P-4421</td><td>42.3</td></tr>
+                            <tr><td>SP-002</td><td>P-4421</td><td>18.7</td></tr>
+                            <tr><td>SP-003</td><td>P-5102</td><td>156.0</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="proximity-modal">Cancel</button>
+                <button type="button" class="neo-btn">← Back</button>
+                <button type="button" class="neo-btn">Preview</button>
+                <button type="button" class="neo-btn neo-btn--accent">Run join</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Update widget modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="bulk-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal mock-modal--wide">
+            <div class="neo-modal-header mock-modal-header">
+                <span>📝 Bulk Update</span>
+                <button type="button" class="mock-modal-close" data-close-modal="bulk-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <p class="mock-widget-desc">Set or calculate field values for many features at once.</p>
+                <div class="mock-form-group">
+                    <label>Layer</label>
+                    <select class="neo-select"><option>Trails_2024</option></select>
+                </div>
+                <div class="mock-form-group">
+                    <label>Field</label>
+                    <select class="neo-select"><option>status</option><option>maintainer</option><option>last_inspected</option></select>
+                </div>
+                <div class="mock-form-group">
+                    <label>Update mode</label>
+                    <div class="mock-tabs" style="margin-bottom: 0;">
+                        <button type="button" class="mock-tab active">Constant</button>
+                        <button type="button" class="mock-tab">Expression</button>
+                        <button type="button" class="mock-tab">Copy field</button>
+                    </div>
+                </div>
+                <div class="mock-form-group">
+                    <label>Value</label>
+                    <input type="text" class="neo-input" value="INSPECTED">
+                </div>
+                <label class="mock-check-row"><input type="checkbox"> Selected features only (24 selected)</label>
+                <div class="mock-widget-preview">
+                    Will update <strong>1,247</strong> features on <strong>Trails_2024</strong> · field <strong>status</strong> → <strong>INSPECTED</strong>
+                </div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="bulk-modal">Cancel</button>
+                <button type="button" class="neo-btn neo-btn--accent">Apply update</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spatial Analyzer widget modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="spatial-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal mock-modal--lg">
+            <div class="neo-modal-header mock-modal-header">
+                <span>🔬 Spatial Analyzer</span>
+                <button type="button" class="mock-modal-close" data-close-modal="spatial-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <div class="mock-wizard">
+                    <div class="mock-wizard-step done"><span class="mock-wizard-num">✓</span> Input</div>
+                    <div class="mock-wizard-step done"><span class="mock-wizard-num">✓</span> Analysis</div>
+                    <div class="mock-wizard-step active"><span class="mock-wizard-num">3</span> Output</div>
+                    <div class="mock-wizard-step"><span class="mock-wizard-num">4</span> Run</div>
+                </div>
+                <p class="mock-widget-desc">Run overlay, intersect, or summary statistics between two spatial layers.</p>
+                <div class="mock-form-group">
+                    <label>Analysis type</label>
+                    <select class="neo-select"><option>Intersect</option><option>Union</option><option>Summary within</option></select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="mock-form-group">
+                        <label>Input layer</label>
+                        <select class="neo-select"><option>Trails_2024</option></select>
+                    </div>
+                    <div class="mock-form-group">
+                        <label>Overlay layer</label>
+                        <select class="neo-select"><option>Parcels</option></select>
+                    </div>
+                </div>
+                <div class="mock-form-group">
+                    <label>Output layer name</label>
+                    <input type="text" class="neo-input" value="Trails_x_Parcels">
+                </div>
+                <div class="mock-widget-preview">
+                    <strong>Estimated output</strong> — ~892 features · Polygon · 6 fields
+                </div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="spatial-modal">Cancel</button>
+                <button type="button" class="neo-btn">← Back</button>
+                <button type="button" class="neo-btn neo-btn--accent">Run analysis</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Route Milepost widget modal -->
+    <div class="mock-modal-wrap neo-modal-backdrop hidden" id="milepost-modal" role="dialog">
+        <div class="neo-modal-panel mock-modal mock-modal--wide">
+            <div class="neo-modal-header mock-modal-header">
+                <span>🛣️ Route Milepost Segment</span>
+                <button type="button" class="mock-modal-close" data-close-modal="milepost-modal" aria-label="Close">✕</button>
+            </div>
+            <div class="mock-modal-body">
+                <div class="mock-wizard">
+                    <div class="mock-wizard-step active"><span class="mock-wizard-num">1</span> Route</div>
+                    <div class="mock-wizard-step"><span class="mock-wizard-num">2</span> Mileposts</div>
+                    <div class="mock-wizard-step"><span class="mock-wizard-num">3</span> Segment</div>
+                </div>
+                <div class="mock-form-group">
+                    <label>Route layer (LineString)</label>
+                    <select class="neo-select"><option>Highway_Routes</option></select>
+                </div>
+                <div class="mock-form-group">
+                    <label>Route ID field</label>
+                    <select class="neo-select"><option>route_id</option><option>route_name</option></select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="mock-form-group">
+                        <label>From milepost</label>
+                        <input type="number" class="neo-input" value="12.4" step="0.1">
+                    </div>
+                    <div class="mock-form-group">
+                        <label>To milepost</label>
+                        <input type="number" class="neo-input" value="18.9" step="0.1">
+                    </div>
+                </div>
+                <div class="mock-widget-preview">
+                    Segment length: <strong>6.5 mi</strong> · clipped geometry preview available after Run
+                </div>
+            </div>
+            <div class="mock-modal-footer">
+                <button type="button" class="neo-btn" data-close-modal="milepost-modal">Cancel</button>
+                <button type="button" class="neo-btn neo-btn--accent">Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="mock-demo-bar">
+        <span class="mock-demo-bar-label">Toggle overlays</span>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="import-modal">Import</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="progress-modal">Progress</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="confirm-modal">Confirm</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="proximity-modal">Proximity Join</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="bulk-modal">Bulk Update</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="spatial-modal">Spatial Analyzer</button>
+        <button type="button" class="neo-btn neo-btn--sm" data-open-modal="milepost-modal">Route Milepost</button>
+    </div>
+
+    <script>
+        const THEME_KEY = 'gis-mockup-theme';
+
+        function getTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        }
+
+        function syncThemeToggleUi() {
+            const isDark = getTheme() === 'dark';
+            const indicator = document.getElementById('theme-toggle-indicator');
+            const toggle = document.getElementById('theme-toggle');
+            if (indicator) indicator.classList.toggle('on', isDark);
+            if (toggle) toggle.setAttribute('aria-checked', isDark ? 'true' : 'false');
+        }
+
+        function applyTheme(theme) {
+            const next = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem(THEME_KEY, next);
+            syncThemeToggleUi();
+        }
+
+        function toggleTheme() {
+            applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
+        }
+
+        document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+        document.getElementById('theme-toggle').addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                toggleTheme();
+            }
+        });
+        syncThemeToggleUi();
+
+        document.querySelectorAll('[data-toggle-section]').forEach((header) => {
+            header.addEventListener('click', () => {
+                const body = header.nextElementSibling;
+                const arrow = header.querySelector('.arrow');
+                if (!body) return;
+                body.classList.toggle('collapsed');
+                if (arrow) arrow.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
+            });
+        });
+
+        document.querySelectorAll('.mock-layer-item').forEach((item) => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.mock-layer-item').forEach((el) => el.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.mock-toggle').forEach((group) => {
+            group.querySelectorAll('.mock-toggle-option').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    group.querySelectorAll('.mock-toggle-option').forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+        });
+
+        /* Modal helpers */
+        function openModal(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('hidden');
+        }
+        function closeModal(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        }
+        function closeAllModals() {
+            document.querySelectorAll('.mock-modal-wrap').forEach((m) => m.classList.add('hidden'));
+        }
+
+        document.querySelectorAll('[data-open-modal]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                closeAllModals();
+                openModal(btn.getAttribute('data-open-modal'));
+            });
+        });
+        document.querySelectorAll('[data-close-modal]').forEach((btn) => {
+            btn.addEventListener('click', () => closeModal(btn.getAttribute('data-close-modal')));
+        });
+        document.querySelectorAll('.mock-modal-wrap').forEach((wrap) => {
+            wrap.addEventListener('click', (e) => {
+                if (e.target === wrap) closeModal(wrap.id);
+            });
+        });
+
+        document.getElementById('btn-show-import').addEventListener('click', () => {
+            closeAllModals();
+            openModal('import-modal');
+        });
+
+        /* Export dropdown */
+        const exportBtn = document.getElementById('btn-export-menu');
+        const exportMenu = document.getElementById('export-dropdown');
+        exportBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportMenu.classList.toggle('hidden');
+        });
+        document.addEventListener('click', () => exportMenu.classList.add('hidden'));
+
+        /* Gallery tabs (GIS tools + Bulk Update mode) */
+        document.querySelectorAll('.mock-tabs').forEach((tabGroup) => {
+            tabGroup.querySelectorAll('.mock-tab').forEach((tab) => {
+                tab.addEventListener('click', () => {
+                    tabGroup.querySelectorAll('.mock-tab').forEach((t) => t.classList.remove('active'));
+                    tab.classList.add('active');
+                });
+            });
+        });
+
+        /* Pill toggles */
+        document.querySelectorAll('[data-pill-toggle]').forEach((switchEl) => {
+            const indicator = switchEl.querySelector('.mock-pill-indicator');
+            if (!indicator) return;
+
+            const syncAria = () => {
+                switchEl.setAttribute('aria-checked', indicator.classList.contains('on') ? 'true' : 'false');
+            };
+
+            switchEl.addEventListener('click', () => {
+                indicator.classList.toggle('on');
+                syncAria();
+            });
+            switchEl.addEventListener('keydown', (e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    indicator.classList.toggle('on');
+                    syncAria();
+                }
+            });
+        });
+
+        /* Toast dismiss */
+        document.querySelectorAll('.mock-toast-close').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const toast = btn.closest('.mock-toast');
+                if (toast) toast.remove();
+            });
+        });
+
+        /* Widget open shortcuts */
+        document.getElementById('btn-open-proximity').addEventListener('click', () => {
+            closeAllModals();
+            openModal('proximity-modal');
+        });
+        document.getElementById('btn-open-bulk').addEventListener('click', () => {
+            closeAllModals();
+            openModal('bulk-modal');
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAllModals();
+        });
+    </script>
+</body>
+</html>

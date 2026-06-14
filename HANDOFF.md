@@ -3,25 +3,43 @@
 ## Latest
 
 - **Date**: 2026-06-14
-- **Status**: **Input node canvas detail labels**
+- **Status**: **Pipeline overlay map interaction fix (confirmed)**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- File Import nodes show `config.fileName` on the canvas after a file is added
-- Layer Input nodes show the selected layer name on the canvas
-- `getCanvasDetail()` on `NodeBase`; overrides in `input-nodes.js`
-- `PipelineEditor` renders a muted detail line under the node header; passes `getLayers` from `WorkflowOverlay`
-- Canvas refreshes on `workflow:node-data-ready`
-- `tests/workflow-input-canvas-detail.test.js` — unit tests for input detail labels
+- `css/workflow.css` — when workflow overlay is hidden, it now uses `visibility: hidden` and suppresses pointer events for descendants, preventing hidden React Flow DOM from intercepting map gestures after returning to map view
+- `js/workflow/workflow-controller.js` — removed temporary debug instrumentation used during runtime diagnosis
+- Deleted temporary debug log artifact `.cursor/debug-af1899.log`
 
 ### Verification
 
-- `npm test -- tests/workflow-input-canvas-detail.test.js tests/workflow-node-colors.test.js` — green
+- User repro flow confirmed fixed: open Data Pipeline Editor → Back to Map → map pan/zoom works again
+- `npm run build` — green
 
 ### Next
 
-- Browser smoke: add File Import node, upload a file, confirm filename appears on canvas
+- None
+
+---
+
+## Previous (2026-06-14)
+
+- **Status**: **Neumorphic UI mockup (future plan only — not implementing)**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- [`docs/mockups/neumorphic-ui-mockup.html`](docs/mockups/neumorphic-ui-mockup.html) — interactive light/dark neumorphic preview
+- [`docs/NEUMORPHIC_UI_PLAN.md`](docs/NEUMORPHIC_UI_PLAN.md) — **future plan** (scope, tokens, effort, open questions)
+
+### Verification
+
+- Open mockup in browser; toggle dark theme in header
+
+### Next
+
+- None unless product decides to pursue — see `docs/NEUMORPHIC_UI_PLAN.md`
 
 ---
 

@@ -22,13 +22,20 @@
     display: flex;
     flex-direction: column;
     opacity: 0;
-    transition: opacity 0.2s ease;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0s linear 0.2s;
     pointer-events: none;
 }
 
 .wf-overlay.visible {
     opacity: 1;
+    visibility: visible;
+    transition: opacity 0.2s ease;
     pointer-events: all;
+}
+
+.wf-overlay:not(.visible) * {
+    pointer-events: none !important;
 }
 
 /* ── Top bar ── */

@@ -3,6 +3,63 @@
 ## Latest
 
 - **Date**: 2026-06-14
+- **Status**: **Side panel background image restored**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- `css/main.css` — restored `Side_Background.webp` on panel pseudo-elements; overlay tuned to `0.85` (between original `0.952` and trial `0.75`)
+- `vite.config.js` — copy `Side_Background.webp` to `dist/` on build; added to PWA `includeAssets`
+- `tests/panel-background.test.js` — regression test for asset + CSS reference
+
+### Root cause
+
+During React refactor prep, panel pseudo-element backgrounds were switched from `url('../Side_Background.webp')` to CSS gradients. The webp asset remained at repo root but was no longer referenced.
+
+### Verification
+
+- `npm test -- tests/panel-background.test.js` — green
+- `npm test` — green
+- `npm run build` — green; `dist/Side_Background.webp` present; bundled CSS references hashed asset
+- Browser: `npm run preview` — confirm textured background visible in left/right panel gaps (manual)
+
+### Next
+
+- None
+
+---
+
+## Previous (2026-06-14)
+
+- **Status**: **Pipeline header button click-area fix**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- `css/workflow.css` — hidden workflow overlay now uses `z-index: -1` (only `9000` when `.visible`); closed `#wf-overlay-root` ignores pointer events
+- `js/workflow/workflow-controller.js` — sets `inert` on overlay root when closed
+- `react/header/HeaderBar.jsx` — Pipeline + Dual Screen grouped in `header-pipeline-cluster` so flex-wrap does not split them; Pipeline icon wrapped like other header buttons
+- `css/main.css` — header `.btn-sm` min-height 28px; tighter dual-screen separator margin; cluster layout styles
+- `tests/workflow-overlay-hit.test.js` — guards overlay stacking + header layout conventions
+
+### Root cause
+
+After visiting the pipeline editor, the hidden full-screen overlay stayed at `z-index: 9000` above the header (`z-index: 100`). React Flow DOM could intercept clicks meant for `#btn-workflow`. Pipeline button was also ~2px shorter than sibling header buttons and could wrap away from Dual Screen on narrower widths.
+
+### Verification
+
+- `npm test -- tests/workflow-overlay-hit.test.js tests/app-boot-modals.test.js` — green
+- `npm run build` — green
+- Browser: open Pipeline → Back to Map → click Pipeline again in header (manual)
+
+### Next
+
+- None
+
+---
+
+## Previous (2026-06-14)
+
 - **Status**: **Pipeline overlay map interaction fix (confirmed)**
 - **Branch**: working tree (uncommitted)
 

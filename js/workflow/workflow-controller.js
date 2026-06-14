@@ -230,6 +230,7 @@ export function createWorkflowController(deps) {
                 });
             }
 
+            rootEl.removeAttribute('inert');
             rootEl.firstElementChild?.classList.add('visible');
 
             if (!engineLoaded) {
@@ -249,6 +250,7 @@ export function createWorkflowController(deps) {
             if (!open) return;
             WorkflowStore.save(engine);
             rootEl?.firstElementChild?.classList.remove('visible');
+            rootEl?.setAttribute('inert', '');
             open = false;
             bus.emit('workflow:closed');
         },

@@ -49,13 +49,20 @@ export function HeaderBar({
                 <button className="btn btn-ghost btn-sm" id="btn-redo" disabled={!canRedo} title="Redo" onClick={() => onRedo?.()}>↪</button>
                 <button className={`btn btn-secondary btn-sm${showMerge ? '' : ' hidden'}`} id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
                 <div className="header-sep"></div>
-                <button className="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor" onClick={() => onWorkflow?.()}>
-                    <PipelineIcon className="btn-icon-svg" size={14} /><span>Pipeline</span>
-                </button>
-                <div className="header-sep dual-screen-header-sep dual-screen-desktop-only" aria-hidden="true"></div>
-                <button className="btn btn-secondary btn-sm dual-screen-desktop-only" id="btn-dual-screen" title="Open map in a second window (Dual Screen)">
-                    <span className="btn-icon-text">🖥️</span><span className="btn-label">Dual Screen</span>
-                </button>
+                <div className="header-pipeline-cluster">
+                    <button className="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor" onClick={() => onWorkflow?.()}>
+                        <span className="btn-icon-text" aria-hidden="true">
+                            <PipelineIcon className="btn-icon-svg" size={14} />
+                        </span>
+                        <span>Pipeline</span>
+                    </button>
+                    <div className="header-pipeline-dual dual-screen-desktop-only">
+                        <div className="header-sep dual-screen-header-sep" aria-hidden="true"></div>
+                        <button className="btn btn-secondary btn-sm" id="btn-dual-screen" title="Open map in a second window (Dual Screen)">
+                            <span className="btn-icon-text">🖥️</span><span className="btn-label">Dual Screen</span>
+                        </button>
+                    </div>
+                </div>
             </div>
             <div className="header-right">
                 <div className="header-toggle" id="basemap-toggle">

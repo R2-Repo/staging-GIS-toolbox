@@ -21,6 +21,10 @@ function pipelinesStaticPlugin() {
     },
     closeBundle() {
       cpSync(join(root, 'pipelines'), join(root, 'dist/pipelines'), { recursive: true });
+      const sideBg = join(root, 'Side_Background.webp');
+      if (existsSync(sideBg)) {
+        cpSync(sideBg, join(root, 'dist/Side_Background.webp'));
+      }
     }
   };
 }
@@ -64,7 +68,8 @@ export default defineConfig({
         'icons/favicon.png',
         'icons/PWAicon.png',
         'icons/MobileAddButton.png',
-        'icons/MobileMenuButton.png'
+        'icons/MobileMenuButton.png',
+        'Side_Background.webp'
       ],
       manifest: {
         name: 'GIS Toolbox',

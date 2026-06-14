@@ -17,7 +17,8 @@
 .wf-overlay {
     position: fixed;
     inset: 0;
-    z-index: 9000;
+    /* Hidden overlay must sit below app chrome so header buttons stay clickable. */
+    z-index: -1;
     background: var(--bg);
     display: flex;
     flex-direction: column;
@@ -28,10 +29,15 @@
 }
 
 .wf-overlay.visible {
+    z-index: 9000;
     opacity: 1;
     visibility: visible;
     transition: opacity 0.2s ease;
     pointer-events: all;
+}
+
+#wf-overlay-root:not(:has(.wf-overlay.visible)) {
+    pointer-events: none;
 }
 
 .wf-overlay:not(.visible) * {

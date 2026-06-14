@@ -62,8 +62,11 @@ export function showModal(title, contentHtml, options = {}) {
 /**
  * Simple confirm dialog
  */
-export function confirm(title, message) {
+export function confirm(title, message, options = {}) {
+    const { layer, ...rest } = options;
     return showModal(title, `<p>${message}</p>`, {
+        ...rest,
+        layer,
         footer: `<button class="btn btn-secondary cancel-btn">Cancel</button>
                  <button class="btn btn-primary confirm-btn">Confirm</button>`,
         onMount: (overlay, close) => {

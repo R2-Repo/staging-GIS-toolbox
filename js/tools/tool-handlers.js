@@ -14,6 +14,11 @@ import { importFile, importFiles } from '../import/importer.js';
 import { cancelWorkerParse } from '../import/import-parse-service.js';
 import { convertSpatialDatasetToWorkspace } from '../import/workspace-import.js';
 import { isWorkspaceLayer } from '../core/data-model.js';
+import {
+    materializeSpatialLayer,
+    getWorkingFeaturesFromLayer,
+    getWorkingDatasetFromLayer
+} from './gis-layer-context.js';
 import { removeWorkspaceLayer } from '../workspace/workspace-store.js';
 import {
     finalizeImportedDatasets,
@@ -82,7 +87,8 @@ export async function restoreSessionIfAvailable() {
         const ago = _timeAgo(info.timestamp);
         const ok = await confirm(
             'Restore Previous Session?',
-            `You have ${info.layerCount} layer${info.layerCount > 1 ? 's' : ''} saved from ${ago}. Would you like to restore them?`
+            `You have ${info.layerCount} layer${info.layerCount > 1 ? 's' : ''} saved from ${ago}. Would you like to restore them?`,
+            { layer: 'deferred' }
         );
 
         if (ok) {
@@ -420,7 +426,7 @@ export function setupDragDrop() {
         if (imageFiles.length > 0) {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
-                addLayer(result.dataset);
+                addLayer(result.dataset, { activate: true });
                 mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
                 refreshUI();
                 showToast(`Mapped ${result.withGPS} photo(s) with GPS`, 'success');
@@ -500,7 +506,7 @@ async function _addImportedDatasets(datasets, importOpts = {}) {
             }
         }
 
-        addLayer(ds);
+        addLayer(ds, { activate: true });
         const layerIdx = getLayers().indexOf(ds);
         applyImportLayerStyles(ds, { mapService, getLayers, layerIndex: layerIdx });
 
@@ -1100,7 +1106,7 @@ function setupDualScreenMode() {
         handlePhotoImport: async (imageFiles) => {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
-                addLayer(result.dataset);
+                addLayer(result.dataset, { activate: true });
                 mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
                 refreshUI();
                 showToast(`Imported ${imageFiles.length} photo(s)`, 'success');
@@ -1819,9 +1825,8 @@ function addUID() {
 // GIS Tool modals
 // ============================
 async function openBuffer() {
-    const layer = getActiveLayer();
-    if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
-    if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
+    const layer = await requireSpatialLayer();
+    if (!layer) return;
 
     const work = getWorkingFeatures(layer);
     
@@ -1861,8 +1866,8 @@ async function openBuffer() {
 }
 
 async function openSimplify() {
-    const layer = getActiveLayer();
-    if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
+    const layer = await requireSpatialLayer();
+    if (!layer) return;
 
     const work = getWorkingFeatures(layer);
     
@@ -1902,8 +1907,8 @@ async function openSimplify() {
 }
 
 async function openClip() {
-    const layer = getActiveLayer();
-    if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
+    const layer = await requireSpatialLayer();
+    if (!layer) return;
 
     const work = getWorkingFeatures(layer);
     
@@ -1950,11 +1955,24 @@ async function openClip() {
 // New Turf.js Geoprocessing Tools
 // ============================
 
-// Helper: require spatial layer
-function requireSpatialLayer(geomTypes = null) {
-    const layer = getActiveLayer();
-    if (!layer || layer.type !== 'spatial') { showToast('Need a spatial layer', 'warning'); return null; }
-    if (typeof turf === 'undefined') { showToast('Turf.js not loaded yet', 'warning'); return null; }
+// Helper: require spatial layer (materializes workspace-backed layers for GIS tools)
+async function requireSpatialLayer(geomTypes = null) {
+    const raw = getActiveLayer();
+    if (!raw || !isSpatialLayer(raw)) {
+        showToast('Need a spatial layer', 'warning');
+        return null;
+    }
+    if (typeof turf === 'undefined') {
+        showToast('Turf.js not loaded yet', 'warning');
+        return null;
+    }
+
+    const layer = await materializeSpatialLayer(raw);
+    if (!layer) {
+        showToast('Need a spatial layer', 'warning');
+        return null;
+    }
+
     if (geomTypes) {
         const types = Array.isArray(geomTypes) ? geomTypes : [geomTypes];
         const work = getWorkingFeatures(layer);
@@ -1969,52 +1987,17 @@ function requireSpatialLayer(geomTypes = null) {
     return layer;
 }
 
-/**
- * Get the features to operate on for the active layer.
- * If features are selected ??? returns only selected features as a FeatureCollection.
- * If nothing selected ??? returns all features (the full geojson).
- * Also returns metadata about whether this is a selection or full dataset.
- */
-/**
- * @param {'auto'|'layer'|'selection'} applyTo
- */
+const GIS_MAP_API = {
+    getSelectionCount: (layerId) => mapService.getSelectionCount(layerId),
+    getSelectedFeatures: (layerId, geojson) => mapService.getSelectedFeatures(layerId, geojson)
+};
+
 function getWorkingFeatures(layer, applyTo = 'auto') {
-    if (!layer || layer.type !== 'spatial') return null;
-    const totalCount = layer.geojson.features.length;
-    const selected = mapService.getSelectedFeatures(layer.id, layer.geojson);
-    const selectionCount = selected?.features?.length ?? 0;
-
-    const useSelection = applyTo === 'selection'
-        || (applyTo === 'auto' && selectionCount > 0);
-
-    if (useSelection && selectionCount > 0) {
-        return {
-            geojson: selected,
-            isSelection: true,
-            count: selectionCount,
-            totalCount
-        };
-    }
-    return {
-        geojson: layer.geojson,
-        isSelection: false,
-        count: totalCount,
-        totalCount
-    };
+    return getWorkingFeaturesFromLayer(layer, applyTo, GIS_MAP_API);
 }
 
-/**
- * Build a temporary dataset-like object from the working features for tools.
- */
 function getWorkingDataset(layer, applyTo = 'auto') {
-    const work = getWorkingFeatures(layer, applyTo);
-    if (!work) return null;
-    return {
-        ...layer,
-        geojson: work.geojson,
-        _isSelection: work.isSelection,
-        _selectionCount: work.count
-    };
+    return getWorkingDatasetFromLayer(layer, applyTo, GIS_MAP_API);
 }
 
 /** @deprecated Selection is always on; clears current selection */
@@ -2185,7 +2168,7 @@ async function openDestinationTool() {
 
 // --- Along ---
 async function openAlongTool() {
-    const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
+    const layer = await requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2274,7 +2257,7 @@ async function openPointToLineDistanceTool() {
 
 // --- BBox Clip (draw rectangle) ---
 async function openBboxClip() {
-    const layer = requireSpatialLayer();
+    const layer = await requireSpatialLayer();
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2314,7 +2297,7 @@ async function openBboxClip() {
 
 // --- Bezier Spline ---
 async function openBezierSpline() {
-    const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
+    const layer = await requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2350,7 +2333,7 @@ async function openBezierSpline() {
 
 // --- Polygon Smooth ---
 async function openPolygonSmooth() {
-    const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
+    const layer = await requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2389,7 +2372,7 @@ async function openPolygonSmooth() {
 
 // --- Line Offset ---
 async function openLineOffset() {
-    const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
+    const layer = await requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2425,7 +2408,7 @@ async function openLineOffset() {
 
 // --- Line Slice Along ---
 async function openLineSliceAlong() {
-    const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
+    const layer = await requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
     
@@ -2462,7 +2445,7 @@ async function openLineSliceAlong() {
 
 // --- Line Slice (between two map-clicked points) ---
 async function openLineSlice() {
-    const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
+    const layer = await requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
     
@@ -2581,7 +2564,7 @@ async function openLineIntersect() {
 
 // --- Kinks (self-intersections) ---
 async function openKinks() {
-    const layer = requireSpatialLayer();
+    const layer = await requireSpatialLayer();
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2616,7 +2599,7 @@ async function openKinks() {
 
 // --- Combine ---
 async function openCombine() {
-    const layer = requireSpatialLayer();
+    const layer = await requireSpatialLayer();
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2651,7 +2634,7 @@ async function openCombine() {
 
 // --- Union ---
 async function openUnion() {
-    const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
+    const layer = await requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2687,7 +2670,7 @@ async function openUnion() {
 
 // --- Dissolve ---
 async function openDissolve() {
-    const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
+    const layer = await requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
     const work = getWorkingFeatures(layer);
@@ -2927,7 +2910,7 @@ async function openNearestPointToLine() {
 
 // --- Nearest Neighbor Analysis ---
 async function openNearestNeighborAnalysis() {
-    const layer = requireSpatialLayer(['Point']);
+    const layer = await requireSpatialLayer(['Point']);
     if (!layer) return;
 
     
@@ -3161,7 +3144,7 @@ async function processPhotoFilesCore(files) {
 
         // Add photos as a layer on the map
         if (result.dataset) {
-            addLayer(result.dataset);
+            addLayer(result.dataset, { activate: true });
             mapService.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
             refreshUI();
         }
@@ -3757,7 +3740,7 @@ function _doCreateDrawLayer() {
 
 function openDrawTools(layerId) {
     const layer = getLayers().find(l => l.id === layerId);
-    if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
+    if (!layer || !isSpatialLayer(layer)) return showToast('Need a spatial layer', 'warning');
     setActiveLayer(layerId);
     refreshUI();
     _openDrawToolbarOnMap(layerId, layer.name);
@@ -4211,8 +4194,9 @@ function startInlineEdit(el, currentValue, onSave) {
 // ============================
 export function showToolInfo() {
     const rootId = `tool-guide-react-${Date.now()}`;
-    showModal('Guide', `<div id="${rootId}"></div>`, {
+    return showModal('Guide', `<div id="${rootId}"></div>`, {
         width: '560px',
+        layer: 'splash',
         onMount: async (overlay) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;

@@ -8,7 +8,7 @@ export function SelectionBar({
     onInvertSelection,
     onDeleteSelected,
     onClearSelection,
-    hintText = 'Click to select · Shift+click add/remove · Drag empty area to box-select · Esc clear'
+    hintText = 'Click to select · Shift+click add/remove · Shift+drag empty area to box-select · Esc clear'
 }) {
     useEventBus('selection:changed');
     useEventBus('selection:modeChanged');

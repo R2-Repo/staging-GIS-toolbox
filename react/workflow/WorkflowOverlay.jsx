@@ -290,7 +290,7 @@ export function WorkflowOverlay({ controller, getLayers, importFile }) {
                     onDrop={onCanvasDrop}
                 >
                     <div className="wf-reactflow-host" style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', opacity: 1, zIndex: 2 }}>
-                        <PipelineEditor engine={engine} />
+                        <PipelineEditor engine={engine} getLayers={getLayers} />
                     </div>
                 </div>
                 <InspectorPanel engine={engine} getLayers={getLayers} importFile={importFile} />

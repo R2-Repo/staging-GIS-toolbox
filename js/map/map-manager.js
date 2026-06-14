@@ -46,7 +46,7 @@ function _tagFeaturesForMap(dataset) {
     }
     return taggedFeatures;
 }
-import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled } from './map-interaction-utils.js';
+import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled, shouldStartBoxSelectDrag } from './map-interaction-utils.js';
 import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
 import { buildSymbolLayerLayout } from './style-symbols.js';
 
@@ -2536,6 +2536,7 @@ class MapManager {
 
         const onMouseDown = (e) => {
             if (!this._canSelect() || !this._activeLayerId) return;
+            if (!shouldStartBoxSelectDrag(e.originalEvent)) return;
             if (this._queryFeaturesAtPoint(e.point).length > 0) return;
             startLngLat = e.lngLat;
             dragging = true;
@@ -2556,6 +2557,7 @@ class MapManager {
 
         const onTouchStart = (e) => {
             if (!this._canSelect() || !this._activeLayerId || e.touches.length !== 1) return;
+            if (!shouldStartBoxSelectDrag(e)) return;
             const point = this._touchClientToPoint(e.touches[0].clientX, e.touches[0].clientY);
             if (this._queryFeaturesAtPoint(point).length > 0) return;
             e.preventDefault();

@@ -344,6 +344,7 @@ export function App() {
     const store = useMemo(() => createAppStore(), []);
     const modalHostRef = useRef(null);
     const toastHostRef = useRef(null);
+    const bootRanRef = useRef(false);
 
     useEffect(() => {
         installDualScreenMapServiceDecorator(mapService, dualScreenCoordinator);
@@ -363,13 +364,6 @@ export function App() {
         syncMobileClass();
         window.addEventListener('resize', syncMobileClass);
 
-        void (async () => {
-            await restoreSessionIfAvailable();
-            if (window.innerWidth >= 768) {
-                showToolInfo();
-            }
-        })();
-
         logger.info('App', 'App ready');
 
         return () => {
@@ -380,6 +374,17 @@ export function App() {
     useEffect(() => {
         if (!modalHostRef.current) return undefined;
         const mounted = mountModalHost(modalHostRef.current);
+
+        if (!bootRanRef.current) {
+            bootRanRef.current = true;
+            void (async () => {
+                if (window.innerWidth >= 768) {
+                    await showToolInfo();
+                }
+                await restoreSessionIfAvailable();
+            })();
+        }
+
         return () => mounted.unmount();
     }, []);
 

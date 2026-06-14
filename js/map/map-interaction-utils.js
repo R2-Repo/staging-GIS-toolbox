@@ -28,6 +28,17 @@ export function markMapInteractionHandled(e) {
  * @param {number} [minPx]
  * @returns {boolean}
  */
+/**
+ * Box-select drag requires Shift so normal click-drag can pan the map (trackpad + mouse).
+ * @param {MouseEvent | TouchEvent | null | undefined} originalEvent
+ * @returns {boolean}
+ */
+export function shouldStartBoxSelectDrag(originalEvent) {
+    if (!originalEvent) return false;
+    if (originalEvent.button !== undefined && originalEvent.button !== 0) return false;
+    return !!originalEvent.shiftKey;
+}
+
 export function bboxDiagonalMeetsMinDragPx(west, south, east, north, project, minPx = RECT_DRAG_MIN_DIAGONAL_PX) {
     const p1 = project([west, south]);
     const p2 = project([east, north]);

@@ -65,6 +65,7 @@ export const V1_MAP_TOOL_IDS = new Set([
     'clip-extent',
     'bbox-clip',
     'dissolve',
+    'line-offset',
     'points-in-poly'
 ]);
 
@@ -77,6 +78,7 @@ export const V1_PIPELINE_NODE_TYPES = new Set([
     'simplify',
     'clip',
     'dissolve',
+    'line-offset',
     'spatial-join',
     'add-to-map',
     'preview'

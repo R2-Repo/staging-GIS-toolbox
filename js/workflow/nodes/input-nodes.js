@@ -13,7 +13,7 @@ export class LayerInputNode extends NodeBase {
             name: 'Layer Input',
             icon: '📂',
             category: 'input',
-            color: '#16a34a'
+            color: '#d97706'
         });
         this.outputPorts = [{ id: 'out', label: 'Data', dataType: 'dataset' }];
         this.config = { layerId: null };
@@ -30,6 +30,12 @@ export class LayerInputNode extends NodeBase {
         const layer = context.getLayers().find(l => l.id === this.config.layerId);
         if (!layer) return null;
         return { type: layer.type, schema: layer.schema, name: layer.name };
+    }
+
+    getCanvasDetail(context = {}) {
+        if (!this.config.layerId || !context.getLayers) return null;
+        const layer = context.getLayers().find((l) => l.id === this.config.layerId);
+        return layer?.name || null;
     }
 
     async execute(inputs, context) {
@@ -55,7 +61,7 @@ export class FileImportNode extends NodeBase {
             name: 'File Import',
             icon: '📎',
             category: 'input',
-            color: '#16a34a'
+            color: '#d97706'
         });
         this.outputPorts = [{ id: 'out', label: 'Data', dataType: 'dataset' }];
         this.config = { fileName: null };
@@ -72,6 +78,10 @@ export class FileImportNode extends NodeBase {
         if (this._outputData) return this._outputData;
         if (this._cachedResult) return { type: this._cachedResult.type, schema: this._cachedResult.schema, name: this._cachedResult.name };
         return null;
+    }
+
+    getCanvasDetail() {
+        return this.config.fileName || null;
     }
 
     async execute(inputs, context) {

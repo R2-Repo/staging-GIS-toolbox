@@ -2,7 +2,7 @@
  * Export registry — dispatches to format-specific exporters
  */
 import logger from '../core/logger.js';
-import { getSelectedFields, applyFieldSelection } from '../core/data-model.js';
+import { getSelectedFields, applyFieldSelection, isWorkspaceLayer } from '../core/data-model.js';
 import { TaskRunner } from '../core/task-runner.js';
 import { exportGeoJSON } from './geojson-exporter.js';
 import { exportCSV } from './csv-exporter.js';
@@ -96,13 +96,17 @@ export async function exportDataset(dataset, format, options = {}) {
 }
 
 function applyFieldSelectionToDataset(dataset) {
-    if (dataset.type === 'spatial') {
+    if (isWorkspaceLayer(dataset)) {
+        return dataset;
+    }
+    if (dataset.type === 'spatial' && dataset.geojson?.features) {
         const fc = {
             type: 'FeatureCollection',
             features: applyFieldSelection(dataset.geojson.features, dataset.schema)
         };
         return { ...dataset, geojson: fc };
     }
+    if (!dataset.rows) return dataset;
     // Table
     const selected = getSelectedFields(dataset.schema);
     const fieldNames = selected.map(f => f.name);

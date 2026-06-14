@@ -38,6 +38,31 @@ function BufferInspector({ config, onConfigChange }) {
     );
 }
 
+function LineOffsetInspector({ config, onConfigChange }) {
+    return (
+        <>
+            <InspectorLabel>Offset distance</InspectorLabel>
+            <InspectorInput
+                type="number"
+                value={config.distance ?? 100}
+                min={0}
+                step={0.1}
+                onChange={(v) => onConfigChange({ ...config, distance: parseFloat(v) || 1 })}
+            />
+            <InspectorLabel style={{ marginTop: 8 }}>Units</InspectorLabel>
+            <InspectorSelect
+                value={config.units ?? 'feet'}
+                onChange={(units) => onConfigChange({ ...config, units })}
+            >
+                {DISTANCE_UNITS.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                ))}
+            </InspectorSelect>
+            <HintText>Only LineString and MultiLineString features are offset; others pass through unchanged.</HintText>
+        </>
+    );
+}
+
 function SimplifyInspector({ config, onConfigChange }) {
     return (
         <>
@@ -257,6 +282,7 @@ function SplitByGeometryInspector() {
 
 export const SPATIAL_INSPECTORS = {
     buffer: BufferInspector,
+    'line-offset': LineOffsetInspector,
     simplify: SimplifyInspector,
     dissolve: DissolveInspector,
     clip: ClipInspector,

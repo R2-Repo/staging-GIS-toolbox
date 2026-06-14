@@ -14,8 +14,9 @@ import { findNodeDef } from '../../js/workflow/node-catalog.js';
 
 const PORT_GAP = 20;
 
-function toReactFlowNodes(engine, selectedNodeId = null) {
+function toReactFlowNodes(engine, selectedNodeId = null, getLayers = null) {
     if (!engine?.nodes) return [];
+    const layersFn = () => getLayers?.() || [];
     return [...engine.nodes.values()].map((node) => ({
         id: node.id,
         position: node.position || { x: 0, y: 0 },
@@ -23,6 +24,7 @@ function toReactFlowNodes(engine, selectedNodeId = null) {
         data: {
             name: `${node.icon || ''} ${node.name || node.type || 'Node'}`.trim(),
             color: node.color || '#555',
+            detail: node.getCanvasDetail?.({ getLayers: layersFn }) || '',
             inputPorts: node.inputPorts || [],
             outputPorts: node.outputPorts || [],
             error: node._error || '',
@@ -81,6 +83,22 @@ function WorkflowNode({ data, selected }) {
                 {data.name}
             </div>
 
+            {data.detail ? (
+                <div
+                    style={{
+                        fontSize: 10,
+                        color: 'var(--text-muted, #c8c8c8)',
+                        padding: '4px 8px 0',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                    }}
+                    title={data.detail}
+                >
+                    {data.detail}
+                </div>
+            ) : null}
+
             {inputPorts.map((port, index) => (
                 <React.Fragment key={`in-${port.id}`}>
                     <Handle
@@ -124,17 +142,17 @@ function WorkflowNode({ data, selected }) {
     );
 }
 
-function PipelineEditorCanvas({ engine }) {
+function PipelineEditorCanvas({ engine, getLayers }) {
     const reactFlow = useReactFlow();
     const [selectedNodeId, setSelectedNodeId] = useState(null);
     const [selectedEdgeIds, setSelectedEdgeIds] = useState([]);
-    const [nodes, setNodes] = useState(() => toReactFlowNodes(engine, null));
+    const [nodes, setNodes] = useState(() => toReactFlowNodes(engine, null, getLayers));
     const [edges, setEdges] = useState(() => toReactFlowEdges(engine));
 
     const syncFromEngine = useCallback(() => {
-        setNodes(toReactFlowNodes(engine, selectedNodeId));
+        setNodes(toReactFlowNodes(engine, selectedNodeId, getLayers));
         setEdges(toReactFlowEdges(engine));
-    }, [engine, selectedNodeId]);
+    }, [engine, selectedNodeId, getLayers]);
 
     useEffect(() => {
         syncFromEngine();
@@ -147,6 +165,7 @@ function PipelineEditorCanvas({ engine }) {
             bus.on('workflow:node-start', syncFromEngine),
             bus.on('workflow:node-done', syncFromEngine),
             bus.on('workflow:run-done', syncFromEngine),
+            bus.on('workflow:node-data-ready', syncFromEngine),
             bus.on('workflow:node-selected', ({ nodeId }) => setSelectedNodeId(nodeId || null)),
             bus.on('workflow:node-deselected', () => setSelectedNodeId(null)),
             bus.on('workflow:fit-view', () => {

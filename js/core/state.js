@@ -30,9 +30,14 @@ export function getActiveLayer() {
     return state.layers.find(l => l.id === state.activeLayerId) || state.layers[0] || null;
 }
 
-export function addLayer(dataset) {
+export function addLayer(dataset, { activate = false } = {}) {
     state.layers.push(dataset);
-    if (!state.activeLayerId) state.activeLayerId = dataset.id;
+    if (activate || !state.activeLayerId) {
+        state.activeLayerId = dataset.id;
+        if (activate) {
+            bus.emit('layer:active', getActiveLayer());
+        }
+    }
     bus.emit('layers:changed', state.layers);
     bus.emit('layer:added', dataset);
 }

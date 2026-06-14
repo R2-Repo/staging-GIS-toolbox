@@ -287,6 +287,25 @@ export async function iterateWorkspaceFeatures(layerId, offset = 0, limit = 1000
 }
 
 /**
+ * Load every feature for a workspace layer (used by GIS tools and export).
+ * @param {string} layerId
+ * @returns {Promise<object[]>}
+ */
+export async function loadAllWorkspaceFeatures(layerId) {
+    const features = [];
+    let offset = 0;
+    const batchSize = 1000;
+    while (true) {
+        const batch = await iterateWorkspaceFeatures(layerId, offset, batchSize);
+        if (!batch.length) break;
+        features.push(...batch);
+        offset += batch.length;
+        if (batch.length < batchSize) break;
+    }
+    return features;
+}
+
+/**
  * @param {string} layerId
  */
 export async function removeWorkspaceLayer(layerId) {
@@ -375,6 +394,7 @@ export default {
     loadWorkspaceChunks,
     getWorkspaceFeatureAttributes,
     iterateWorkspaceFeatures,
+    loadAllWorkspaceFeatures,
     removeWorkspaceLayer,
     getWorkspaceLayer,
     getWorkspaceLayerBounds,

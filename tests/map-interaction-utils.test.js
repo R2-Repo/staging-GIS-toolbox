@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     bboxDiagonalMeetsMinDragPx,
     markMapInteractionHandled,
-    RECT_DRAG_MIN_DIAGONAL_PX
+    RECT_DRAG_MIN_DIAGONAL_PX,
+    shouldStartBoxSelectDrag
 } from '../js/map/map-interaction-utils.js';
 
 describe('bboxDiagonalMeetsMinDragPx', () => {
@@ -20,6 +21,30 @@ describe('bboxDiagonalMeetsMinDragPx', () => {
         const project = ([lng, lat]) => ({ x: lng, y: lat });
         expect(bboxDiagonalMeetsMinDragPx(0, 0, 3, 4, project, 5)).toBe(true);
         expect(bboxDiagonalMeetsMinDragPx(0, 0, 3, 4, project, 6)).toBe(false);
+    });
+});
+
+describe('shouldStartBoxSelectDrag', () => {
+    it('allows Shift+primary-button drag', () => {
+        expect(shouldStartBoxSelectDrag({ button: 0, shiftKey: true })).toBe(true);
+    });
+
+    it('rejects plain drag without Shift', () => {
+        expect(shouldStartBoxSelectDrag({ button: 0, shiftKey: false })).toBe(false);
+    });
+
+    it('rejects non-primary mouse buttons', () => {
+        expect(shouldStartBoxSelectDrag({ button: 1, shiftKey: true })).toBe(false);
+        expect(shouldStartBoxSelectDrag({ button: 2, shiftKey: true })).toBe(false);
+    });
+
+    it('rejects touch events without Shift', () => {
+        expect(shouldStartBoxSelectDrag({ touches: [{ clientX: 0, clientY: 0 }] })).toBe(false);
+    });
+
+    it('rejects missing event', () => {
+        expect(shouldStartBoxSelectDrag(null)).toBe(false);
+        expect(shouldStartBoxSelectDrag(undefined)).toBe(false);
     });
 });
 

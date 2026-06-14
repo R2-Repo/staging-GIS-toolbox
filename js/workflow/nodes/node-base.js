@@ -49,6 +49,11 @@ export class NodeBase {
         return this._outputData || null;
     }
 
+    /** Override: Short label shown on the canvas (e.g. selected file or layer name) */
+    getCanvasDetail(context = {}) {
+        return null;
+    }
+
     /** Get abbreviated output stats for badge display */
     getOutputStats() {
         // Multi-output nodes: summarize each port

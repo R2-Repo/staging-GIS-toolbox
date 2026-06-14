@@ -4,6 +4,7 @@
 import { NodeBase } from './node-base.js';
 import {
     bufferFeatures,
+    lineOffsetFeatures,
     simplifyFeatures,
     dissolveFeatures,
     clipFeatures,
@@ -42,6 +43,34 @@ export class BufferNode extends NodeBase {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
         return bufferFeatures(data, this.config.distance, this.config.units);
+    }
+}
+
+// ==============================
+// Line Offset
+// ==============================
+export class LineOffsetNode extends NodeBase {
+    constructor() {
+        super('line-offset', {
+            name: 'Line Offset',
+            icon: '↔️',
+            category: 'spatial',
+            color: '#059669'
+        });
+        this.inputPorts = [{ id: 'in', label: 'Lines', dataType: 'dataset' }];
+        this.outputPorts = [{ id: 'out', label: 'Offset', dataType: 'dataset' }];
+        this.config = { distance: 100, units: 'feet' };
+    }
+
+    validate() {
+        if (this.config.distance <= 0) return { valid: false, message: 'Distance must be > 0' };
+        return { valid: true, message: '' };
+    }
+
+    async execute(inputs) {
+        const data = inputs[0];
+        if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
+        return lineOffsetFeatures(data, this.config.distance, this.config.units);
     }
 }
 
@@ -439,6 +468,7 @@ export class SplitByGeometryNode extends NodeBase {
 // ==============================
 export const SPATIAL_NODES = [
     { type: 'buffer', label: 'Buffer', icon: '⭕', create: () => new BufferNode() },
+    { type: 'line-offset', label: 'Line Offset', icon: '↔️', create: () => new LineOffsetNode() },
     { type: 'simplify', label: 'Simplify', icon: '〰️', create: () => new SimplifyNode() },
     { type: 'dissolve', label: 'Dissolve', icon: '🫧', create: () => new DissolveNode() },
     { type: 'clip', label: 'Clip', icon: '✂️', create: () => new ClipNode() },

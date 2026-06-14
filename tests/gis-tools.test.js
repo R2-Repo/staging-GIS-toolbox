@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as turf from '@turf/turf';
 import {
     bufferFeatures,
+    lineOffsetFeatures,
     clipFeatures,
     simplifyFeatures,
     dissolveFeatures,
@@ -30,6 +31,31 @@ describe('bufferFeatures', () => {
         expect(out.geojson.features).toHaveLength(1);
         expect(out.name).toContain('sites_buffer_');
         expect(out.geojson.features[0].geometry.type).toBe('Polygon');
+    });
+});
+
+describe('lineOffsetFeatures', () => {
+    it('offsets line features by the requested distance', async () => {
+        const line = turf.lineString([[0, 0], [0, 0.01]], { id: 'road' });
+        const ds = createSpatialDataset('roads', turf.featureCollection([line]), { format: 'test' });
+        const out = await lineOffsetFeatures(ds, 0.001, 'kilometers');
+        expect(out.geojson.features).toHaveLength(1);
+        expect(out.name).toContain('roads_offset');
+        expect(out.geojson.features[0].geometry.type).toBe('LineString');
+        expect(out.geojson.features[0].properties.id).toBe('road');
+        expect(out.geojson.features[0].geometry.coordinates[0][0]).not.toBe(0);
+    });
+
+    it('passes non-line geometries through unchanged', async () => {
+        const fc = turf.featureCollection([
+            turf.point([1, 1], { id: 'pt' }),
+            turf.lineString([[0, 0], [0, 0.01]], { id: 'ln' })
+        ]);
+        const ds = createSpatialDataset('mixed', fc, { format: 'test' });
+        const out = await lineOffsetFeatures(ds, 0.001, 'kilometers');
+        expect(out.geojson.features).toHaveLength(2);
+        expect(out.geojson.features[0].geometry.type).toBe('Point');
+        expect(out.geojson.features[0].geometry.coordinates).toEqual([1, 1]);
     });
 });
 

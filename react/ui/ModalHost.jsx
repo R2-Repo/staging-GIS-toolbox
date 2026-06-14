@@ -10,6 +10,11 @@ function BasicModal({ modal }) {
 
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const width = isMobile ? '96vw' : (modal.options?.width || '600px');
+    const layerClass = modal.options?.layer === 'splash'
+        ? 'modal-overlay--splash'
+        : modal.options?.layer === 'deferred'
+            ? 'modal-overlay--deferred'
+            : '';
 
     const close = (result = null) => dismissModal(modal.id, result);
 
@@ -37,7 +42,7 @@ function BasicModal({ modal }) {
     return (
         <div
             ref={overlayRef}
-            className="modal-overlay"
+            className={`modal-overlay${layerClass ? ` ${layerClass}` : ''}`}
             onMouseDown={(e) => { mouseDownTargetRef.current = e.target; }}
             onClick={(e) => {
                 if (e.target === overlayRef.current && mouseDownTargetRef.current === overlayRef.current) {

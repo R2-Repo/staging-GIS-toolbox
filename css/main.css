@@ -788,6 +788,12 @@ textarea { resize: vertical; min-height: 60px; }
     justify-content: center;
     animation: fadeIn 0.15s ease;
 }
+.modal-overlay--deferred {
+    z-index: 900;
+}
+.modal-overlay--splash {
+    z-index: 1100;
+}
 .modal {
     background: var(--bg-surface);
     border-radius: var(--radius-lg);

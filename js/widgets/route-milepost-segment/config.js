@@ -11,6 +11,8 @@ export const UDOT_ROUTE_SEGMENT_CONFIG = {
     cartoCodeField: 'CARTO_CODE',
     allowedCartoCodes: ['1', '2', '3', '4'],
     routeLengthField: 'Shape__Length',
+    begMileageField: 'BEG_MILEAGE',
+    endMileageField: 'END_MILEAGE',
     milepostRouteIdField: 'ROUTE_ID',
     milepostValueField: 'Measure',
     milepostDirectionField: 'RouteDir',
@@ -19,7 +21,7 @@ export const UDOT_ROUTE_SEGMENT_CONFIG = {
     routeSearchLimit: 25,
     milepostTolerance: 0.001,
     routeSearchOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON'],
-    routeGeometryOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_DIRECTION', 'ROUTE_TYPE', 'Shape__Length'],
+    routeGeometryOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_DIRECTION', 'ROUTE_TYPE', 'Shape__Length', 'BEG_MILEAGE', 'END_MILEAGE'],
     milepostOutFields: ['ROUTE_ID', 'Measure', 'RouteDir', 'ROUTE_ALIAS_COMMON']
 };
 

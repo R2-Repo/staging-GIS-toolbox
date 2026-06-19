@@ -2,30 +2,165 @@
 
 ## Latest
 
-- **Date**: 2026-06-14
-- **Status**: **Side panel background image restored**
+- **Date**: 2026-06-18
+- **Status**: **Project Stationing — line-following vertical station labels**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- `css/main.css` — restored `Side_Background.webp` on panel pseudo-elements; overlay tuned to `0.85` (between original `0.952` and trial `0.75`)
-- `vite.config.js` — copy `Side_Background.webp` to `dist/` on build; added to PWA `includeAssets`
-- `tests/panel-background.test.js` — regression test for asset + CSS reference
-
-### Root cause
-
-During React refactor prep, panel pseudo-element backgrounds were switched from `url('../Side_Background.webp')` to CSS gradients. The webp asset remained at repo root but was no longer referenced.
+- Station labels use **line-following map text** (same `_mapLabels` / `placement: 'line'` approach as the segment revision), on short perpendicular leader lines beside each tick
+- MapLibre `text-writing-mode: vertical` stacks station characters along the leader (e.g. `5+00` reads upward)
+- `buildStationLabelLine` in `engine.js` generates invisible leader LineStrings; ticks + centerline unchanged
 
 ### Verification
 
-- `npm test -- tests/panel-background.test.js` — green
-- `npm test` — green
-- `npm run build` — green; `dist/Side_Background.webp` present; bundled CSS references hashed asset
-- Browser: `npm run preview` — confirm textured background visible in left/right panel gaps (manual)
+- `npm test` — 70 files, 397 tests green
+- **Browser** (manual): Run Project Stationing → confirm station numbers appear beside ticks, stacked vertically and aligned with the route
+
+---
+
+## Previous (2026-06-18) — station table subflow
+
+- **Status**: **Project Stationing — station table subflow**
+- Added post-run success panel with **Import Station Table** launch button (existing route/clip/station form remains intact)
+- Added internal Import Station Table sub-dialog (not registered as a side-panel widget)
+- Added CSV/XLSX table loading through `importFile(..., { skipGuard: true })`, column detection, mapping overrides, QA summary, and review list
+- Added pure table-import engines:
+  - `station-table-detect.js`
+  - `station-table-parse.js`
+  - `station-event-plot.js`
+  - `station-table-validation.js`
+- Plot output layers: Imported Events, Offset Connectors, optional Coordinate QA Lines, and Unplotted Rows Report table
+- Added context-menu entry **Import Station Table** for Project Stationing centerline layers
+
+### Verification
+
+- `npm test` — 70 files, 394 tests green
+- `npm run build` — green
+- **Browser** (manual): Create stationing → success panel → Import Station Table → load CSV/XLSX → confirm column detection/review → Plot Ready Rows → verify event/connector/report layers → export KMZ
 
 ### Next
 
-- None
+- Manual browser smoke on real stationed route and messy station table
+- Future UI refinements: batch corrections, richer review table editing, route reverse/rebuild controls, projected CRS support
+
+---
+
+## Previous (2026-06-18)
+
+- **Status**: **Project Stationing — civil-style ticks + offset labels (UI unchanged)**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- **Output model** (replaces line segments + along-line text): single **centerline** + **perpendicular station ticks** + **offset station label points** + **begin/end markers**
+- Defaults (engine): 100 ft interval (from UI), 30 ft ticks, 50 ft major ticks @ 500 ft, 35 ft label offset right
+- **Layers on run**: `{name} Centerline`, `{name} Station Ticks`, `{name} Station Labels`, `{name} Begin End` (+ optional `{name} Mileposts (tenth)`)
+- KMZ-friendly: ticks = `LineString`, labels/markers = `Point` with `name` / `station_label`
+- `js/widgets/project-stationing/engine.js` — `generateStationingGraphics`, `buildStationTick`, `buildStationLabelPoint`, `getLocalTangentBearing`, `isMajorStation`
+- `controller.js` — multi-layer output; preview shows centerline, ticks, labels, markers
+- `map-manager.js` — preview styling for `station_tick`, `station_label`, `begin_end_marker`, `project_centerline`
+- **Widget UI not changed** (same route/clip/station form)
+
+### Verification
+
+- `npm test` — 67 files, 367 tests green
+- **Browser** (manual): preview/run → orange centerline, white perpendicular ticks, offset labels; export KMZ → Google Earth
+
+### Next
+
+- Expose advanced settings in UI (label side, tick length, major interval, reverse direction) per scope doc
+- Manual browser smoke on real UDOT route
+
+---
+
+## Previous (2026-06-18)
+
+- **Status**: **Project Stationing — simplified UX (segments + line labels + optional milepost tenths)**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- **Simplified widget UX**: route on map + zoom; **BEG_MILEAGE / END_MILEAGE** shown (2 decimals); optional clip via Start/End MP **or** map pick (mutually exclusive); default = full positive centerline
+- **Output**: 100-ft **line segments** with MapLibre **line-following labels** (`station_start`); KMZ-friendly `name` on each segment
+- **Optional radio**: “Segments + milepost tenths” adds UDOT ArcGIS tenth-mile point layer along clip (`{name} Mileposts (tenth)`)
+- Removed box/circle/polygon draw clip from UI
+- `js/widgets/route-milepost-segment/config.js` — `BEG_MILEAGE`, `END_MILEAGE` on route query
+- `js/widgets/project-stationing/engine.js` — `formatRouteMileage`, `resolveClipMilepostRange`; `computeProjectStationing` → `generateStationSegments`
+- `js/widgets/project-stationing/controller.js` — simplified `resolveClip`; `onPickClipOnRoute`; segment + optional milepost layers
+- `react/widgets/ProjectStationingDialog.jsx` — mileage display, MP/pick clip, output radio
+- `js/map/map-labels.js` — `placement: 'line'` for path-following labels
+- `js/map/map-manager.js` — line label layers wired
+
+### Verification
+
+- `npm test` — 67 files, 363 tests green
+- `npm run build` — green
+- **Browser** (manual):
+  - Select route → mileage display → map zooms to route
+  - Full route / MP clip / map pick paths
+  - Segment labels along lines; optional milepost tenths layer
+  - Export segments → KMZ → Google Earth Pro
+
+### Next
+
+- Manual browser smoke on real UDOT route
+- Google Earth label behavior (placemark names, not curved path text)
+
+---
+
+## Previous (2026-06-18)
+
+- **Status**: **Project Stationing — centerline + labels + draw clip (v2)**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- **Output**: continuous centerline + labeled station **points** (not 100-ft segment lines); two layers on run (`{name} Centerline`, `{name} Stations`)
+- **Clip methods** (prominent at top of form): Milepost | Box | Circle | Draw — reuses `createAreaDrawHandlers` from Spatial Analyzer
+- `js/widgets/project-stationing/engine.js` — `CLIP_METHODS`, `clipCenterlineToArea`, `clipCenterlineToBbox`, `generateStationPoints`, `generateProjectStationingOutput`; `computeProjectStationing` returns centerline + points
+- `js/widgets/project-stationing/controller.js` — `resolveClip` branches milepost vs draw; `onDrawClipArea`; preview shows clip area + station points; run creates two styled layers with `_mapLabels` on stations
+- `react/widgets/ProjectStationingDialog.jsx` — single-page form with clip-method selector, draw buttons, collapsible "Adjust clip" (offsets + map pick); preview summary shows point count
+- `js/map/map-labels.js` — `buildMapLabelLayerSpec`, `normalizeMapLabels` (new)
+- `js/map/map-manager.js` — symbol text layer when `dataset._mapLabels.field` is set
+- `tests/project-stationing-engine.test.js` — clip + points + centerline (22 tests)
+- `tests/map-labels.test.js` — label layer spec (2 tests)
+
+### Verification
+
+- `npm test` — 67 files, 357 tests green
+- `npm run build` — green
+- **Browser** (manual): GIS Widgets → Project Stationing → milepost path; draw box/circle/polygon path
+
+### Next
+
+- Browser smoke on real UDOT route
+
+---
+
+## Previous (2026-06-18)
+
+- **Status**: **Project Stationing widget (v1)**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- New **Project Stationing** GIS widget — clips UDOT ALRS positive-direction centerline by milepost range, optional foot offsets or map pick trim, then generates 100-ft project station line segments with civil-style labels (`817+15`, `818+00`, …)
+- `js/widgets/project-stationing/engine.js` — `parseStation`, `formatStation`, `computeStationBreaks`, `generateStationSegments`, trim helpers
+- `js/widgets/project-stationing/controller.js` — reuses `route-milepost-segment` ArcGIS client + milepost clip; map pick trim; preview/run
+- `react/widgets/ProjectStationingDialog.jsx` — 4-step wizard (Route → Clip → Stationing → Review)
+- `js/map/map-manager.js` — `showProjectStationingPreview()` for route/clip/station segment preview styling
+- `js/widgets/registry.js` — registered widget
+- `tests/project-stationing-engine.test.js` — 24 engine tests
+
+### Verification
+
+- `npm test` — 66 files, 357 tests green
+- `npm run build` — green
+
+### Next
+
+- Browser smoke on real UDOT route with known mileposts
 
 ---
 

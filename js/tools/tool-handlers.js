@@ -67,6 +67,8 @@ import { initSelectionShortcuts } from '../map/selection-shortcuts.js';
 import sessionStore from '../core/session-store.js';
 import { buildWidgetActions } from '../widgets/registry.js';
 import { createWidgetContext } from '../widgets/widget-context.js';
+import { openImportStationTable } from '../widgets/project-stationing/controller.js';
+import { isProjectStationingCenterline } from '../widgets/project-stationing/route-profile.js';
 import { createWorkflowController } from '../workflow/workflow-controller.js';
 
 // ============================
@@ -193,6 +195,13 @@ export function buildMapContextMenuItems(payload) {
             label: 'Edit feature',
             action: () => openFeatureEditor(layerId, featureIndex)
         });
+        if (isProjectStationingCenterline(layer)) {
+            items.push({
+                icon: '📍',
+                label: 'Import Station Table',
+                action: () => openImportStationTable(getWidgetContext(), layer)
+            });
+        }
     }
 
     items.push({

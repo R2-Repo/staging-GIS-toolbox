@@ -3,57 +3,78 @@
  */
 import { isSmartStyleActive } from '../map/style-engine.js';
 import { bakeFeatureKmlStyle, styleHash } from './style-baker.js';
+import {
+    isKmlMilepostLayer,
+    resolveMilepostPlacemarkName,
+    getMilepostIconHref,
+    MILEPOST_ICON_COLOR,
+    MILEPOST_ICON_SCALE,
+    MILEPOST_LABEL_SCALE
+} from './kml-milepost-style.js';
+
+/** Default KML label text color for icon-hidden (text-only) point layers. */
+const LABEL_ONLY_TEXT_COLOR = '#ffffff';
 
 export async function exportKML(dataset, options = {}, task) {
     const features = dataset.geojson?.features || [];
     task?.updateProgress(30, 'Generating KML...');
 
-    const style = options.style || null; // { strokeColor, fillColor, strokeWidth, strokeOpacity, fillOpacity, point?, line?, polygon? }
+    const style = options.style || null;
+    const exportOptions = options;
 
     if (style && isSmartStyleActive(style)) {
-        return _exportKmlWithBakedStyles(dataset, features, style, task);
+        return _exportKmlWithBakedStyles(dataset, features, style, task, exportOptions);
     }
     const sourceGroups = _groupBySource(features);
     const hasSourceFolders = sourceGroups && Object.keys(sourceGroups).length > 1;
     const useGeomFolders = !hasSourceFolders && options.folders !== false && _hasMultipleGeomTypes(features);
+    const labelOnlyLayer = _layerUsesLabelOnlyPoints(style, dataset, features);
+    const milepostLayer = isKmlMilepostLayer(dataset, style, features);
+    const defaultStyleId = labelOnlyLayer && !style
+        ? 'style_label_only'
+        : milepostLayer && !style
+            ? 'style_milepost'
+            : 'style_default';
 
     // Build style elements
     let styleBlock = '';
     if (style) {
-        styleBlock = _buildKmlStyles(style, useGeomFolders);
+        styleBlock = _buildKmlStyles(style, useGeomFolders, dataset, features, exportOptions);
+    } else if (labelOnlyLayer) {
+        styleBlock = _kmlStyleEl('style_label_only', {}, 'hidden', exportOptions);
+    } else if (milepostLayer) {
+        styleBlock = _kmlStyleEl('style_milepost', { fillColor: MILEPOST_ICON_COLOR }, 'milepost', exportOptions);
     }
 
     let placemarkXml;
     if (hasSourceFolders) {
-        // Folder per source layer
         const folderParts = [];
-        const styleUrl = style ? '#style_default' : '';
+        const styleUrl = style || labelOnlyLayer || milepostLayer ? `#${defaultStyleId}` : '';
         if (style && !useGeomFolders) {
-            styleBlock = _kmlStyleEl('style_default', style, true);
+            styleBlock = _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
         }
         for (const [srcName, feats] of Object.entries(sourceGroups)) {
-            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl)).filter(Boolean).join('\n');
+            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(srcName)}</name>\n${marks}\n    </Folder>`);
         }
         placemarkXml = folderParts.join('\n');
     } else if (useGeomFolders) {
-        // Folder per geometry type
         const groups = _groupByGeomType(features);
         const folderParts = [];
         for (const [gtype, feats] of Object.entries(groups)) {
             if (feats.length === 0) continue;
             const label = { point: 'Points', line: 'Lines', polygon: 'Polygons' }[gtype] || gtype;
             const styleUrl = style ? `#style_${gtype}` : '';
-            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl)).filter(Boolean).join('\n');
+            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(label)}</name>\n${marks}\n    </Folder>`);
         }
         placemarkXml = folderParts.join('\n');
     } else {
-        const styleUrl = style ? '#style_default' : '';
+        const styleUrl = style || labelOnlyLayer || milepostLayer ? `#${defaultStyleId}` : '';
         if (style && !useGeomFolders) {
-            styleBlock = _kmlStyleEl('style_default', style, true);
+            styleBlock = _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
         }
-        placemarkXml = features.map((f, i) => _buildPlacemark(f, i, styleUrl)).filter(Boolean).join('\n');
+        placemarkXml = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
     }
 
     const kml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -68,9 +89,11 @@ ${styleBlock}${placemarkXml}
     return { text: kml, mimeType: 'application/vnd.google-earth.kml+xml' };
 }
 
-function _exportKmlWithBakedStyles(dataset, features, style, task) {
+function _exportKmlWithBakedStyles(dataset, features, style, task, exportOptions = {}) {
     const hashToId = new Map();
     const styleEls = [];
+    const labelOnlyLayer = _layerUsesLabelOnlyPoints(style, dataset, features);
+    const milepostLayer = isKmlMilepostLayer(dataset, style, features);
 
     const styleUrlFor = (f) => {
         const baked = bakeFeatureKmlStyle(f, style);
@@ -79,14 +102,19 @@ function _exportKmlWithBakedStyles(dataset, features, style, task) {
         if (!hashToId.has(h)) {
             const id = `style_baked_${hashToId.size}`;
             hashToId.set(h, id);
-            const includeIcon = _primaryGeomGroup(f.geometry) === 'point';
-            styleEls.push(_kmlStyleEl(id, baked, includeIcon));
+            let iconMode = 'none';
+            if (_primaryGeomGroup(f.geometry) === 'point') {
+                if (labelOnlyLayer) iconMode = 'hidden';
+                else if (milepostLayer) iconMode = 'milepost';
+                else iconMode = 'icon';
+            }
+            styleEls.push(_kmlStyleEl(id, baked, iconMode, exportOptions));
         }
         return `#${hashToId.get(h)}`;
     };
 
     const placemarkXml = features
-        .map((f, i) => _buildPlacemark(f, i, styleUrlFor(f)))
+        .map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset))
         .filter(Boolean)
         .join('\n');
 
@@ -102,8 +130,11 @@ ${styleEls.join('\n')}${placemarkXml}
     return { text: kml, mimeType: 'application/vnd.google-earth.kml+xml' };
 }
 
-function _buildPlacemark(f, idx, styleUrl) {
-    const name = f.properties?.name || f.properties?.Name || f.properties?.NAME || `Feature ${idx + 1}`;
+function _buildPlacemark(f, idx, styleUrl, dataset) {
+    const fallback = f.properties?.name || f.properties?.Name || f.properties?.NAME || `Feature ${idx + 1}`;
+    const name = isKmlMilepostLayer(dataset, null, [f])
+        ? (resolveMilepostPlacemarkName(f, dataset) || fallback)
+        : fallback;
     const desc = buildDescription(f.properties);
     const geomKml = geometryToKML(f.geometry);
     if (!geomKml) return '';
@@ -177,22 +208,50 @@ function _groupBySource(features) {
  * Convert app style to KML <Style> elements.
  * KML colors are AABBGGRR format (alpha, blue, green, red).
  */
-function _buildKmlStyles(style, useFolders) {
+function _buildKmlStyles(style, useFolders, dataset, features, exportOptions = {}) {
     if (useFolders) {
-        // Per-type styles
         const ps = { ...style, ...(style.point || {}) };
         const ls = { ...style, ...(style.line || {}) };
         const gs = { ...style, ...(style.polygon || {}) };
+        const pointIconMode = _layerIconMode(ps, dataset, features);
         return [
-            _kmlStyleEl('style_point', ps, true),
-            _kmlStyleEl('style_line', ls, false),
-            _kmlStyleEl('style_polygon', gs, false)
+            _kmlStyleEl('style_point', ps, pointIconMode, exportOptions),
+            _kmlStyleEl('style_line', ls, 'none', exportOptions),
+            _kmlStyleEl('style_polygon', gs, 'none', exportOptions)
         ].join('\n');
     }
-    return _kmlStyleEl('style_default', style, true);
+    return _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
 }
 
-function _kmlStyleEl(id, s, includeIcon) {
+function _isKmlLabelOnlyLayer(style, dataset) {
+    if (dataset?._kmlExport?.labelOnly) return true;
+    if (style?.kmlLabelOnly) return true;
+    const pointSize = style?.pointSize ?? style?.point?.pointSize;
+    const fillOpacity = style?.fillOpacity ?? style?.point?.fillOpacity;
+    if (pointSize === 0 && fillOpacity === 0) return true;
+    if (dataset?._mapLabels?.field && pointSize === 0) return true;
+    return false;
+}
+
+function _kmlIconMode(style, dataset, geometry, features) {
+    if (_primaryGeomGroup(geometry) !== 'point') return 'none';
+    if (_isKmlLabelOnlyLayer(style, dataset)) return 'hidden';
+    if (isKmlMilepostLayer(dataset, style, features)) return 'milepost';
+    return 'icon';
+}
+
+function _layerIconMode(style, dataset, features) {
+    if (_layerUsesLabelOnlyPoints(style, dataset, features)) return 'hidden';
+    if (isKmlMilepostLayer(dataset, style, features)) return 'milepost';
+    return 'icon';
+}
+
+function _layerUsesLabelOnlyPoints(style, dataset, features) {
+    if (_isKmlLabelOnlyLayer(style, dataset)) return true;
+    return (features || []).every((f) => _kmlIconMode(style, dataset, f.geometry, features) === 'hidden');
+}
+
+function _kmlStyleEl(id, s, iconMode = 'none', exportOptions = {}) {
     const sc = _hexToKmlColor(s.strokeColor || '#2563eb', s.strokeOpacity ?? 0.8);
     const fc = _hexToKmlColor(s.fillColor || s.strokeColor || '#2563eb', s.fillOpacity ?? 0.3);
     const sw = s.strokeWidth ?? 2;
@@ -200,10 +259,20 @@ function _kmlStyleEl(id, s, includeIcon) {
     let xml = `    <Style id="${id}">\n`;
     xml += `      <LineStyle><color>${sc}</color><width>${sw}</width></LineStyle>\n`;
     xml += `      <PolyStyle><color>${fc}</color></PolyStyle>\n`;
-    if (includeIcon) {
+    if (iconMode === 'icon') {
         const ic = _hexToKmlColor(s.fillColor || s.strokeColor || '#2563eb', Math.min(1, (s.fillOpacity ?? 0.3) + 0.3));
         const scale = ((s.pointSize || 6) / 6).toFixed(1);
         xml += `      <IconStyle><color>${ic}</color><scale>${scale}</scale></IconStyle>\n`;
+    } else if (iconMode === 'milepost') {
+        const ic = _hexToKmlColor(s.fillColor || s.strokeColor || MILEPOST_ICON_COLOR, 1);
+        const href = getMilepostIconHref(exportOptions.forKmzArchive === true);
+        xml += `      <IconStyle><color>${ic}</color><scale>${MILEPOST_ICON_SCALE}</scale><Icon><href>${escapeXml(href)}</href></Icon></IconStyle>\n`;
+        const lc = _hexToKmlColor(s.labelColor || '#1a1a1a', 1);
+        xml += `      <LabelStyle><scale>${MILEPOST_LABEL_SCALE}</scale><color>${lc}</color></LabelStyle>\n`;
+    } else if (iconMode === 'hidden') {
+        xml += `      <IconStyle><scale>0</scale></IconStyle>\n`;
+        const lc = _hexToKmlColor(s.labelColor || LABEL_ONLY_TEXT_COLOR, 1);
+        xml += `      <LabelStyle><scale>1</scale><color>${lc}</color></LabelStyle>\n`;
     }
     xml += `    </Style>\n`;
     return xml;
@@ -316,6 +385,8 @@ export async function exportMultiLayerKML(layers, options = {}, task) {
     layers.forEach(({ dataset, style }, idx) => {
         const features = dataset.geojson?.features || [];
         const folderName = dataset.name || `Layer ${idx + 1}`;
+        const labelOnlyLayer = _layerUsesLabelOnlyPoints(style, dataset, features);
+        const milepostLayer = isKmlMilepostLayer(dataset, style, features);
 
         if (style && isSmartStyleActive(style)) {
             const hashToId = new Map();
@@ -327,20 +398,32 @@ export async function exportMultiLayerKML(layers, options = {}, task) {
                 if (!hashToId.has(h)) {
                     const id = `style_layer_${idx}_baked_${hashToId.size}`;
                     hashToId.set(h, id);
-                    layerStyleEls.push(_kmlStyleEl(id, baked, _primaryGeomGroup(f.geometry) === 'point'));
+                    let iconMode = 'none';
+                    if (_primaryGeomGroup(f.geometry) === 'point') {
+                        if (labelOnlyLayer) iconMode = 'hidden';
+                        else if (milepostLayer) iconMode = 'milepost';
+                        else iconMode = 'icon';
+                    }
+                    layerStyleEls.push(_kmlStyleEl(id, baked, iconMode, options));
                 }
                 return `#${hashToId.get(h)}`;
             };
             styleBlock += layerStyleEls.join('\n');
-            const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrlFor(f))).filter(Boolean).join('\n');
+            const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
             return;
         }
 
         const styleId = `style_layer_${idx}`;
-        if (style) styleBlock += _kmlStyleEl(styleId, style, true);
-        const styleUrl = style ? `#${styleId}` : '';
-        const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrl)).filter(Boolean).join('\n');
+        if (style) {
+            styleBlock += _kmlStyleEl(styleId, style, _layerIconMode(style, dataset, features), options);
+        } else if (labelOnlyLayer) {
+            styleBlock += _kmlStyleEl(styleId, {}, 'hidden', options);
+        } else if (milepostLayer) {
+            styleBlock += _kmlStyleEl(styleId, {}, 'milepost', options);
+        }
+        const styleUrl = (style || labelOnlyLayer || milepostLayer) ? `#${styleId}` : '';
+        const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
         folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
     });
 

@@ -155,7 +155,8 @@ Defined in `js/widgets/widget-types.js`:
 |--------|--------|--------------|
 | Find Features in Area | `spatial-analyzer/` | `spatial-analyzer-engine.test.js` |
 | Bulk Update | `bulk-update/` | `bulk-update-engine.test.js` |
-| Proximity Join | `proximity-join/` | `proximity-join-engine.test.js` |
+| Route Centerline | `route-milepost-segment/` | `route-milepost-segment-engine.test.js` |
+| Project Stationing | `project-stationing/` | `project-stationing-engine.test.js` |
 
 ---
 

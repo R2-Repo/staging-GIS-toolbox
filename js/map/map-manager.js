@@ -49,6 +49,7 @@ function _tagFeaturesForMap(dataset) {
 import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled, shouldStartBoxSelectDrag } from './map-interaction-utils.js';
 import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
 import { buildSymbolLayerLayout } from './style-symbols.js';
+import { buildMapLabelLayerSpec } from './map-labels.js';
 
 const BASEMAPS = {
     voyager: {
@@ -623,6 +624,16 @@ class MapManager {
                     }
                 });
                 layerIds.push(ptId);
+            }
+        }
+
+        if (dataset._mapLabels?.field) {
+            const labelSpec = buildMapLabelLayerSpec(dataset.id, sourceId, dataset._mapLabels, useCluster);
+            const isLineLabels = dataset._mapLabels.placement === 'line';
+            const shouldAdd = labelSpec && ((isLineLabels && hasLines) || (!isLineLabels && hasPoints));
+            if (shouldAdd) {
+                this.map.addLayer(labelSpec);
+                layerIds.push(labelSpec.id);
             }
         }
 
@@ -2388,6 +2399,180 @@ class MapManager {
             paint: { 'line-color': '#ff0000', 'line-width': 4 }
         });
         layerIds.push(routeLineId);
+
+        const mpCircleId = srcId + '-mp-circle';
+        this.map.addLayer({
+            id: mpCircleId,
+            type: 'circle',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['Point', 'MultiPoint']),
+                ['in', ['get', '_preview'], ['literal', ['start_mp', 'end_mp']]]
+            ],
+            paint: {
+                'circle-radius': 10,
+                'circle-color': '#00ff00',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            }
+        });
+        layerIds.push(mpCircleId);
+
+        const entry = { srcId, layerIds };
+        this._tempLayers.push(entry);
+
+        if (duration > 0) setTimeout(() => this._removeTempFeature(entry), duration);
+        return entry;
+    }
+
+    /**
+     * Project stationing widget preview: route, clip, centerline, ticks, labels.
+     * _preview: route | centerline_segment | trimmed_centerline | project_centerline |
+     *   station_tick | station_label | begin_end_marker | start_mp | end_mp | milepost_tenth
+     */
+    showProjectStationingPreview(geojson, duration = 0) {
+        const srcId = this._nextId('temp');
+        this.map.addSource(srcId, { type: 'geojson', data: geojson });
+        const layerIds = [];
+
+        const routeLineId = srcId + '-route-line';
+        this.map.addLayer({
+            id: routeLineId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['==', ['get', '_preview'], 'route']
+            ],
+            paint: { 'line-color': '#cc4444', 'line-width': 3, 'line-opacity': 0.5 }
+        });
+        layerIds.push(routeLineId);
+
+        const mpClipId = srcId + '-mp-clip';
+        this.map.addLayer({
+            id: mpClipId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['==', ['get', '_preview'], 'centerline_segment']
+            ],
+            paint: { 'line-color': '#888888', 'line-width': 3, 'line-dasharray': [2, 2] }
+        });
+        layerIds.push(mpClipId);
+
+        const trimmedId = srcId + '-trimmed';
+        this.map.addLayer({
+            id: trimmedId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['==', ['get', '_preview'], 'trimmed_centerline']
+            ],
+            paint: { 'line-color': '#00cc66', 'line-width': 5 }
+        });
+        layerIds.push(trimmedId);
+
+        const projectCenterlineId = srcId + '-project-centerline';
+        this.map.addLayer({
+            id: projectCenterlineId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['==', ['get', '_preview'], 'project_centerline']
+            ],
+            paint: { 'line-color': '#111111', 'line-width': 5, 'line-opacity': 1 }
+        });
+        layerIds.push(projectCenterlineId);
+
+        const stationTickId = srcId + '-station-tick';
+        this.map.addLayer({
+            id: stationTickId,
+            type: 'line',
+            source: srcId,
+            filter: ['all',
+                _geomTypesFilter(['LineString', 'MultiLineString']),
+                ['==', ['get', '_preview'], 'station_tick']
+            ],
+            paint: { 'line-color': '#111111', 'line-width': 2, 'line-opacity': 1 }
+        });
+        layerIds.push(stationTickId);
+
+        const stationLabelSpec = buildMapLabelLayerSpec(srcId + '-station-labels', srcId, {
+            field: 'station_label',
+            minZoom: 0,
+            size: 11
+        });
+        if (stationLabelSpec) {
+            stationLabelSpec.id = srcId + '-station-label-text';
+            stationLabelSpec.filter = ['==', ['get', '_preview'], 'station_label'];
+            this.map.addLayer(stationLabelSpec);
+            layerIds.push(stationLabelSpec.id);
+        }
+
+        const beginEndId = srcId + '-begin-end';
+        this.map.addLayer({
+            id: beginEndId,
+            type: 'circle',
+            source: srcId,
+            filter: ['==', ['get', '_preview'], 'begin_end_marker'],
+            paint: {
+                'circle-radius': 7,
+                'circle-color': '#00cc66',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            }
+        });
+        layerIds.push(beginEndId);
+
+        const beginEndLabelSpec = buildMapLabelLayerSpec(srcId + '-begin-end-labels', srcId, {
+            field: 'name',
+            minZoom: 0,
+            size: 12
+        });
+        if (beginEndLabelSpec) {
+            beginEndLabelSpec.id = srcId + '-begin-end-text';
+            beginEndLabelSpec.filter = ['==', ['get', '_preview'], 'begin_end_marker'];
+            this.map.addLayer(beginEndLabelSpec);
+            layerIds.push(beginEndLabelSpec.id);
+        }
+
+        const milepostId = srcId + '-milepost';
+        this.map.addLayer({
+            id: milepostId,
+            type: 'circle',
+            source: srcId,
+            filter: ['==', ['get', '_preview'], 'milepost'],
+            paint: {
+                'circle-radius': 3,
+                'circle-color': '#00ff66',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 1
+            }
+        });
+        layerIds.push(milepostId);
+
+        const clipAreaId = srcId + '-clip-area';
+        this.map.addLayer({
+            id: clipAreaId,
+            type: 'fill',
+            source: srcId,
+            filter: ['==', ['get', '_preview'], 'clip_area'],
+            paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.15 }
+        });
+        layerIds.push(clipAreaId);
+
+        const clipAreaLineId = srcId + '-clip-area-line';
+        this.map.addLayer({
+            id: clipAreaLineId,
+            type: 'line',
+            source: srcId,
+            filter: ['==', ['get', '_preview'], 'clip_area'],
+            paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [4, 3] }
+        });
+        layerIds.push(clipAreaLineId);
 
         const mpCircleId = srcId + '-mp-circle';
         this.map.addLayer({

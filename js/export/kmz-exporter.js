@@ -4,6 +4,8 @@
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadJSZip } from '../core/libs.js';
 import { exportKML, exportMultiLayerKML, geometryToKML, escapeXml } from './kml-exporter.js';
+import { kmlUsesMilepostIcon } from './kml-milepost-style.js';
+import { getMilepostDotBytes } from './milepost-dot-png.js';
 
 export async function exportKMZ(dataset, options = {}, task) {
     const JSZipLib = await loadJSZip();
@@ -20,7 +22,7 @@ export async function exportKMZ(dataset, options = {}, task) {
     }
 
     // Standard KMZ
-    const kmlResult = await exportKML(dataset, options);
+    const kmlResult = await exportKML(dataset, { ...options, forKmzArchive: true });
     let kmlText = kmlResult.text;
 
     task?.updateProgress(60, 'Creating KMZ archive...');
@@ -39,6 +41,8 @@ export async function exportKMZ(dataset, options = {}, task) {
             }
         }
     }
+
+    _embedMilepostIcon(zip, kmlText);
 
     zip.file('doc.kml', kmlText);
 
@@ -128,7 +132,7 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
     }
 
     task?.updateProgress(20, 'Generating multi-layer KML...');
-    const kmlResult = await exportMultiLayerKML(layers, options, task);
+    const kmlResult = await exportMultiLayerKML(layers, { ...options, forKmzArchive: true }, task);
 
     task?.updateProgress(60, 'Creating KMZ archive...');
     const zip = new JSZipLib();
@@ -151,6 +155,8 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
         }
     }
 
+    _embedMilepostIcon(zip, kmlText);
+
     zip.file('doc.kml', kmlText);
 
     task?.updateProgress(80, 'Compressing...');
@@ -162,6 +168,12 @@ export async function exportMultiLayerKMZ(layers, options = {}, task) {
 
     task?.updateProgress(100, 'Done');
     return { blob };
+}
+
+function _embedMilepostIcon(zip, kmlText) {
+    if (!kmlUsesMilepostIcon(kmlText)) return;
+    const filesFolder = zip.folder('files');
+    filesFolder.file('milepost-dot.png', getMilepostDotBytes(), { binary: true });
 }
 
 /**

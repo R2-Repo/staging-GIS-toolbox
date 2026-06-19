@@ -208,6 +208,9 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         showRouteMilepostPreview(geojson, duration) {
             return mapAdapter.showRouteMilepostPreview?.(geojson, duration);
         },
+        showProjectStationingPreview(geojson, duration) {
+            return mapAdapter.showProjectStationingPreview?.(geojson, duration);
+        },
         removeTempFeature(entry) {
             return mapAdapter.removeTempFeature?.(entry);
         },

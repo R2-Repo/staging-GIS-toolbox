@@ -2,6 +2,7 @@ import { openSpatialAnalyzer } from './spatial-analyzer/controller.js';
 import { openBulkUpdate } from './bulk-update/controller.js';
 import { openProximityJoin } from './proximity-join/controller.js';
 import { openRouteMilepostSegment } from './route-milepost-segment/controller.js';
+import { openProjectStationing } from './project-stationing/controller.js';
 
 /** @typedef {import('./widget-types.js').WidgetContext} WidgetContext */
 
@@ -37,6 +38,14 @@ export const GIS_WIDGETS = [
         icon: '🛣️',
         tip: 'Build a road centerline between two UDOT mileposts.',
         open: openRouteMilepostSegment
+    },
+    {
+        type: 'project-stationing',
+        action: 'openProjectStationing',
+        label: 'Project Stationing',
+        icon: '📐',
+        tip: 'Generate 100-ft project station segments along a UDOT route centerline.',
+        open: openProjectStationing
     }
 ];
 

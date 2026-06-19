@@ -36,10 +36,18 @@ export function buildRouteProfile(input = {}, generatedOutput = {}) {
     const labelIntervalFt = Number(centerline?.properties?.label_interval_ft ?? stationIntervalFt);
     const routeName = routeMeta.routeAlias || routeMeta.routeName || centerline?.properties?.route_name || '';
     const routeId = routeMeta.routeId || centerline?.properties?.route_id || '';
+    const beginMilepost = clipMeta.mileposts?.startMp ?? centerline?.properties?.begin_milepost ?? null;
+    const endMilepost = clipMeta.mileposts?.endMp ?? centerline?.properties?.end_milepost ?? null;
+    const routeDirection = routeMeta.routeDirection
+        ?? centerline?.properties?.route_direction
+        ?? centerline?.properties?.ROUTE_DIRECTION
+        ?? '';
 
     return {
         route_id: routeId,
         route_name: routeName,
+        route_direction: String(routeDirection || '').toUpperCase(),
+        travel_direction: input.travelDirection || centerline?.properties?.travel_direction || '',
         source_layer_id: routeMeta.sourceLayerId || '',
         source_feature_id: routeMeta.sourceFeatureId ?? '',
         stationed_centerline_layer_id: input.stationedCenterlineLayerId || '',
@@ -49,11 +57,13 @@ export function buildRouteProfile(input = {}, generatedOutput = {}) {
         end_station_label: formatStation(endFeet),
         end_station_feet: endFeet,
         total_length_ft: totalLengthFt,
+        begin_milepost: beginMilepost != null ? Number(beginMilepost) : null,
+        end_milepost: endMilepost != null ? Number(endMilepost) : null,
         station_direction: input.stationDirection || 'geometry',
         station_interval_ft: stationIntervalFt,
         label_interval_ft: labelIntervalFt,
         units: 'feet',
-        clip_method: clipMeta.clipMethod || '',
+        clip_method: clipMeta.clipMethod || centerline?.properties?.clip_method || '',
         created_date: new Date().toISOString(),
         created_by_widget: PROJECT_STATIONING_WIDGET_ID
     };
@@ -68,9 +78,14 @@ export function routeProfileToProperties(profile = {}) {
         end_station_label: profile.end_station_label || '',
         end_station_feet: profile.end_station_feet ?? null,
         total_length_ft: profile.total_length_ft ?? null,
+        begin_milepost: profile.begin_milepost ?? null,
+        end_milepost: profile.end_milepost ?? null,
+        route_direction: profile.route_direction || '',
+        travel_direction: profile.travel_direction || '',
         station_direction: profile.station_direction || 'geometry',
         station_interval_ft: profile.station_interval_ft ?? null,
         label_interval_ft: profile.label_interval_ft ?? null,
+        clip_method: profile.clip_method || '',
         route_geometry_hash: profile.route_geometry_hash || '',
         created_by_widget: PROJECT_STATIONING_WIDGET_ID
     };
@@ -97,9 +112,14 @@ export function readRouteProfile(layer) {
         end_station_label: props.end_station_label || props.end_station || props.station_end || '',
         end_station_feet: Number(props.end_station_feet ?? props.station_end_ft ?? 0),
         total_length_ft: Number(props.total_length_ft ?? props.length_ft ?? 0),
+        begin_milepost: props.begin_milepost != null ? Number(props.begin_milepost) : null,
+        end_milepost: props.end_milepost != null ? Number(props.end_milepost) : null,
+        route_direction: String(props.route_direction || props.ROUTE_DIRECTION || '').toUpperCase(),
+        travel_direction: props.travel_direction || '',
         station_direction: props.station_direction || 'geometry',
         station_interval_ft: Number(props.station_interval_ft ?? props.interval_ft ?? 100),
         label_interval_ft: Number(props.label_interval_ft ?? props.interval_ft ?? 100),
+        clip_method: props.clip_method || '',
         units: props.units || 'feet',
         created_date: props.created_date || props.created_at || '',
         created_by_widget: PROJECT_STATIONING_WIDGET_ID

@@ -25,7 +25,8 @@ import {
     buildOutputLayerName,
     formatRouteMileage,
     parseRouteMileage,
-    resolveClipMilepostRange
+    resolveClipMilepostRange,
+    resolveClipMilepostEndpoints
 } from './engine.js';
 import {
     buildRouteProfile,
@@ -37,6 +38,7 @@ import { importFile } from '../../import/importer.js';
 import { createTableDataset } from '../../core/data-model.js';
 import { detectStationTableColumns, getOffsetEmbeddedSideForMapping, normalizeColumnMapping } from './table-import/station-table-detect.js';
 import { validateStationTableRows, buildUnplottedRowsReport } from './table-import/station-table-validation.js';
+import { enrichRouteProfileTravelDirection, suggestSideDirectionMapping } from './table-import/station-locator-name.js';
 
 /** @type {typeof UDOT_ROUTE_SEGMENT_CONFIG} */
 const activeConfig = { ...UDOT_ROUTE_SEGMENT_CONFIG };
@@ -403,6 +405,7 @@ async function fetchMilepostTenths(clip, routeContext, centerline) {
 }
 
 function buildStationingInput(input, clip, routeContext) {
+    const milepostEndpoints = resolveClipMilepostEndpoints(clip, routeContext, activeConfig);
     return {
         centerline: clip.trimmedCenterline || clip.baseCenterline || clip.mpCenterline,
         beginStation: input.beginStation,
@@ -412,11 +415,12 @@ function buildStationingInput(input, clip, routeContext) {
         endOffsetFt: 0,
         routeMeta: {
             routeId: routeContext.routeId,
-            routeAlias: routeContext.routeAlias
+            routeAlias: routeContext.routeAlias,
+            routeDirection: routeContext.routeSelection?.positiveLine?.properties?.[activeConfig.routeDirectionField] || ''
         },
         clipMeta: {
             clipMethod: clip.clipMethod || CLIP_METHODS.FULL_ROUTE,
-            mileposts: clip.range ? { startMp: clip.range.startMp, endMp: clip.range.endMp } : {},
+            mileposts: milepostEndpoints || {},
             warnings: clip.warnings || []
         }
     };
@@ -461,11 +465,26 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
     const routeLayer = typeof routeLayerOrId === 'string'
         ? ctx.getLayerById?.(routeLayerOrId)
         : routeLayerOrId;
-    const routeProfile = readRouteProfile(routeLayer);
     const routeLine = getRouteLineFromLayer(routeLayer);
+    const routeProfile = enrichRouteProfileTravelDirection(
+        routeLine,
+        readRouteProfile(routeLayer),
+        { forceRecompute: true }
+    );
+    const suggestedNaming = suggestSideDirectionMapping(routeLine, routeProfile);
     if (!routeLayer || !routeProfile || !routeLine) {
         ctx.showToast?.('Select a Project Stationing centerline layer first.', 'error');
         return;
+    }
+
+    function buildDefaultLocatorNaming(overrides = {}) {
+        return {
+            routeName: routeProfile.route_name || '',
+            rtDirection: suggestedNaming.rtDirection || '',
+            ltDirection: suggestedNaming.ltDirection || '',
+            clDirection: suggestedNaming.clDirection || suggestedNaming.rtDirection || '',
+            ...overrides
+        };
     }
 
     const importState = {
@@ -481,7 +500,9 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
         const output = await validateStationTableRows(importState.rows, routeLine, routeProfile, mapping, {
             positiveOffsetMeans: 'right',
             includeQaLines: true,
-            coordinateCrs: plotOptions.coordinateCrs
+            coordinateCrs: plotOptions.coordinateCrs,
+            locatorNaming: plotOptions.locatorNaming,
+            sideDirectionSuggestion: suggestedNaming
         });
         return {
             detection,
@@ -492,21 +513,23 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
     }
 
     await openReactIsland({
-        title: 'Import Station Table (RT/LT in Offset)',
+        title: 'Import Station Table',
         width: '680px',
         mountPath: '../../../react/widgets/project-stationing/mountImportStationTableDialog.jsx',
         mountExport: 'mountImportStationTableDialog',
         getProps: (close) => ({
             routeProfile,
+            suggestedNaming,
             onCancel: close,
-            onFileLoad: async (file) => {
+            onFileLoad: async (file, options = {}) => {
                 const result = await importFile(file, { skipGuard: true, source: 'project-stationing-table' });
                 const extracted = extractRowsFromImportResult(result);
                 importState.rows = extracted.rows;
                 importState.fields = extracted.fields;
                 importState.datasetName = extracted.datasetName || file.name;
                 importState.detection = detectStationTableColumns(importState.rows, importState.fields);
-                const analysis = await analyze();
+                const naming = options.locatorNaming || buildDefaultLocatorNaming();
+                const analysis = await analyze({}, { locatorNaming: naming });
                 return {
                     rowCount: importState.rows.length,
                     fields: importState.fields,
@@ -515,7 +538,7 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
                     ...analysis
                 };
             },
-            onAnalyzeMapping: async (mappingOverrides) => analyze(mappingOverrides),
+            onAnalyzeMapping: async (mappingOverrides, options = {}) => analyze(mappingOverrides, options),
             onPlot: async (mappingOverrides, options = {}) => {
                 const output = await analyze(mappingOverrides, options);
                 const baseName = routeProfile.route_name || routeLayer.name || 'Stationing';
@@ -726,7 +749,10 @@ export async function openProjectStationing(ctx) {
                     summary.endStation,
                     summary.intervalFeet
                 );
-                const routeProfile = buildRouteProfile(stationInput, stationResult);
+                const routeProfile = enrichRouteProfileTravelDirection(
+                    stationResult.centerline,
+                    buildRouteProfile(stationInput, stationResult)
+                );
                 stationResult.centerline.properties = {
                     ...stationResult.centerline.properties,
                     ...routeProfileToProperties(routeProfile)

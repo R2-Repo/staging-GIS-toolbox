@@ -33,23 +33,32 @@ function DetectionLine({ label, item, fallback }) {
 
 function SideDetectionLine({ sideDetection, offsetEmbeddedSide }) {
     if (sideDetection?.field && (sideDetection.confidence ?? 0) >= 50) {
-        return <DetectionLine label="Side (RT/LT)" item={sideDetection} />;
+        return <DetectionLine label="Offset side (RT/LT)" item={sideDetection} />;
     }
     if (offsetEmbeddedSide?.includesSide) {
         const fieldLabel = offsetEmbeddedSide.offsetField || 'Offset';
         return (
             <div className="text-xs">
-                <strong>Side (RT/LT):</strong>{' '}
+                <strong>Offset side (RT/LT):</strong>{' '}
                 read from Offset column ({fieldLabel}, {offsetEmbeddedSide.pct}% of values)
             </div>
         );
     }
     return (
         <div className="text-xs text-muted">
-            <strong>Side (RT/LT):</strong>{' '}
+            <strong>Offset side (RT/LT):</strong>{' '}
             optional — include in Offset (e.g. 91.29 RT) or map a separate Side column below
         </div>
     );
+}
+
+function buildInitialLocatorNaming(routeProfile, suggestedNaming) {
+    return {
+        routeName: routeProfile?.route_name || '',
+        rtDirection: suggestedNaming?.rtDirection || suggestedNaming?.suggested || '',
+        ltDirection: suggestedNaming?.ltDirection || '',
+        clDirection: suggestedNaming?.clDirection || suggestedNaming?.rtDirection || suggestedNaming?.suggested || ''
+    };
 }
 
 function SamplePreview({ rows = [], fields = [] }) {
@@ -84,6 +93,7 @@ function SamplePreview({ rows = [], fields = [] }) {
 
 export function ImportStationTableDialog({
     routeProfile,
+    suggestedNaming,
     onCancel,
     onFileLoad,
     onAnalyzeMapping,
@@ -97,6 +107,11 @@ export function ImportStationTableDialog({
     const [showOptionalColumns, setShowOptionalColumns] = useState(false);
     const [includeQaLines, setIncludeQaLines] = useState(false);
     const [coordinateCrs, setCoordinateCrs] = useState('EPSG:6337');
+    const [locatorNaming, setLocatorNaming] = useState(() =>
+        buildInitialLocatorNaming(routeProfile, suggestedNaming));
+
+    const directionChoices = suggestedNaming?.choices || ['EB', 'WB'];
+    const axisLabel = suggestedNaming?.axis === 'ns' ? 'NB / SB' : 'EB / WB';
 
     const fields = loaded?.fields || [];
     const offsetEmbeddedSide = loaded?.offsetEmbeddedSide || loaded?.detection?.offsetEmbeddedSide;
@@ -118,7 +133,7 @@ export function ImportStationTableDialog({
         setError('');
         setShowOptionalColumns(false);
         try {
-            const result = await onFileLoad?.(file);
+            const result = await onFileLoad?.(file, { locatorNaming });
             setLoaded(result);
             setMapping(result?.mapping || {});
         } catch (err) {
@@ -134,10 +149,30 @@ export function ImportStationTableDialog({
         setMapping(next);
         if (!loaded) return;
         try {
-            const result = await onAnalyzeMapping?.(next);
+            const result = await onAnalyzeMapping?.(next, { locatorNaming });
             setLoaded((current) => ({ ...current, ...result }));
         } catch (err) {
             setError(err?.message || 'Unable to analyze mapping.');
+        }
+    };
+
+    const updateLocatorNaming = async (patch) => {
+        const next = { ...locatorNaming, ...patch };
+        if (patch.rtDirection && !patch.ltDirection && !patch.clDirection) {
+            const choices = directionChoices;
+            const opposite = choices.find((dir) => dir !== patch.rtDirection) || '';
+            next.ltDirection = opposite;
+            if (!locatorNaming.clDirection || locatorNaming.clDirection === locatorNaming.rtDirection) {
+                next.clDirection = patch.rtDirection;
+            }
+        }
+        setLocatorNaming(next);
+        if (!loaded) return;
+        try {
+            const result = await onAnalyzeMapping?.(mapping, { locatorNaming: next });
+            setLoaded((current) => ({ ...current, ...result }));
+        } catch (err) {
+            setError(err?.message || 'Unable to update locator names.');
         }
     };
 
@@ -145,7 +180,11 @@ export function ImportStationTableDialog({
         setPlotting(true);
         setError('');
         try {
-            await onPlot?.(mapping, { includeQaLines, coordinateCrs: needsCoordinateCrs ? coordinateCrs : undefined });
+            await onPlot?.(mapping, {
+                includeQaLines,
+                coordinateCrs: needsCoordinateCrs ? coordinateCrs : undefined,
+                locatorNaming
+            });
         } catch (err) {
             setError(err?.message || 'Unable to plot station table.');
             setPlotting(false);
@@ -174,6 +213,68 @@ export function ImportStationTableDialog({
             </div>
 
             <div className="form-group mb-8">
+                <div className="text-xs mb-4"><strong>Locator names</strong> — suggested from centerline; edit before plotting</div>
+                <div className="text-xs text-muted mb-4">
+                    Route axis: <strong>{axisLabel}</strong> (from centerline geometry + milepost).
+                    RT/LT in your table picks the direction in the name; RT/LT text is not added to the name.
+                </div>
+                <div style={columnGridStyle}>
+                    <label className="text-xs">
+                        <span className="text-muted">Route name</span>
+                        <input
+                            type="text"
+                            value={locatorNaming.routeName}
+                            onChange={(e) => updateLocatorNaming({ routeName: e.target.value })}
+                            disabled={loading || plotting}
+                            style={{ width: '100%', marginTop: 4 }}
+                        />
+                    </label>
+                    <label className="text-xs">
+                        <span className="text-muted">RT direction</span>
+                        <select
+                            value={locatorNaming.rtDirection || ''}
+                            onChange={(e) => updateLocatorNaming({ rtDirection: e.target.value })}
+                            disabled={loading || plotting}
+                            style={{ width: '100%', marginTop: 4 }}
+                        >
+                            {directionChoices.map((dir) => (
+                                <option key={dir} value={dir}>{dir}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="text-xs">
+                        <span className="text-muted">LT direction</span>
+                        <select
+                            value={locatorNaming.ltDirection || ''}
+                            onChange={(e) => updateLocatorNaming({ ltDirection: e.target.value })}
+                            disabled={loading || plotting}
+                            style={{ width: '100%', marginTop: 4 }}
+                        >
+                            {directionChoices.map((dir) => (
+                                <option key={dir} value={dir}>{dir}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="text-xs">
+                        <span className="text-muted">Centerline (CL) direction</span>
+                        <select
+                            value={locatorNaming.clDirection || ''}
+                            onChange={(e) => updateLocatorNaming({ clDirection: e.target.value })}
+                            disabled={loading || plotting}
+                            style={{ width: '100%', marginTop: 4 }}
+                        >
+                            {directionChoices.map((dir) => (
+                                <option key={dir} value={dir}>{dir}</option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+                <div className="text-xs text-muted mt-4">
+                    RT = right of centerline facing increasing milepost; LT = left. On two-way roads these usually map to opposite directions.
+                </div>
+            </div>
+
+            <div className="form-group mb-8">
                 <label className="text-xs text-muted" htmlFor="station-table-file">Station table (CSV or Excel)</label>
                 <input
                     id="station-table-file"
@@ -183,7 +284,7 @@ export function ImportStationTableDialog({
                     disabled={loading || plotting}
                 />
                 <div className="text-xs text-muted mt-4">
-                    Map Station and Offset. Side (RT/LT) can live in the Offset values (e.g. 91.29 RT) — a separate Side column is optional.
+                    Map Station and Offset. Offset side (RT/LT) can live in Offset values (e.g. 91.29 RT).
                 </div>
             </div>
 
@@ -209,6 +310,33 @@ export function ImportStationTableDialog({
                     </div>
 
                     <SamplePreview rows={loaded.previewRows} fields={fields} />
+
+                    <div className="info-box text-xs mb-8">
+                        <div><strong>Map label preview</strong></div>
+                        {loaded.sampleLocatorNameRt || loaded.sampleLocatorNameLt ? (
+                            <div className="mt-4">
+                                {loaded.sampleLocatorNameRt ? (
+                                    <div>RT row: <strong>{loaded.sampleLocatorNameRt}</strong></div>
+                                ) : null}
+                                {loaded.sampleLocatorNameLt ? (
+                                    <div className={loaded.sampleLocatorNameRt ? 'mt-4' : ''}>
+                                        LT row: <strong>{loaded.sampleLocatorNameLt}</strong>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : loaded.sampleLocatorName ? (
+                            <div className="mt-4">
+                                Example: <strong>{loaded.sampleLocatorName}</strong>
+                            </div>
+                        ) : (
+                            <div className="text-muted mt-4">Load a table to preview generated names.</div>
+                        )}
+                        {loaded.milepostMetadataAvailable === false ? (
+                            <div className="text-muted mt-4">
+                                Route milepost bounds are unavailable — names will use engineering station (Sta …) instead of MP.
+                            </div>
+                        ) : null}
+                    </div>
 
                     <div className="mb-4 text-xs">
                         <strong>Required columns</strong>
@@ -257,10 +385,11 @@ export function ImportStationTableDialog({
                                     hint="Skip if RT/LT is already in Offset (e.g. 55.00 LT)."
                                 />
                                 <FieldPicker
-                                    label="Label column — optional"
+                                    label="Label column — optional (table_label attribute)"
                                     value={mapping.label}
                                     fields={fields}
                                     onChange={(v) => updateMapping('label', v)}
+                                    hint="Stored on features as table_label; map labels use generated locator names."
                                 />
                                 <FieldPicker
                                     label="Latitude column — optional"

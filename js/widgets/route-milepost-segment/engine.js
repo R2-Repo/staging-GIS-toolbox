@@ -293,6 +293,19 @@ export function milepostToDistanceFeet(targetMp, begMp, endMp, lineLengthFeet) {
 }
 
 /**
+ * @param {number} distanceFeet
+ * @param {number} begMp
+ * @param {number} endMp
+ * @param {number} lineLengthFeet
+ */
+export function distanceFeetToMilepost(distanceFeet, begMp, endMp, lineLengthFeet) {
+    const len = Number(lineLengthFeet);
+    if (!Number.isFinite(len) || len <= 0) return null;
+    const t = Number(distanceFeet) / len;
+    return Number(begMp) + t * (Number(endMp) - Number(begMp));
+}
+
+/**
  * Locate an exact milepost along the route centerline via BEG/END linear referencing.
  * @param {import('geojson').Feature} positiveLine
  * @param {number} targetMp

@@ -91,6 +91,76 @@ export function resolveClipMilepostRange(clip, routeContext, config) {
     return { ok: false, needsSpatialFilter: true };
 }
 
+/**
+ * Milepost values at the start and end of a clipped centerline (for linear referencing).
+ * @param {object} clip
+ * @param {object} routeContext
+ * @param {object} config
+ * @returns {{ startMp: number, endMp: number }|null}
+ */
+export function resolveClipMilepostEndpoints(clip, routeContext, config) {
+    if (clip?.range?.startMp != null && clip?.range?.endMp != null) {
+        return normalizeMilepostEndpointsForLine(
+            clip.range.startMp,
+            clip.range.endMp,
+            routeContext,
+            config
+        );
+    }
+
+    const posLine = routeContext?.routeSelection?.positiveLine;
+    const record = routeContext?.routeRecord;
+    const begField = config.begMileageField;
+    const endField = config.endMileageField;
+    const beg = parseRouteMileage(record?.[begField] ?? posLine?.properties?.[begField]);
+    const end = parseRouteMileage(record?.[endField] ?? posLine?.properties?.[endField]);
+
+    if (beg == null || end == null) return null;
+
+    if (clip?.mapClipStartFt != null && clip?.mapClipEndFt != null && posLine) {
+        const totalLen = lineLengthFeet(posLine);
+        if (totalLen <= 0) return null;
+        const startDist = Math.min(Number(clip.mapClipStartFt), Number(clip.mapClipEndFt));
+        const endDist = Math.max(Number(clip.mapClipStartFt), Number(clip.mapClipEndFt));
+        const t0 = startDist / totalLen;
+        const t1 = endDist / totalLen;
+        return {
+            startMp: beg + t0 * (end - beg),
+            endMp: beg + t1 * (end - beg)
+        };
+    }
+
+    return { startMp: beg, endMp: end };
+}
+
+/**
+ * Milepost clip slices always run low→high distance on the route line.
+ * Store begin/end MP at geometry start/end, not user entry order.
+ * @param {number|string} startMp
+ * @param {number|string} endMp
+ * @param {object} routeContext
+ * @param {object} config
+ */
+export function normalizeMilepostEndpointsForLine(startMp, endMp, routeContext, config) {
+    const a = Number(startMp);
+    const b = Number(endMp);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) {
+        return { startMp: a, endMp: b };
+    }
+
+    const posLine = routeContext?.routeSelection?.positiveLine;
+    const record = routeContext?.routeRecord;
+    const begField = config?.begMileageField || 'BEG_MILEAGE';
+    const endField = config?.endMileageField || 'END_MILEAGE';
+    const routeBeg = parseRouteMileage(record?.[begField] ?? posLine?.properties?.[begField]);
+    const routeEnd = parseRouteMileage(record?.[endField] ?? posLine?.properties?.[endField]);
+
+    if (routeBeg != null && routeEnd != null && routeBeg > routeEnd) {
+        return { startMp: Math.max(a, b), endMp: Math.min(a, b) };
+    }
+    return { startMp: Math.min(a, b), endMp: Math.max(a, b) };
+}
+
 const STATION_PLUS_PATTERN = /^(\d+)\+(\d+(?:\.\d+)?)$/;
 
 /**

@@ -3,24 +3,32 @@
 ## Latest
 
 - **Date**: 2026-06-19
-- **Status**: **Import Station Table — RT/LT UX clarity**
+- **Status**: **Import Station Table — side-based locator direction (RT→EB, LT→WB)**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- Dialog title: **Import Station Table (RT/LT in Offset)**
-- Required vs optional column mapping; Side/Label/coordinates collapsed under “Show optional columns”
-- Detection shows **Side (RT/LT): read from Offset column** when values include RT/LT; info box when no Side column needed
-- `analyzeOffsetEmbeddedSide` / `getOffsetEmbeddedSideForMapping` in [`station-table-detect.js`](js/widgets/project-stationing/table-import/station-table-detect.js)
+- Locator **travel direction is per point** from offset side: RT → primary (e.g. EB), LT → opposite (e.g. WB), CL → configurable
+- Route axis (EB/WB vs NB/SB) auto-detected from centerline; import dialog has editable RT / LT / CL direction dropdowns (2 choices each)
+- **No RT/LT text in calculated names** — format `SR-145 EB MP 611.44` only
+- Preview shows separate RT and LT row examples when table has both sides
 
 ### Verification
 
-- `npm test -- tests/station-table-detect.test.js` — 5 tests green
-- **Browser** (manual): load ITS-style CSV → confirm Side message + only Station/Offset required
+- `npm test -- tests/station-locator-name.test.js tests/station-event-plot.test.js` — 34 tests green
+- **Browser** (manual): SR-145 import → RT rows EB, LT rows WB, no RT/LT suffix in labels
 
 ### Next
 
-- Manual browser smoke on Import Station Table with embedded RT/LT offset values
+- Manual check on SR-145; swap RT/LT direction dropdowns if agency convention is reversed
+
+---
+
+## Previous (2026-06-19) — Import Station Table — editable locator naming (suggested travel direction)
+
+---
+
+## Previous (2026-06-19) — Import Station Table — RT/LT UX clarity
 
 ---
 

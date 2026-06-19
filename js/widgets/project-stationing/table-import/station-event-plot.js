@@ -16,6 +16,12 @@ import {
     parseStationValue,
     stationToDistanceAlongRoute
 } from './station-table-parse.js';
+import {
+    applyLocatorNamingOptions,
+    computeStationLocatorFields,
+    resolveSideDirectionMapping,
+    suggestSideDirectionMapping
+} from './station-locator-name.js';
 
 const DEFAULT_OPTIONS = {
     coordinateFarThresholdFt: 250,
@@ -66,10 +72,8 @@ function classifyByWarnings(warnings = []) {
     return STATIONING_STATUS.READY;
 }
 
-function chooseName(row, mapping, normalized, rowNumber) {
-    const label = String(getValue(row, mapping.label) || '').trim();
-    if (label) return label;
-    return normalized.stationLabel || `Row ${rowNumber}`;
+function tableLabel(row, mapping) {
+    return String(getValue(row, mapping.label) || '').trim();
 }
 
 function nearestStationForCoordinate(coordPoint, routeLine, routeProfile) {
@@ -222,6 +226,22 @@ export function plotStationEvent(row, routeLine, routeProfile, mapping = {}, opt
             : method;
     const plottable = Boolean(eventPoint && !errors.length && status !== STATIONING_STATUS.COORDINATE_CONFLICT);
 
+    let locatorFields = {
+        locator_name: routeProfile.route_name || `Row ${normalized.rowNumber}`,
+        locator_milepost: null,
+        locator_milepost_label: '',
+        travel_direction: ''
+    };
+    if (routeDistanceFt != null && Number.isFinite(routeDistanceFt) && !errors.includes(ERROR_CODES.STATION_OUTSIDE_ROUTE)) {
+        locatorFields = computeStationLocatorFields({
+            routeProfile,
+            routeDistanceFt,
+            stationLabel: normalized.stationLabel,
+            offsetSide: normalized.offset.offsetSide,
+            sideDirectionMapping: opts.sideDirectionMapping || {}
+        });
+    }
+
     const systemProps = {
         stationing_station_raw: normalized.station.raw || '',
         stationing_station_label: normalized.stationLabel || '',
@@ -235,7 +255,13 @@ export function plotStationEvent(row, routeLine, routeProfile, mapping = {}, opt
         stationing_plot_warning: [...warnings, ...errors].join('; '),
         stationing_source_row_number: normalized.rowNumber,
         stationing_route_id: routeProfile.route_id || '',
-        name: chooseName(row, mapping, normalized, normalized.rowNumber)
+        route_direction: routeProfile.route_direction || '',
+        locator_name: locatorFields.locator_name,
+        locator_milepost: locatorFields.locator_milepost,
+        locator_milepost_label: locatorFields.locator_milepost_label,
+        travel_direction: locatorFields.travel_direction,
+        table_label: tableLabel(row, mapping),
+        name: locatorFields.locator_name
     };
 
     return {
@@ -281,6 +307,10 @@ export async function resolveRowCoordinateReprojection(row, mapping, coordinateC
 }
 
 export async function generateStationEventOutput(rows = [], routeLine, routeProfile, mapping = {}, options = {}) {
+    const suggestion = options.sideDirectionSuggestion
+        || suggestSideDirectionMapping(routeLine, routeProfile);
+    const sideDirectionMapping = resolveSideDirectionMapping(options.locatorNaming || {}, suggestion);
+    const resolvedProfile = applyLocatorNamingOptions(routeProfile, options.locatorNaming || {});
     const eventPoints = [];
     const connectorLines = [];
     const qaLines = [];
@@ -289,12 +319,12 @@ export async function generateStationEventOutput(rows = [], routeLine, routeProf
 
     for (let index = 0; index < rows.length; index++) {
         const row = rows[index];
-        const rowOptions = { ...options, rowNumber: index + 1 };
+        const rowOptions = { ...options, rowNumber: index + 1, sideDirectionMapping };
         if (options.coordinateCrs) {
             const reprojected = await resolveRowCoordinateReprojection(row, mapping, options.coordinateCrs);
             if (reprojected) rowOptions.reprojectedCoordinates = reprojected;
         }
-        const result = plotStationEvent(row, routeLine, routeProfile, mapping, rowOptions);
+        const result = plotStationEvent(row, routeLine, resolvedProfile, mapping, rowOptions);
         reviewedRows.push({
             rowNumber: index + 1,
             status: result.status,
@@ -308,13 +338,31 @@ export async function generateStationEventOutput(rows = [], routeLine, routeProf
         if (result.unplottedRow) unplottedRows.push(result.unplottedRow);
     }
 
+    let sampleLocatorNameRt = '';
+    let sampleLocatorNameLt = '';
+    for (const feature of eventPoints) {
+        const side = feature.properties?.stationing_offset_side;
+        if (side === 'RT' && !sampleLocatorNameRt) {
+            sampleLocatorNameRt = feature.properties?.locator_name || '';
+        }
+        if (side === 'LT' && !sampleLocatorNameLt) {
+            sampleLocatorNameLt = feature.properties?.locator_name || '';
+        }
+    }
+
     return {
         eventPoints,
         connectorLines,
         qaLines,
         unplottedRows,
         reviewedRows,
-        summary: summarizeStationEventRows(reviewedRows)
+        summary: summarizeStationEventRows(reviewedRows),
+        sampleLocatorName: sampleLocatorNameRt || sampleLocatorNameLt || eventPoints[0]?.properties?.locator_name || '',
+        sampleLocatorNameRt,
+        sampleLocatorNameLt,
+        milepostMetadataAvailable: resolvedProfile.begin_milepost != null && resolvedProfile.end_milepost != null,
+        sideDirectionMapping,
+        travelDirection: sideDirectionMapping.rtDirection || ''
     };
 }
 

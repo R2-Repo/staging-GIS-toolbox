@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { detectStationTableColumns } from '../js/widgets/project-stationing/table-import/station-table-detect.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { detectStationTableColumns, getOffsetEmbeddedSideForMapping, normalizeColumnMapping } from '../js/widgets/project-stationing/table-import/station-table-detect.js';
+
+const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+
+function parseCsv(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const headers = lines[0].split(',').map((h) => h.trim());
+    return lines.slice(1).filter(Boolean).map((line) => {
+        const values = line.split(',');
+        return Object.fromEntries(headers.map((header, i) => [header, values[i]?.trim() ?? '']));
+    });
+}
 
 describe('station table column detection', () => {
     it('detects station offset side and GPS columns', () => {
@@ -24,5 +38,42 @@ describe('station table column detection', () => {
         const detection = detectStationTableColumns(rows);
         expect(detection.station.field).toBe('Location');
         expect(detection.station.confidence).toBeGreaterThan(50);
+    });
+
+    it('detects ITS-style CSV with embedded offset side', () => {
+        const csv = readFileSync(join(fixtureDir, 'its-station-table.csv'), 'utf8');
+        const rows = parseCsv(csv);
+        const detection = detectStationTableColumns(rows);
+
+        expect(detection.station.field).toBe('Station');
+        expect(detection.offset.field).toBe('Offset');
+        expect(detection.label.field).toBe('ID');
+        expect(detection.hasUsableStation).toBe(true);
+        expect(detection.side.confidence).toBeLessThan(50);
+        expect(detection.offsetEmbeddedSide.includesSide).toBe(true);
+        expect(detection.offsetEmbeddedSide.offsetField).toBe('Offset');
+        expect(detection.offsetEmbeddedSide.pct).toBeGreaterThan(50);
+        expect(detection.latitude.confidence).toBeLessThan(50);
+    });
+
+    it('reports embedded RT/LT side for mapped offset column', () => {
+        const csv = readFileSync(join(fixtureDir, 'its-station-table.csv'), 'utf8');
+        const rows = parseCsv(csv);
+        const embedded = getOffsetEmbeddedSideForMapping(rows, 'Offset');
+        expect(embedded.includesSide).toBe(true);
+        expect(embedded.pct).toBeGreaterThan(50);
+    });
+
+    it('does not map low-confidence numeric ID column as latitude/longitude', () => {
+        const csv = readFileSync(join(fixtureDir, 'its-station-table.csv'), 'utf8');
+        const rows = parseCsv(csv);
+        const detection = detectStationTableColumns(rows);
+        const mapping = normalizeColumnMapping(detection);
+
+        expect(mapping.latitude).toBe('');
+        expect(mapping.longitude).toBe('');
+        expect(mapping.station).toBe('Station');
+        expect(mapping.offset).toBe('Offset');
+        expect(mapping.label).toBe('ID');
     });
 });

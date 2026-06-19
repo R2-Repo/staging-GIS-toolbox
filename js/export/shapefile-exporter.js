@@ -4,19 +4,31 @@
  * Uses JSZip (via bootstrapGlobals / npm)
  */
 import { loadJSZip } from '../core/libs.js';
+import { getCrsWkt, normalizeCrsCode } from '../crs/registry.js';
+import { reprojectFeatureCollection } from '../crs/reproject.js';
+import { getLayerCrs } from '../crs/layer-crs.js';
 
 const SHP_NULL = 0;
 const SHP_POINT = 1;
 const SHP_POLYLINE = 3;
 const SHP_POLYGON = 5;
 
-const WGS84_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+const DEFAULT_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
 
 /**
  * Export a spatial dataset as a zipped Shapefile
  */
 export async function exportShapefile(dataset, options = {}, task) {
-    const features = dataset.geojson?.features || [];
+    const targetCrs = normalizeCrsCode(options.targetCrs || 'EPSG:4326');
+    const sourceCrs = normalizeCrsCode(options.sourceCrs || getLayerCrs(dataset));
+
+    let geojson = dataset.geojson;
+    if (sourceCrs !== targetCrs) {
+        task?.updateProgress(15, `Reprojecting to ${targetCrs}...`);
+        geojson = await reprojectFeatureCollection(geojson, sourceCrs, targetCrs);
+    }
+
+    const features = geojson?.features || [];
     if (features.length === 0) throw new Error('No features to export');
 
     task?.updateProgress(20, 'Analyzing geometry types...');
@@ -59,7 +71,7 @@ export async function exportShapefile(dataset, options = {}, task) {
     zip.file(`${name}.shp`, shpBuf);
     zip.file(`${name}.shx`, shxBuf);
     zip.file(`${name}.dbf`, dbfBuf);
-    zip.file(`${name}.prj`, WGS84_PRJ);
+    zip.file(`${name}.prj`, getCrsWkt(targetCrs) || DEFAULT_PRJ);
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 

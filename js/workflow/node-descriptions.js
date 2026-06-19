@@ -30,6 +30,7 @@ export const NODE_DESCRIPTIONS = {
 
     // Spatial
     'buffer': 'Create a buffer zone around features at a specified distance and unit.',
+    'reproject': 'Reproject feature geometries from one CRS to another.',
     'line-offset': 'Create a parallel copy of line features shifted left or right by a set distance.',
     'simplify': 'Reduce vertex count in lines or polygons while preserving overall shape.',
     'dissolve': 'Merge adjacent or overlapping features, optionally grouping by a field value.',

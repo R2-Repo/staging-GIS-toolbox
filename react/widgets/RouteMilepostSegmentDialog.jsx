@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
-import { validateMilepostRange, validateMilepostValue } from '../../js/widgets/route-milepost-segment/engine.js';
+import {
+    formatMilepost,
+    validateMilepostRange,
+    validateMilepostValue
+} from '../../js/widgets/route-milepost-segment/engine.js';
 
 const PREVIEW_DEBOUNCE_MS = 500;
-
-function formatMilepost(value) {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return String(value ?? '-');
-    if (Math.abs(num - Math.round(num)) < 0.0001) return String(Math.round(num));
-    return num.toFixed(1);
-}
 
 function formatLength(value) {
     if (value == null || !Number.isFinite(value)) return '-';
@@ -233,7 +230,7 @@ export function RouteMilepostSegmentDialog({
                             id="start-mp"
                             type="text"
                             inputMode="decimal"
-                            placeholder="0"
+                            placeholder="e.g. 10.65"
                             value={startMilepost}
                             onChange={(e) => { setStartMilepost(e.target.value); setPreview(null); }}
                             disabled={!selectedRoute}
@@ -246,7 +243,7 @@ export function RouteMilepostSegmentDialog({
                             id="end-mp"
                             type="text"
                             inputMode="decimal"
-                            placeholder="0"
+                            placeholder="e.g. 12.50"
                             value={endMilepost}
                             onChange={(e) => { setEndMilepost(e.target.value); setPreview(null); }}
                             disabled={!selectedRoute}

@@ -3,6 +3,8 @@ import {
     formatStation,
     getLocalTangentBearing
 } from '../engine.js';
+import { reprojectCoordinate } from '../../../crs/reproject.js';
+import { looksProjected } from '../../../crs/detect.js';
 import {
     ERROR_CODES,
     STATIONING_STATUS,
@@ -66,7 +68,7 @@ function classifyByWarnings(warnings = []) {
 
 function chooseName(row, mapping, normalized, rowNumber) {
     const label = String(getValue(row, mapping.label) || '').trim();
-    if (label) return normalized.stationLabel ? `${normalized.stationLabel} - ${label}` : label;
+    if (label) return label;
     return normalized.stationLabel || `Row ${rowNumber}`;
 }
 
@@ -98,7 +100,13 @@ export function normalizeStationEventRow(row, mapping = {}, routeProfile = {}, o
     );
 
     let coordinates = { valid: false };
-    if (mapping.latitude && mapping.longitude) {
+    if (options.reprojectedCoordinates) {
+        coordinates = {
+            valid: true,
+            latitude: options.reprojectedCoordinates[1],
+            longitude: options.reprojectedCoordinates[0]
+        };
+    } else if (mapping.latitude && mapping.longitude) {
         coordinates = parseCoordinateValue(getValue(row, mapping.latitude), getValue(row, mapping.longitude));
     } else if (mapping.combinedCoordinate) {
         coordinates = parseCombinedCoordinate(getValue(row, mapping.combinedCoordinate));
@@ -119,7 +127,9 @@ export function normalizeStationEventRow(row, mapping = {}, routeProfile = {}, o
         warnings: [
             ...(station.warnings || []),
             ...(offset.warnings || []),
-            ...(coordinates.projectedLike ? [ERROR_CODES.PROJECTED_COORDINATES_NEED_CRS] : [])
+            ...(coordinates.projectedLike && !options.reprojectedCoordinates
+                ? [ERROR_CODES.PROJECTED_COORDINATES_NEED_CRS]
+                : [])
         ].filter(Boolean)
     };
 }
@@ -251,18 +261,40 @@ export function plotStationEvent(row, routeLine, routeProfile, mapping = {}, opt
     };
 }
 
-export function generateStationEventOutput(rows = [], routeLine, routeProfile, mapping = {}, options = {}) {
+export async function resolveRowCoordinateReprojection(row, mapping, coordinateCrs) {
+    if (!coordinateCrs) return null;
+    let x;
+    let y;
+    if (mapping.latitude && mapping.longitude) {
+        x = Number(getValue(row, mapping.longitude));
+        y = Number(getValue(row, mapping.latitude));
+    } else if (mapping.combinedCoordinate) {
+        const parsed = parseCombinedCoordinate(getValue(row, mapping.combinedCoordinate));
+        if (!parsed.valid) return null;
+        x = parsed.longitude;
+        y = parsed.latitude;
+    } else {
+        return null;
+    }
+    if (!looksProjected(x, y)) return null;
+    return reprojectCoordinate([x, y], coordinateCrs, 'EPSG:4326');
+}
+
+export async function generateStationEventOutput(rows = [], routeLine, routeProfile, mapping = {}, options = {}) {
     const eventPoints = [];
     const connectorLines = [];
     const qaLines = [];
     const unplottedRows = [];
     const reviewedRows = [];
 
-    rows.forEach((row, index) => {
-        const result = plotStationEvent(row, routeLine, routeProfile, mapping, {
-            ...options,
-            rowNumber: index + 1
-        });
+    for (let index = 0; index < rows.length; index++) {
+        const row = rows[index];
+        const rowOptions = { ...options, rowNumber: index + 1 };
+        if (options.coordinateCrs) {
+            const reprojected = await resolveRowCoordinateReprojection(row, mapping, options.coordinateCrs);
+            if (reprojected) rowOptions.reprojectedCoordinates = reprojected;
+        }
+        const result = plotStationEvent(row, routeLine, routeProfile, mapping, rowOptions);
         reviewedRows.push({
             rowNumber: index + 1,
             status: result.status,
@@ -274,7 +306,7 @@ export function generateStationEventOutput(rows = [], routeLine, routeProfile, m
         if (result.plottable && result.connector) connectorLines.push(result.connector);
         if (result.qaLine) qaLines.push(result.qaLine);
         if (result.unplottedRow) unplottedRows.push(result.unplottedRow);
-    });
+    }
 
     return {
         eventPoints,

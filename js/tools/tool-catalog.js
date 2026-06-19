@@ -25,6 +25,7 @@ export const MAP_GIS_TOOLS = [
     { id: 'bezier-spline', action: 'openBezierSpline', category: 'transformation', label: '🌊 Spline', tip: 'Smooth jagged lines into gentle, flowing curves (bezier splines).' },
     { id: 'polygon-smooth', action: 'openPolygonSmooth', category: 'transformation', label: '🔵 Smooth', tip: 'Round off rough polygon edges by averaging corner positions.' },
     { id: 'line-offset', action: 'openLineOffset', category: 'transformation', label: '↔ Offset', tip: 'Create a parallel copy of a line shifted left or right by a set distance.' },
+    { id: 'reproject', action: 'openReproject', category: 'transformation', label: '🗺 Reproject', tip: 'Transform layer geometries from one coordinate system to another — creates a new layer.' },
     { id: 'sector', action: 'openSector', category: 'transformation', label: '🥧 Sector', tip: 'Create a pie-slice shaped area from a center point.' },
 
     { id: 'line-slice-along', action: 'openLineSliceAlong', category: 'line-ops', label: '✂ Slice Along', tip: 'Cut out a section of a line using start and end distances.' },
@@ -66,6 +67,7 @@ export const V1_MAP_TOOL_IDS = new Set([
     'bbox-clip',
     'dissolve',
     'line-offset',
+    'reproject',
     'points-in-poly'
 ]);
 
@@ -79,6 +81,7 @@ export const V1_PIPELINE_NODE_TYPES = new Set([
     'clip',
     'dissolve',
     'line-offset',
+    'reproject',
     'spatial-join',
     'add-to-map',
     'preview'

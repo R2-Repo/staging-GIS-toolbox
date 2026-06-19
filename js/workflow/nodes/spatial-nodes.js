@@ -17,6 +17,7 @@ import {
     differenceLayers,
     summarizeWithin
 } from '../../tools/gis-tools.js';
+import { reprojectLayer } from '../../tools/reproject.js';
 
 // ==============================
 // Buffer
@@ -464,10 +465,44 @@ export class SplitByGeometryNode extends NodeBase {
 }
 
 // ==============================
+// Reproject
+// ==============================
+export class ReprojectNode extends NodeBase {
+    constructor() {
+        super('reproject', {
+            name: 'Reproject',
+            icon: '🗺️',
+            category: 'spatial',
+            color: '#059669'
+        });
+        this.inputPorts = [{ id: 'in', label: 'Features', dataType: 'dataset' }];
+        this.outputPorts = [{ id: 'out', label: 'Reprojected', dataType: 'dataset' }];
+        this.config = { fromCrs: null, toCrs: 'EPSG:4326' };
+    }
+
+    validate() {
+        if (!this.config.toCrs) return { valid: false, message: 'Target CRS is required' };
+        return { valid: true, message: '' };
+    }
+
+    async execute(inputs) {
+        const data = inputs[0];
+        if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
+        const fromCrs = this.config.fromCrs || data.schema?.crs || 'EPSG:4326';
+        return reprojectLayer(data, {
+            fromCrs,
+            toCrs: this.config.toCrs,
+            name: `${data.name}_reproject`
+        });
+    }
+}
+
+// ==============================
 // Registry
 // ==============================
 export const SPATIAL_NODES = [
     { type: 'buffer', label: 'Buffer', icon: '⭕', create: () => new BufferNode() },
+    { type: 'reproject', label: 'Reproject', icon: '🗺️', create: () => new ReprojectNode() },
     { type: 'line-offset', label: 'Line Offset', icon: '↔️', create: () => new LineOffsetNode() },
     { type: 'simplify', label: 'Simplify', icon: '〰️', create: () => new SimplifyNode() },
     { type: 'dissolve', label: 'Dissolve', icon: '🫧', create: () => new DissolveNode() },

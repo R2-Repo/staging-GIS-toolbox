@@ -3,7 +3,11 @@ import {
     bboxDiagonalMeetsMinDragPx,
     markMapInteractionHandled,
     RECT_DRAG_MIN_DIAGONAL_PX,
-    shouldStartBoxSelectDrag
+    shouldStartBoxSelectDrag,
+    isDoubleClickZoomEnabled,
+    disableDoubleClickZoom,
+    enableDoubleClickZoom,
+    suspendDoubleClickZoom
 } from '../js/map/map-interaction-utils.js';
 
 describe('bboxDiagonalMeetsMinDragPx', () => {
@@ -59,5 +63,34 @@ describe('markMapInteractionHandled', () => {
 
     it('ignores missing event', () => {
         expect(() => markMapInteractionHandled(null)).not.toThrow();
+    });
+});
+
+describe('suspendDoubleClickZoom', () => {
+    it('disables and restores when isEnabled reports true', () => {
+        let enabled = true;
+        const map = {
+            doubleClickZoom: {
+                isEnabled: () => enabled,
+                disable: () => { enabled = false; },
+                enable: () => { enabled = true; }
+            }
+        };
+        const suspended = suspendDoubleClickZoom(map);
+        expect(enabled).toBe(false);
+        suspended.restore();
+        expect(enabled).toBe(true);
+    });
+
+    it('works when only disable/enable exist (MapLibre)', () => {
+        let disabled = false;
+        const map = {
+            doubleClickZoom: {
+                disable: () => { disabled = true; },
+                enable: () => { disabled = false; }
+            }
+        };
+        expect(() => suspendDoubleClickZoom(map).restore()).not.toThrow();
+        expect(disabled).toBe(false);
     });
 });

@@ -10,8 +10,15 @@ import {
     buildRouteSearchWhere,
     buildSelectedRouteWhere,
     buildMilepostWhere,
+    buildMilepostRangeWhere,
     buildMilepostPointWhere,
     findStartEndMilepostPoints,
+    resolveMilepostPoint,
+    getMilepostSnapTolerance,
+    buildMilepostSnapWarnings,
+    readRouteMileageBounds,
+    milepostToDistanceFeet,
+    locateMilepostOnRoute,
     selectRouteFeatures,
     median,
     snapMilepostsToRoute,
@@ -22,7 +29,8 @@ import {
     buildOutputLayerName,
     buildOutputFeature,
     buildWarnings,
-    computeSegmentResult
+    computeSegmentResult,
+    formatMilepost
 } from '../js/widgets/route-milepost-segment/engine.js';
 
 beforeAll(() => {
@@ -30,11 +38,11 @@ beforeAll(() => {
 });
 
 describe('validateMilepostValue', () => {
-    it.each(['10', '10.0', '10.1', '10.5', '100.8'])('accepts valid milepost %s', (value) => {
+    it.each(['10', '10.0', '10.1', '10.5', '10.65', '10.55', '100.8'])('accepts valid milepost %s', (value) => {
         expect(validateMilepostValue(value).valid).toBe(true);
     });
 
-    it.each(['10.55', '10.375', 'abc', ''])('rejects invalid milepost %s', (value) => {
+    it.each(['10.375', '10.655', 'abc', ''])('rejects invalid milepost %s', (value) => {
         expect(validateMilepostValue(value).valid).toBe(false);
     });
 });
@@ -86,10 +94,28 @@ describe('buildSelectedRouteWhere / buildMilepostWhere', () => {
     });
 
     it('builds exact single-milepost filter', () => {
-        const where = buildMilepostPointWhere('015P', 10.5, UDOT_ROUTE_SEGMENT_CONFIG);
+        const where = buildMilepostPointWhere('015P', 10.5, UDOT_ROUTE_SEGMENT_CONFIG, 'tenth');
         expect(where).toContain("ROUTE_ID = '015P'");
-        expect(where).toContain('Measure >= 10.5');
-        expect(where).toContain('Measure <= 10.5');
+        expect(where).toContain('Measure >= 10.449');
+        expect(where).toContain('Measure <= 10.551');
+    });
+
+    it('expands milepost range queries by snap tolerance', () => {
+        const where = buildMilepostRangeWhere('0089PM', 459.81, 488.79, UDOT_ROUTE_SEGMENT_CONFIG, 'tenth');
+        expect(where).toContain('Measure >= 459.759');
+        expect(where).toContain('Measure <= 488.841');
+    });
+
+    it('resolves hundredth inputs against tenth-mile layer points in range', () => {
+        const features = [];
+        for (let mp = 459.7; mp <= 489; mp = Math.round((mp + 0.1) * 10) / 10) {
+            features.push(turf.point([-111.9, 40.7], { Measure: mp }));
+        }
+        const { missing, snaps } = findStartEndMilepostPoints(features, 459.81, 488.79);
+        expect(missing).toEqual([]);
+        expect(snaps).toHaveLength(2);
+        expect(snaps[0].resolved).toBe(459.8);
+        expect(snaps[1].resolved).toBe(488.8);
     });
 });
 
@@ -100,16 +126,39 @@ describe('findStartEndMilepostPoints', () => {
             turf.point([-111.8, 40.7], { Measure: 10.5 }),
             turf.point([-111.7, 40.7], { Measure: 20 })
         ];
-        const { startPoint, endPoint, missing } = findStartEndMilepostPoints(features, 10, 20);
+        const { startPoint, endPoint, missing, snaps } = findStartEndMilepostPoints(features, 10, 20);
         expect(missing).toEqual([]);
+        expect(snaps).toEqual([]);
         expect(startPoint.properties.Measure).toBe(10);
         expect(endPoint.properties.Measure).toBe(20);
     });
 
-    it('reports missing mileposts', () => {
+    it('snaps hundredth mileposts to nearest tenth-mile point', () => {
+        const features = [
+            turf.point([-111.9, 40.7], { Measure: 459.8 }),
+            turf.point([-111.8, 40.7], { Measure: 488.8 })
+        ];
+        const { startPoint, endPoint, missing, snaps } = findStartEndMilepostPoints(features, 459.81, 488.79);
+        expect(missing).toEqual([]);
+        expect(startPoint.properties.Measure).toBe(459.8);
+        expect(endPoint.properties.Measure).toBe(488.8);
+        expect(snaps).toHaveLength(2);
+    });
+
+    it('reports missing mileposts when nothing is close enough', () => {
         const features = [turf.point([-111.9, 40.7], { Measure: 10 })];
         const { missing } = findStartEndMilepostPoints(features, 10, 99);
         expect(missing).toContain(99);
+    });
+});
+
+describe('buildMilepostSnapWarnings', () => {
+    it('warns when a milepost was snapped to the nearest layer measure', () => {
+        const warnings = buildMilepostSnapWarnings([
+            { snapped: true, requested: 459.81, resolved: 459.8, snapDistance: 0.01 }
+        ]);
+        expect(warnings[0]).toContain('459.81');
+        expect(warnings[0]).toContain('459.8');
     });
 });
 
@@ -160,6 +209,17 @@ describe('median offset logic', () => {
     });
 });
 
+describe('formatMilepost', () => {
+    it('formats whole miles without decimals', () => {
+        expect(formatMilepost(10)).toBe('10');
+    });
+
+    it('preserves one or two decimal places', () => {
+        expect(formatMilepost(10.5)).toBe('10.5');
+        expect(formatMilepost(10.65)).toBe('10.65');
+    });
+});
+
 describe('buildOutputLayerName', () => {
     it('names centerline and median outputs', () => {
         expect(buildOutputLayerName('I-15', 10.5, 100.8, OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE))
@@ -169,36 +229,42 @@ describe('buildOutputLayerName', () => {
     });
 });
 
+describe('locateMilepostOnRoute', () => {
+    it('places hundredth mileposts between tenth-mile anchors on the centerline', () => {
+        const positiveLine = turf.lineString([[-112, 40], [-111, 40]], {
+            BEG_MILEAGE: 459,
+            END_MILEAGE: 489
+        });
+        const atTenth = locateMilepostOnRoute(positiveLine, 459.8, positiveLine.properties, UDOT_ROUTE_SEGMENT_CONFIG);
+        const atHundredth = locateMilepostOnRoute(positiveLine, 459.81, positiveLine.properties, UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(atTenth.ok).toBe(true);
+        expect(atHundredth.ok).toBe(true);
+        expect(atHundredth.distanceFeet).toBeGreaterThan(atTenth.distanceFeet);
+        const totalFeet = turf.length(positiveLine, { units: 'feet' });
+        const delta = atHundredth.distanceFeet - atTenth.distanceFeet;
+        expect(delta).toBeCloseTo((0.01 / 30) * totalFeet, 1);
+    });
+
+    it('rejects mileposts outside route mileage bounds', () => {
+        const positiveLine = turf.lineString([[-112, 40], [-111, 40]], {
+            BEG_MILEAGE: 10,
+            END_MILEAGE: 20
+        });
+        const result = locateMilepostOnRoute(positiveLine, 99, positiveLine.properties, UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(result.ok).toBe(false);
+    });
+});
+
 describe('computeSegmentResult', () => {
-    it('builds centerline segment from milepost anchors', () => {
+    it('builds centerline segment from linear-referenced mileposts', () => {
         const positiveLine = turf.lineString([[-112, 40], [-111.5, 40], [-111, 40]], {
             ROUTE_ID: '015P',
             ROUTE_ALIAS_COMMON: 'I-15',
             ROUTE_DIRECTION: 'P',
+            BEG_MILEAGE: 10,
+            END_MILEAGE: 20,
             Shape__Length: 5000
         });
-        const mileposts = [
-            turf.point([-112, 40], { Measure: 10, ROUTE_ID: '015P' }),
-            turf.point([-111, 40], { Measure: 20, ROUTE_ID: '015P' })
-        ];
-        const result = computeSegmentResult({
-            positiveLine,
-            negativeLine: null,
-            milepostFeatures: mileposts,
-            startMp: 10,
-            endMp: 20,
-            alignment: OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE,
-            config: UDOT_ROUTE_SEGMENT_CONFIG,
-            milepostLayerKey: 'whole',
-            routeMeta: { routeId: '015P', routeAlias: 'I-15' }
-        });
-        expect(result.ok).toBe(true);
-        expect(result.outputFeature.geometry.type).toMatch(/LineString/);
-        expect(result.summary.lengthMiles).toBeGreaterThan(0);
-    });
-
-    it('fails when milepost points are missing', () => {
-        const positiveLine = turf.lineString([[-112, 40], [-111, 40]], { Shape__Length: 100 });
         const result = computeSegmentResult({
             positiveLine,
             negativeLine: null,
@@ -208,7 +274,71 @@ describe('computeSegmentResult', () => {
             alignment: OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE,
             config: UDOT_ROUTE_SEGMENT_CONFIG,
             milepostLayerKey: 'whole',
-            routeMeta: { routeId: '015P', routeAlias: 'I-15' }
+            routeMeta: {
+                routeId: '015P',
+                routeAlias: 'I-15',
+                routeRecord: positiveLine.properties
+            }
+        });
+        expect(result.ok).toBe(true);
+        expect(result.outputFeature.geometry.type).toMatch(/LineString/);
+        expect(result.summary.lengthMiles).toBeGreaterThan(0);
+    });
+
+    it('clips at exact hundredth mileposts without snapping to tenths', () => {
+        const positiveLine = turf.lineString([[-112, 40], [-111, 40]], {
+            BEG_MILEAGE: 459,
+            END_MILEAGE: 489
+        });
+        const tenth = computeSegmentResult({
+            positiveLine,
+            negativeLine: null,
+            milepostFeatures: [],
+            startMp: 459.8,
+            endMp: 488.8,
+            alignment: OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE,
+            config: UDOT_ROUTE_SEGMENT_CONFIG,
+            milepostLayerKey: 'tenth',
+            routeMeta: { routeRecord: positiveLine.properties }
+        });
+        const hundredth = computeSegmentResult({
+            positiveLine,
+            negativeLine: null,
+            milepostFeatures: [],
+            startMp: 459.81,
+            endMp: 488.79,
+            alignment: OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE,
+            config: UDOT_ROUTE_SEGMENT_CONFIG,
+            milepostLayerKey: 'tenth',
+            routeMeta: { routeRecord: positiveLine.properties }
+        });
+        expect(tenth.ok).toBe(true);
+        expect(hundredth.ok).toBe(true);
+        expect(hundredth.startPoint.properties.milepost).toBe('459.81');
+        expect(hundredth.endPoint.properties.milepost).toBe('488.79');
+        expect(hundredth.summary.lengthMiles).toBeLessThan(tenth.summary.lengthMiles);
+        expect(hundredth.startPoint.geometry.coordinates[0]).not.toBeCloseTo(
+            tenth.startPoint.geometry.coordinates[0],
+            6
+        );
+    });
+
+    it('fails when mileposts are outside route mileage bounds', () => {
+        const positiveLine = turf.lineString([[-112, 40], [-111, 40]], {
+            BEG_MILEAGE: 10,
+            END_MILEAGE: 20,
+            Shape__Length: 100
+        });
+        const result = computeSegmentResult({
+            positiveLine,
+            negativeLine: null,
+            milepostFeatures: [],
+            startMp: 10,
+            endMp: 99,
+            alignment: OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE,
+            config: UDOT_ROUTE_SEGMENT_CONFIG,
+            milepostLayerKey: 'whole',
+            routeMeta: { routeRecord: positiveLine.properties }
         });
         expect(result.ok).toBe(false);
         expect(result.errors.length).toBeGreaterThan(0);

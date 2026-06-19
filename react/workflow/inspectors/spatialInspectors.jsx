@@ -13,6 +13,7 @@ import {
     InfoText,
     HintText
 } from './shared.jsx';
+import { CrsPicker } from '../../widgets/shared/CrsPicker.jsx';
 
 function BufferInspector({ config, onConfigChange }) {
     return (
@@ -280,8 +281,29 @@ function SplitByGeometryInspector() {
     );
 }
 
+function ReprojectInspector({ config, onConfigChange }) {
+    return (
+        <>
+            <InspectorLabel>Source CRS (optional)</InspectorLabel>
+            <CrsPicker
+                label=""
+                value={config.fromCrs || 'EPSG:4326'}
+                onChange={(fromCrs) => onConfigChange({ ...config, fromCrs })}
+            />
+            <InspectorLabel style={{ marginTop: 8 }}>Target CRS</InspectorLabel>
+            <CrsPicker
+                label=""
+                value={config.toCrs || 'EPSG:4326'}
+                onChange={(toCrs) => onConfigChange({ ...config, toCrs })}
+            />
+            <HintText>Leave source empty to use the input layer CRS.</HintText>
+        </>
+    );
+}
+
 export const SPATIAL_INSPECTORS = {
     buffer: BufferInspector,
+    reproject: ReprojectInspector,
     'line-offset': LineOffsetInspector,
     simplify: SimplifyInspector,
     dissolve: DissolveInspector,

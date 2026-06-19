@@ -2,11 +2,10 @@ import { openReactIsland } from '../../ui/open-react-island.js';
 import { UDOT_ROUTE_SEGMENT_CONFIG, OUTPUT_ALIGNMENT } from './config.js';
 import {
     buildRouteSearchWhere,
-    buildMilepostWhere,
-    buildMilepostPointWhere,
+    buildMilepostRangeWhere,
     chooseMilepostLayer,
     computeSegmentResult,
-    findStartEndMilepostPoints,
+    locateMilepostOnRoute,
     selectRouteFeatures,
     validateMilepostRange,
     validateMilepostValue,
@@ -15,7 +14,6 @@ import {
 import {
     searchRoutes,
     queryRouteFeaturesById,
-    queryMilepostFeatures,
     validateWidgetLayerConfig,
     verifyDirectionValues
 } from './arcgis-client.js';
@@ -82,18 +80,14 @@ function fitPreviewBounds(ctx, geojson) {
     } catch (_) { /* ignore fit errors */ }
 }
 
-async function queryMilepostPoint(routeId, mp) {
-    const layerChoice = chooseMilepostLayer(mp, mp, activeConfig);
-    const where = buildMilepostPointWhere(routeId, mp, activeConfig);
-    const features = await queryMilepostFeatures(where, layerChoice.layerKey, activeConfig);
-    const { startPoint } = findStartEndMilepostPoints(
-        features,
+function locateMilepostPoint(routeContext, mp) {
+    const located = locateMilepostOnRoute(
+        routeContext.routeSelection.positiveLine,
         mp,
-        mp,
-        activeConfig.milepostTolerance,
-        activeConfig.milepostValueField
+        routeContext.routeRecord,
+        activeConfig
     );
-    return startPoint || null;
+    return located.ok ? located.point : null;
 }
 
 async function previewMileposts(ctx, previewState, input) {
@@ -117,16 +111,15 @@ async function previewMileposts(ctx, previewState, input) {
 
     const startResult = validateMilepostValue(input.startMilepost);
     const endResult = validateMilepostValue(input.endMilepost);
-    const routeId = previewState.routeContext.routeId;
 
     let startPoint = null;
     let endPoint = null;
 
     if (startResult.valid) {
-        startPoint = await queryMilepostPoint(routeId, startResult.value);
+        startPoint = locateMilepostPoint(previewState.routeContext, startResult.value);
     }
     if (endResult.valid) {
-        endPoint = await queryMilepostPoint(routeId, endResult.value);
+        endPoint = locateMilepostPoint(previewState.routeContext, endResult.value);
     }
 
     if (!startPoint && !endPoint) {
@@ -169,14 +162,12 @@ async function buildSegment(input, routeContext) {
     }
 
     const layerChoice = chooseMilepostLayer(range.startMp, range.endMp, activeConfig);
-    const milepostWhere = buildMilepostWhere(routeContext.routeId, range.startMp, range.endMp, activeConfig);
-    const milepostFeatures = await queryMilepostFeatures(milepostWhere, layerChoice.layerKey, activeConfig);
 
     const alignment = OUTPUT_ALIGNMENT.POSITIVE_CENTERLINE;
     const result = computeSegmentResult({
         positiveLine: routeContext.routeSelection.positiveLine,
         negativeLine: routeContext.routeSelection.negativeLine,
-        milepostFeatures,
+        milepostFeatures: [],
         startMp: range.startMp,
         endMp: range.endMp,
         alignment,
@@ -184,7 +175,8 @@ async function buildSegment(input, routeContext) {
         milepostLayerKey: layerChoice.layerKey,
         routeMeta: {
             routeId: routeContext.routeId,
-            routeAlias: routeContext.routeAlias
+            routeAlias: routeContext.routeAlias,
+            routeRecord: routeContext.routeRecord
         },
         extraWarnings: routeContext.routeSelection.warnings
     });

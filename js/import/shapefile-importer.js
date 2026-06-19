@@ -4,6 +4,7 @@
 import { createSpatialDataset, explodeGeometryCollectionsInFeatureCollectionAsync } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { parseShapefileForImport } from './import-parse-service.js';
+import { shapefileCrsFromPrj } from './import-crs.js';
 
 async function _normalizeFeatureCollection(fc, task) {
     fc.features = fc.features.map(f => ({
@@ -12,6 +13,21 @@ async function _normalizeFeatureCollection(fc, task) {
         properties: f.properties || {}
     }));
     return explodeGeometryCollectionsInFeatureCollectionAsync(fc, task);
+}
+
+function _buildDataset(name, geojson, source, prjWkt) {
+    const crsMeta = shapefileCrsFromPrj(prjWkt);
+    return createSpatialDataset(
+        name,
+        geojson,
+        {
+            file: source.file,
+            format: 'shapefile',
+            originalCrs: crsMeta.originalCrs,
+            crsDetected: crsMeta.crsDetected
+        },
+        { crs: crsMeta.crs, crsWkt: crsMeta.crsWkt }
+    );
 }
 
 export async function importShapefile(file, task, options = {}) {
@@ -31,6 +47,7 @@ export async function importShapefile(file, task, options = {}) {
 
     task.updateProgress(80, 'Normalizing...');
     const baseName = file.name.replace(/\.zip$/i, '');
+    const prjWkt = parsed.prjWkt || null;
 
     if (parsed.layers) {
         const datasets = [];
@@ -40,7 +57,7 @@ export async function importShapefile(file, task, options = {}) {
             const layerName = layer.fileName
                 ? layer.fileName.replace(/\.\w+$/, '')
                 : (parsed.layers.length > 1 ? `${baseName}_${i + 1}` : baseName);
-            datasets.push(createSpatialDataset(layerName, normalized, { file: file.name, format: 'shapefile' }));
+            datasets.push(_buildDataset(layerName, normalized, { file: file.name }, layer.prjWkt || prjWkt));
         }
         if (datasets.length === 0) {
             throw new AppError('Shapefile ZIP contained no valid layers', ErrorCategory.PARSE_FAILED);
@@ -49,5 +66,5 @@ export async function importShapefile(file, task, options = {}) {
     }
 
     const normalized = await _normalizeFeatureCollection(parsed.geojson, task);
-    return createSpatialDataset(baseName, normalized, { file: file.name, format: 'shapefile' });
+    return _buildDataset(baseName, normalized, { file: file.name }, prjWkt);
 }

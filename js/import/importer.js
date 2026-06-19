@@ -18,6 +18,7 @@ import { guardFilesBeforeImport } from './import-guard.js';
 import { assertFileReadable } from './import-memory-budget.js';
 import { assertZipBufferWithinBudget } from './zip-utils.js';
 import { filterImportResult } from './import-field-filter.js';
+import { applyImportCrsMetadata } from './import-crs.js';
 
 function _enforceFeatureCap(result, fileName) {
     const datasets = Array.isArray(result) ? result : [result];
@@ -243,6 +244,8 @@ export async function importFileCore(file, task, options = {}) {
 
     if (payload?.kind === 'text') payload.data = null;
     if (payload?.kind === 'buffer') payload.data = null;
+
+    result = applyImportCrsMetadata(result, options);
 
     if (options.selectedFields?.length) {
         result = filterImportResult(result, options.selectedFields);

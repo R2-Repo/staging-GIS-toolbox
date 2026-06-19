@@ -1,4 +1,4 @@
-import { mountIsland } from '../mountIsland.jsx';
+import { mountIsland } from '../../mountIsland.jsx';
 import { ImportStationTableDialog } from './ImportStationTableDialog.jsx';
 
 export function mountImportStationTableDialog(element, props = {}) {

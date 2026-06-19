@@ -46,7 +46,8 @@ function _tagFeaturesForMap(dataset) {
     }
     return taggedFeatures;
 }
-import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled, shouldStartBoxSelectDrag } from './map-interaction-utils.js';
+import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled, shouldStartBoxSelectDrag, suspendDoubleClickZoom } from './map-interaction-utils.js';
+import { nearestPointOnRouteLine, lineSliceAlongRoute } from '../tools/line-geojson.js';
 import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
 import { buildSymbolLayerLayout } from './style-symbols.js';
 import { buildMapLabelLayerSpec } from './map-labels.js';
@@ -1814,6 +1815,8 @@ class MapManager {
             const markers = [];
             let firstPoint = null;
 
+            const dblClickZoom = suspendDoubleClickZoom(this.map);
+
             const banner = this._showInteractionBanner(prompt1, () => { cleanup(); resolve(null); });
             const onKeyDown = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
 
@@ -1840,10 +1843,119 @@ class MapManager {
                 document.removeEventListener('keydown', onKeyDown);
                 markers.forEach(m => m.remove());
                 if (banner) banner.remove();
+                dblClickZoom.restore();
                 this._interactionCleanup = null;
             };
 
             this._interactionCleanup = cleanup;
+            this.map.on('click', onClick);
+            document.addEventListener('keydown', onKeyDown);
+        });
+    }
+
+    /**
+     * Two-click pick snapped to a route centerline; returns distances along the line in feet.
+     * @param {import('geojson').Feature<import('geojson').LineString|import('geojson').MultiLineString>} routeLine
+     * @param {string} [prompt1]
+     * @param {string} [prompt2]
+     * @returns {Promise<{ mapClipStartFt: number, mapClipEndFt: number } | null>}
+     */
+    startRouteTwoPointPick(routeLine, prompt1 = 'Click start of clip along route', prompt2 = 'Click end of clip along route') {
+        return new Promise((resolve) => {
+            this._cancelInteraction();
+            const canvas = this.map.getCanvas();
+            canvas.style.cursor = 'crosshair';
+            const markers = [];
+            let firstLocFt = null;
+            let previewEntry = null;
+            let settled = false;
+
+            const dblClickZoom = suspendDoubleClickZoom(this.map);
+
+            const clearClipPreview = () => {
+                if (previewEntry) {
+                    this._removeTempFeature(previewEntry);
+                    previewEntry = null;
+                }
+            };
+
+            const cleanup = () => {
+                canvas.style.cursor = '';
+                this.map.off('click', onClick);
+                document.removeEventListener('keydown', onKeyDown);
+                markers.forEach(m => m.remove());
+                if (banner) banner.remove();
+                dblClickZoom.restore();
+                this._interactionCleanup = null;
+            };
+
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                clearClipPreview();
+                resolve(value);
+            };
+
+            const cancelPick = () => finish(null);
+
+            const banner = this._showInteractionBanner(prompt1, cancelPick);
+            const onKeyDown = (e) => { if (e.key === 'Escape') cancelPick(); };
+
+            const showClipPreview = (startFt, endFt) => {
+                if (!Number.isFinite(startFt) || !Number.isFinite(endFt)) return;
+                const startDist = Math.min(startFt, endFt);
+                const endDist = Math.max(startFt, endFt);
+                if (endDist <= startDist) return;
+                const segment = lineSliceAlongRoute(routeLine, startDist, endDist, 'feet');
+                clearClipPreview();
+                previewEntry = this.showRouteMilepostPreview({
+                    type: 'FeatureCollection',
+                    features: [{
+                        ...segment,
+                        properties: { ...(segment.properties || {}), _preview: 'centerline_segment' }
+                    }]
+                }, 0);
+            };
+
+            const onClick = (e) => {
+                if (settled) return;
+                markMapInteractionHandled(e);
+                try { e.originalEvent?.stopPropagation?.(); } catch (_) { /* noop */ }
+                try { e.originalEvent?.preventDefault?.(); } catch (_) { /* noop */ }
+
+                const snapped = nearestPointOnRouteLine(
+                    { type: 'Feature', geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] } },
+                    routeLine,
+                    'feet'
+                );
+                const coord = snapped.geometry.coordinates;
+                const locFt = Number(snapped.properties?.location ?? NaN);
+                if (!Number.isFinite(locFt)) {
+                    banner.querySelector('.interaction-text').textContent = 'Could not snap to route — try again closer to the line.';
+                    return;
+                }
+
+                const el = document.createElement('div');
+                el.style.cssText = 'width:14px;height:14px;background:#d4a24e;border:2px solid #fff;border-radius:50%;';
+                const m = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(this.map);
+                markers.push(m);
+
+                if (firstLocFt == null) {
+                    firstLocFt = locFt;
+                    banner.querySelector('.interaction-text').textContent = prompt2;
+                    return;
+                }
+
+                const startDist = Math.min(firstLocFt, locFt);
+                const endDist = Math.max(firstLocFt, locFt);
+                try {
+                    showClipPreview(startDist, endDist);
+                } catch (_) { /* preview optional */ }
+                finish({ mapClipStartFt: startDist, mapClipEndFt: endDist });
+            };
+
+            this._interactionCleanup = cancelPick;
             this.map.on('click', onClick);
             document.addEventListener('keydown', onKeyDown);
         });
@@ -1953,8 +2065,7 @@ class MapManager {
             const canvas = map.getCanvas();
             canvas.style.cursor = 'crosshair';
 
-            const hadDblClickZoom = map.doubleClickZoom.enabled();
-            map.doubleClickZoom.disable();
+            const dblClickZoom = suspendDoubleClickZoom(map);
 
             const banner = this._showInteractionBanner(bannerText, () => { cleanup(); resolve(null); });
 
@@ -2040,7 +2151,7 @@ class MapManager {
                 if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
                 previewLayerIds = []; previewSrcId = null;
                 canvas.style.cursor = '';
-                if (hadDblClickZoom) map.doubleClickZoom.enable();
+                dblClickZoom.restore();
                 if (banner) banner.remove();
                 this._interactionCleanup = null;
             };

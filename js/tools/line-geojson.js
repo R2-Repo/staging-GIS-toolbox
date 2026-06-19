@@ -103,3 +103,162 @@ export function nearestPointOnLineAny(pointFeature, lineFeature, units = 'kilome
     }
     throw new Error('Need LineString or MultiLineString');
 }
+
+/**
+ * Total length of a LineString or MultiLineString (sum of all parts).
+ * @param {GeoJSON.Feature} lineFeature
+ * @param {string} [units]
+ */
+export function lineLengthAny(lineFeature, units = 'kilometers') {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+    const g = lineFeature?.geometry;
+    if (!g) return 0;
+    if (g.type === 'LineString') {
+        return turf.length(lineFeature, { units });
+    }
+    if (g.type === 'MultiLineString') {
+        return (g.coordinates || []).reduce((sum, coords) => {
+            return sum + turf.length(turf.lineString(coords), { units });
+        }, 0);
+    }
+    return 0;
+}
+
+/**
+ * Ordered route segments with cumulative offsets for MultiLineString routes.
+ * @param {GeoJSON.Feature} lineFeature
+ * @param {string} [units]
+ */
+export function listRouteLineSegments(lineFeature, units = 'kilometers') {
+    const g = lineFeature?.geometry;
+    if (!g) return [];
+
+    const props = lineFeature.properties || {};
+    if (g.type === 'LineString') {
+        const feature = { type: 'Feature', geometry: g, properties: { ...props } };
+        return [{ feature, startOffset: 0, length: turf.length(feature, { units }) }];
+    }
+
+    if (g.type === 'MultiLineString') {
+        const segments = [];
+        let startOffset = 0;
+        for (const coords of g.coordinates || []) {
+            const feature = {
+                type: 'Feature',
+                properties: { ...props },
+                geometry: { type: 'LineString', coordinates: coords }
+            };
+            const length = turf.length(feature, { units });
+            segments.push({ feature, startOffset, length });
+            startOffset += length;
+        }
+        return segments;
+    }
+
+    throw new Error('Need LineString or MultiLineString');
+}
+
+/**
+ * Snap a click to the nearest point on a route line using cumulative distance along all parts.
+ * `properties.location` is distance from the route start in the given units.
+ * @param {GeoJSON.Feature<GeoJSON.Point>} pointFeature
+ * @param {GeoJSON.Feature} lineFeature
+ * @param {string} [units]
+ */
+export function nearestPointOnRouteLine(pointFeature, lineFeature, units = 'kilometers') {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+    const g = lineFeature?.geometry;
+    if (!g) throw new Error('Line feature has no geometry');
+
+    if (g.type === 'LineString') {
+        return turf.nearestPointOnLine(lineFeature, pointFeature, { units });
+    }
+
+    if (g.type === 'MultiLineString') {
+        let best = null;
+        let bestDist = Infinity;
+        for (const { feature, startOffset } of listRouteLineSegments(lineFeature, units)) {
+            const snap = turf.nearestPointOnLine(feature, pointFeature, { units });
+            const distToClick = snap.properties?.dist ?? Infinity;
+            if (distToClick < bestDist) {
+                bestDist = distToClick;
+                const location = startOffset + Number(snap.properties?.location ?? 0);
+                best = {
+                    ...snap,
+                    properties: {
+                        ...snap.properties,
+                        dist: distToClick,
+                        location,
+                        segmentStartOffset: startOffset
+                    }
+                };
+            }
+        }
+        if (!best) throw new Error('Empty MultiLineString');
+        return best;
+    }
+
+    throw new Error('Need LineString or MultiLineString');
+}
+
+/**
+ * Slice a route line between cumulative start/stop distances (supports MultiLineString gaps).
+ * @param {GeoJSON.Feature} lineFeature
+ * @param {number} startDist
+ * @param {number} stopDist
+ * @param {string} [units]
+ */
+export function lineSliceAlongRoute(lineFeature, startDist, stopDist, units = 'kilometers') {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const start = Math.min(startDist, stopDist);
+    const stop = Math.max(startDist, stopDist);
+    const g = lineFeature?.geometry;
+    if (!g) throw new Error('Line feature has no geometry');
+
+    if (g.type === 'LineString') {
+        return turf.lineSliceAlong(lineFeature, start, stop, { units });
+    }
+
+    if (g.type === 'MultiLineString') {
+        const segments = listRouteLineSegments(lineFeature, units);
+        const coordsOut = [];
+
+        for (const { feature, startOffset, length } of segments) {
+            const segEnd = startOffset + length;
+            if (stop <= startOffset || start >= segEnd) continue;
+
+            const localStart = Math.max(0, start - startOffset);
+            const localStop = Math.min(length, stop - startOffset);
+            if (localStop <= localStart) continue;
+
+            const part = turf.lineSliceAlong(feature, localStart, localStop, { units });
+            const partCoords = part.geometry?.coordinates || [];
+            if (!partCoords.length) continue;
+
+            if (coordsOut.length) {
+                const last = coordsOut[coordsOut.length - 1];
+                const first = partCoords[0];
+                if (last[0] === first[0] && last[1] === first[1]) {
+                    coordsOut.push(...partCoords.slice(1));
+                } else {
+                    coordsOut.push(...partCoords);
+                }
+            } else {
+                coordsOut.push(...partCoords);
+            }
+        }
+
+        if (coordsOut.length < 2) {
+            throw new Error('Clip range does not intersect route geometry.');
+        }
+
+        return {
+            type: 'Feature',
+            properties: { ...(lineFeature.properties || {}) },
+            geometry: { type: 'LineString', coordinates: coordsOut }
+        };
+    }
+
+    throw new Error('Need LineString or MultiLineString');
+}

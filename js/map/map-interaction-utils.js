@@ -6,6 +6,48 @@
 export const RECT_DRAG_MIN_DIAGONAL_PX = 10;
 
 /**
+ * MapLibre exposes disable/enable on doubleClickZoom; Mapbox had enabled()/isEnabled().
+ * @param {import('maplibregl').Map | null | undefined} map
+ */
+export function isDoubleClickZoomEnabled(map) {
+    const handler = map?.doubleClickZoom;
+    if (!handler) return false;
+    try {
+        if (typeof handler.isEnabled === 'function') return handler.isEnabled();
+        if (typeof handler.enabled === 'function') return handler.enabled();
+    } catch (_) { /* noop */ }
+    return true;
+}
+
+/** @param {import('maplibregl').Map | null | undefined} map */
+export function disableDoubleClickZoom(map) {
+    try {
+        map?.doubleClickZoom?.disable?.();
+    } catch (_) { /* noop */ }
+}
+
+/** @param {import('maplibregl').Map | null | undefined} map */
+export function enableDoubleClickZoom(map) {
+    try {
+        map?.doubleClickZoom?.enable?.();
+    } catch (_) { /* noop */ }
+}
+
+/**
+ * @param {import('maplibregl').Map | null | undefined} map
+ * @returns {{ restore: () => void }}
+ */
+export function suspendDoubleClickZoom(map) {
+    const wasEnabled = isDoubleClickZoomEnabled(map);
+    if (wasEnabled) disableDoubleClickZoom(map);
+    return {
+        restore() {
+            if (wasEnabled) enableDoubleClickZoom(map);
+        }
+    };
+}
+
+/**
  * Prevent feature popups / global map click clears while a transient interaction consumes the gesture.
  * @param {maplibregl.MapMouseEvent | maplibregl.MapTouchEvent} e MapLibre event
  */

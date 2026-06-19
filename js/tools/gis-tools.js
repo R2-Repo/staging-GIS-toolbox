@@ -4,6 +4,7 @@
 import logger from '../core/logger.js';
 import { createSpatialDataset } from '../core/data-model.js';
 import { TaskRunner, processInChunks, yieldToUI } from '../core/task-runner.js';
+import { assertDisplayReady } from '../crs/layer-crs.js';
 
 const GIS_FEATURE_CHUNK_SIZE = 50;
 import { computeFeatureDistance, metersToDisplayUnits } from './feature-distance.js';
@@ -18,10 +19,15 @@ import {
 
 const LARGE_DATASET_WARNING = 50000;
 
+function _requireDisplayReady(dataset, context) {
+    assertDisplayReady(dataset, context);
+}
+
 /**
  * Buffer features by distance
  */
 export async function bufferFeatures(dataset, distance, units = 'kilometers') {
+    _requireDisplayReady(dataset, 'Buffer');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     if (dataset.geojson.features.length > LARGE_DATASET_WARNING) {
         logger.warn('GISTools', 'Large dataset — buffer may be slow', { count: dataset.geojson.features.length });
@@ -58,6 +64,7 @@ export async function bufferFeatures(dataset, distance, units = 'kilometers') {
  * Simplify geometries
  */
 export async function simplifyFeatures(dataset, tolerance = 0.001) {
+    _requireDisplayReady(dataset, 'Simplify');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Simplify', 'GISTools');
@@ -100,6 +107,7 @@ export async function simplifyFeatures(dataset, tolerance = 0.001) {
  * Clip features to a bounding box or polygon
  */
 export async function clipFeatures(dataset, clipGeometry) {
+    _requireDisplayReady(dataset, 'Clip');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Clip', 'GISTools');
@@ -157,6 +165,7 @@ export async function clipFeatures(dataset, clipGeometry) {
  * Dissolve by field
  */
 export async function dissolveFeatures(dataset, field) {
+    _requireDisplayReady(dataset, 'Dissolve');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Dissolve', 'GISTools');
@@ -271,6 +280,7 @@ export function pointToLineDistance(point, line, units = 'kilometers') {
  * Clip features to a bounding box
  */
 export async function bboxClipFeatures(dataset, bbox) {
+    _requireDisplayReady(dataset, 'BBox clip');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('BBox Clip', 'GISTools');
     return task.run(async (t) => {
@@ -310,6 +320,7 @@ export async function bboxClipFeatures(dataset, bbox) {
  * Smooth lines into bezier splines
  */
 export async function bezierSplineFeatures(dataset, resolution = 10000, sharpness = 0.85) {
+    _requireDisplayReady(dataset, 'Bezier spline');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Bezier Spline', 'GISTools');
     return task.run(async (t) => {
@@ -352,6 +363,7 @@ export async function bezierSplineFeatures(dataset, resolution = 10000, sharpnes
  * Smooth polygon edges
  */
 export async function polygonSmoothFeatures(dataset, iterations = 1) {
+    _requireDisplayReady(dataset, 'Polygon smooth');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Polygon Smooth', 'GISTools');
     return task.run(async (t) => {
@@ -390,6 +402,7 @@ export async function polygonSmoothFeatures(dataset, iterations = 1) {
  * Offset a line by a specified distance (creates a parallel line)
  */
 export async function lineOffsetFeatures(dataset, offsetDistance, units = 'kilometers') {
+    _requireDisplayReady(dataset, 'Line offset');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Line Offset', 'GISTools');
     return task.run(async (t) => {
@@ -463,6 +476,7 @@ export function lineIntersect(line1, line2) {
  * Find self-intersections (kinks) in a polygon or line dataset
  */
 export async function findKinks(dataset) {
+    _requireDisplayReady(dataset, 'Find kinks');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Find Kinks', 'GISTools');
     return task.run(async (t) => {
@@ -502,6 +516,7 @@ export async function findKinks(dataset) {
  * Combine: merge features into multi-geometry types
  */
 export function combineFeatures(dataset) {
+    _requireDisplayReady(dataset, 'Combine');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const combined = turf.combine(dataset.geojson);
     return createSpatialDataset(`${dataset.name}_combined`, combined, { format: 'derived' });
@@ -511,6 +526,7 @@ export function combineFeatures(dataset) {
  * Union: merge multiple polygons into one polygon
  */
 export async function unionFeatures(dataset) {
+    _requireDisplayReady(dataset, 'Union');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
     const task = new TaskRunner('Union', 'GISTools');
     return task.run(async (t) => {
@@ -632,6 +648,8 @@ export function pointsWithinPolygon(pointsDataset, polygonsDataset) {
  * @returns {object} enriched points dataset
  */
 export async function spatialJoinPointsInPolygons(pointsDataset, polygonsDataset, joinFields = [], prefix = '') {
+    _requireDisplayReady(pointsDataset, 'Spatial join');
+    _requireDisplayReady(polygonsDataset, 'Spatial join');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Spatial Join', 'GISTools');
@@ -723,6 +741,8 @@ export async function spatialJoinPointsInPolygons(pointsDataset, polygonsDataset
  * @returns {object} enriched dataset A
  */
 export async function nearestJoin(datasetA, datasetB, joinFields = [], units = 'kilometers') {
+    _requireDisplayReady(datasetA, 'Nearest join');
+    _requireDisplayReady(datasetB, 'Nearest join');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Nearest Join', 'GISTools');
@@ -822,6 +842,8 @@ export async function nearestJoin(datasetA, datasetB, joinFields = [], units = '
  * with merged attributes from both layers.
  */
 export async function intersectLayers(datasetA, datasetB) {
+    _requireDisplayReady(datasetA, 'Intersect');
+    _requireDisplayReady(datasetB, 'Intersect');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Intersect Layers', 'GISTools');
@@ -879,6 +901,8 @@ export async function intersectLayers(datasetA, datasetB) {
  * Merge two feature collections into one combined dataset.
  */
 export function mergeLayers(datasetA, datasetB) {
+    _requireDisplayReady(datasetA, 'Merge');
+    _requireDisplayReady(datasetB, 'Merge');
     const featuresA = datasetA.geojson?.features || [];
     const featuresB = datasetB.geojson?.features || [];
     const merged = [...featuresA.map(f => ({ ...f, properties: { ...f.properties } })),
@@ -892,6 +916,8 @@ export function mergeLayers(datasetA, datasetB) {
  * For each polygon in A, removes overlapping areas from all polygons in B.
  */
 export async function differenceLayers(datasetA, datasetB) {
+    _requireDisplayReady(datasetA, 'Difference');
+    _requireDisplayReady(datasetB, 'Difference');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Difference', 'GISTools');
@@ -950,6 +976,8 @@ export async function differenceLayers(datasetA, datasetB) {
  * @returns {object} enriched polygons dataset
  */
 export async function summarizeWithin(polygonsDataset, pointsDataset, sumField, avgField) {
+    _requireDisplayReady(polygonsDataset, 'Summarize within');
+    _requireDisplayReady(pointsDataset, 'Summarize within');
     if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
 
     const task = new TaskRunner('Summarize Within', 'GISTools');

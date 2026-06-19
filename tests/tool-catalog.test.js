@@ -27,8 +27,8 @@ describe('tool-catalog', () => {
         }
     });
 
-    it('exposes seven core map GIS tools in V1', () => {
-        expect(V1_MAP_TOOL_IDS.size).toBe(7);
+    it('exposes eight core map GIS tools in V1', () => {
+        expect(V1_MAP_TOOL_IDS.size).toBe(8);
         expect(getEnabledMapGisTools().map((t) => t.id).sort()).toEqual([
             'bbox-clip',
             'buffer',
@@ -36,6 +36,7 @@ describe('tool-catalog', () => {
             'dissolve',
             'line-offset',
             'points-in-poly',
+            'reproject',
             'simplify'
         ]);
     });

@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import * as turf from '@turf/turf';
 import {
     findFirstLineStringFeature,
     listLineStringFeatures,
-    pointToLineDistanceAny
+    pointToLineDistanceAny,
+    nearestPointOnRouteLine,
+    lineSliceAlongRoute,
+    lineLengthAny
 } from '../js/tools/line-geojson.js';
+
+beforeAll(() => {
+    globalThis.turf = turf;
+});
 
 const fcMulti = {
     type: 'FeatureCollection',
@@ -41,5 +48,33 @@ describe('pointToLineDistanceAny', () => {
         const d = pointToLineDistanceAny(pt, line, 'meters');
         expect(d).toBeGreaterThan(0);
         expect(d).toBeLessThan(200000);
+    });
+});
+
+describe('nearestPointOnRouteLine / lineSliceAlongRoute', () => {
+    const multiRoute = {
+        type: 'Feature',
+        properties: { id: 'route' },
+        geometry: {
+            type: 'MultiLineString',
+            coordinates: [
+                [[0, 0], [0, 0.001]],
+                [[0, 0.002], [0, 0.004]]
+            ]
+        }
+    };
+
+    it('uses cumulative distance across MultiLineString parts', () => {
+        const seg1Len = turf.length(turf.lineString(multiRoute.geometry.coordinates[0]), { units: 'feet' });
+        const clickSecond = turf.point([0, 0.003]);
+        const snap = nearestPointOnRouteLine(clickSecond, multiRoute, 'feet');
+        expect(snap.properties.location).toBeGreaterThan(seg1Len);
+    });
+
+    it('slices across a MultiLineString using cumulative distances', () => {
+        const totalLen = lineLengthAny(multiRoute, 'feet');
+        const slice = lineSliceAlongRoute(multiRoute, totalLen * 0.1, totalLen * 0.9, 'feet');
+        expect(slice.geometry.type).toBe('LineString');
+        expect(slice.geometry.coordinates.length).toBeGreaterThan(1);
     });
 });

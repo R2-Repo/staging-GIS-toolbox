@@ -2,24 +2,54 @@
 
 ## Latest
 
-- **Date**: 2026-06-18
-- **Status**: **Project Stationing — line-following vertical station labels**
+- **Date**: 2026-06-19
+- **Status**: **Import Station Table — RT/LT UX clarity**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- Station labels use **line-following map text** (same `_mapLabels` / `placement: 'line'` approach as the segment revision), on short perpendicular leader lines beside each tick
-- MapLibre `text-writing-mode: vertical` stacks station characters along the leader (e.g. `5+00` reads upward)
-- `buildStationLabelLine` in `engine.js` generates invisible leader LineStrings; ticks + centerline unchanged
+- Dialog title: **Import Station Table (RT/LT in Offset)**
+- Required vs optional column mapping; Side/Label/coordinates collapsed under “Show optional columns”
+- Detection shows **Side (RT/LT): read from Offset column** when values include RT/LT; info box when no Side column needed
+- `analyzeOffsetEmbeddedSide` / `getOffsetEmbeddedSideForMapping` in [`station-table-detect.js`](js/widgets/project-stationing/table-import/station-table-detect.js)
 
 ### Verification
 
-- `npm test` — 70 files, 397 tests green
-- **Browser** (manual): Run Project Stationing → confirm station numbers appear beside ticks, stacked vertically and aligned with the route
+- `npm test -- tests/station-table-detect.test.js` — 5 tests green
+- **Browser** (manual): load ITS-style CSV → confirm Side message + only Station/Offset required
+
+### Next
+
+- Manual browser smoke on Import Station Table with embedded RT/LT offset values
 
 ---
 
-## Previous (2026-06-18) — station table subflow
+## Previous (2026-06-19) — Import Station Table dialog — broken mount import path
+
+---
+
+## Previous (2026-06-19) — CRS architecture — full implementation (Phases 1–4)
+
+---
+
+## Previous (2026-06-19) — Station table import ITS fix
+
+---
+
+## Previous (2026-06-19) — pick clip MapLibre fix
+
+- **Status**: **Pick clip — MapLibre doubleClickZoom API fix**
+
+- **Status**: **Milepost clip — linear referencing for hundredths**
+- ArcGIS range query expansion; `startRouteTwoPointPick` for map clip
+
+---
+
+## Previous (2026-06-19) — hundredth milepost validation
+
+- **Status**: **Route milepost clip — snap hundredths to tenth-mile layer**
+
+## Previous — Project Stationing station table subflow
 
 - **Status**: **Project Stationing — station table subflow**
 - Added post-run success panel with **Import Station Table** launch button (existing route/clip/station form remains intact)

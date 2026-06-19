@@ -13,7 +13,7 @@ const HEADER_PATTERNS = {
     side: /\b(side|lt rt|left right|offset side)\b/i,
     latitude: /\b(lat|latitude|gps lat|gps latitude|point lat|decimal latitude|y)\b/i,
     longitude: /\b(lon|long|longitude|gps lon|gps long|gps longitude|point long|decimal longitude|x)\b/i,
-    label: /\b(name|label|desc|description|asset|asset id|id)\b/i
+    label: /\b(name|label|desc|description|asset|asset id|its ref|its_ref|ref|id)\b/i
 };
 
 function valuesFor(rows, field, sampleSize = 100) {
@@ -60,6 +60,36 @@ export function scoreSideColumn(field, values = []) {
     ));
 }
 
+export function analyzeOffsetEmbeddedSide(values = []) {
+    if (!values.length) {
+        return { includesSide: false, sideCount: 0, valueCount: 0, pct: 0 };
+    }
+    let sideCount = 0;
+    for (const value of values) {
+        const parsed = parseOffsetValue(String(value ?? ''));
+        if (parsed.valid && parsed.offsetSide && parsed.offsetSide !== 'CL') {
+            sideCount += 1;
+        }
+    }
+    const valueCount = values.length;
+    return {
+        includesSide: sideCount > 0,
+        sideCount,
+        valueCount,
+        pct: Math.round((sideCount / valueCount) * 100)
+    };
+}
+
+export function getOffsetEmbeddedSideForMapping(rows = [], offsetField = '') {
+    if (!offsetField) {
+        return { includesSide: false, sideCount: 0, valueCount: 0, pct: 0, offsetField: '' };
+    }
+    return {
+        ...analyzeOffsetEmbeddedSide(valuesFor(rows, offsetField)),
+        offsetField
+    };
+}
+
 export function scoreLatitudeColumn(field, values = []) {
     return confidence(HEADER_PATTERNS.latitude.test(field) ? 1 : 0, scoreByValues(values, (v) => {
         const n = Number(v);
@@ -91,6 +121,7 @@ export function detectStationTableColumns(rows = [], columns = null) {
     });
     const label = bestColumn(fields, rows, 'label', (v) => String(v ?? '').trim().length > 0);
     const combinedCoordinate = bestColumn(fields, rows, 'latitude', (v) => parseCombinedCoordinate(v).valid);
+    const offsetEmbeddedSide = getOffsetEmbeddedSideForMapping(rows, offset.field);
 
     return {
         fields,
@@ -101,20 +132,27 @@ export function detectStationTableColumns(rows = [], columns = null) {
         longitude,
         label,
         combinedCoordinate,
+        offsetEmbeddedSide,
         hasUsableStation: station.confidence >= 50,
         hasUsableCoordinates: (latitude.confidence >= 50 && longitude.confidence >= 50) || combinedCoordinate.confidence >= 60
     };
 }
 
+function mappedField(detection, key, minConfidence = 50) {
+    const item = detection?.[key];
+    if (!item?.field || (item.confidence ?? 0) < minConfidence) return '';
+    return item.field;
+}
+
 export function normalizeColumnMapping(detection = {}, overrides = {}) {
     return {
-        station: overrides.station ?? detection.station?.field ?? '',
-        offset: overrides.offset ?? detection.offset?.field ?? '',
-        side: overrides.side ?? detection.side?.field ?? '',
-        latitude: overrides.latitude ?? detection.latitude?.field ?? '',
-        longitude: overrides.longitude ?? detection.longitude?.field ?? '',
-        combinedCoordinate: overrides.combinedCoordinate ?? detection.combinedCoordinate?.field ?? '',
-        label: overrides.label ?? detection.label?.field ?? ''
+        station: overrides.station ?? mappedField(detection, 'station'),
+        offset: overrides.offset ?? mappedField(detection, 'offset'),
+        side: overrides.side ?? mappedField(detection, 'side'),
+        latitude: overrides.latitude ?? mappedField(detection, 'latitude'),
+        longitude: overrides.longitude ?? mappedField(detection, 'longitude'),
+        combinedCoordinate: overrides.combinedCoordinate ?? mappedField(detection, 'combinedCoordinate', 60),
+        label: overrides.label ?? mappedField(detection, 'label')
     };
 }
 

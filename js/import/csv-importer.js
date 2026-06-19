@@ -5,29 +5,26 @@
 import { createTableDataset, createSpatialDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
 import { loadPapaParse } from '../core/libs.js';
-import { dmsToDd } from '../tools/coordinates.js';
 import { yieldToUI } from '../core/task-runner.js';
+import {
+    parseCoordValue,
+    detectCoordinateColumns,
+    detectProjectedColumns
+} from './coord-detect.js';
+import { projectedTableCrsMetadata } from './import-crs.js';
 
 export const CSV_BATCH_SIZE = 5000;
 export const CSV_STEP_YIELD_EVERY = 2000;
-
-/** Parse a coordinate value — handles DD numbers and DMS strings */
-function parseCoordValue(val) {
-    if (val == null || val === '') return NaN;
-    if (typeof val === 'number' && isFinite(val)) return val;
-    const s = String(val).trim();
-    const n = parseFloat(s);
-    if (!isNaN(n) && /^-?\d+\.?\d*$/.test(s)) return n;
-    const dms = dmsToDd(s);
-    if (dms != null && isFinite(dms)) return dms;
-    return n;
-}
 
 function _rowHasData(row) {
     return Object.values(row).some((v) => v != null && v !== '');
 }
 
-function _buildSpatialDataset(name, file, rows, coordInfo, parseErrors) {
+function _detectCoordInfo(fields, rows) {
+    return detectCoordinateColumns(fields, rows) || detectProjectedColumns(fields, rows);
+}
+
+function _buildSpatialDataset(name, file, rows, coordInfo, parseErrors, options = {}) {
     const features = rows.map((row) => {
         const lat = parseCoordValue(row[coordInfo.latField]);
         const lon = parseCoordValue(row[coordInfo.lonField]);
@@ -37,11 +34,16 @@ function _buildSpatialDataset(name, file, rows, coordInfo, parseErrors) {
         return { type: 'Feature', geometry: geom, properties: { ...row } };
     });
     const fc = { type: 'FeatureCollection', features };
+    const crsMeta = coordInfo.projected
+        ? projectedTableCrsMetadata(options.sourceCrs)
+        : { crs: 'EPSG:4326', crsDetected: 'default' };
     const ds = createSpatialDataset(name, fc, {
         file: file.name, format: 'csv',
         coordDetected: coordInfo,
-        parseErrors: parseErrors || 0
-    });
+        parseErrors: parseErrors || 0,
+        crsDetected: crsMeta.crsDetected,
+        crsWarning: crsMeta.crsWarning
+    }, { crs: crsMeta.crs });
     ds._coordInfo = coordInfo;
     return ds;
 }
@@ -85,12 +87,12 @@ export async function importCSV(file, task, options = {}) {
                 if (!coordChecked && rows.length < 20) {
                     rows.push(row);
                     if (rows.length === 20) {
-                        coordInfo = detectCoordinateColumns(fields, rows);
+                        coordInfo = _detectCoordInfo(fields, rows);
                         coordChecked = true;
                     }
                 } else {
                     if (!coordChecked) {
-                        coordInfo = detectCoordinateColumns(fields, rows);
+                        coordInfo = _detectCoordInfo(fields, rows);
                         coordChecked = true;
                     }
                     rows.push(row);
@@ -111,7 +113,7 @@ export async function importCSV(file, task, options = {}) {
                     task.updateProgress(70, 'Building dataset...');
 
                     if (!coordChecked) {
-                        coordInfo = detectCoordinateColumns(fields || [], rows);
+                        coordInfo = _detectCoordInfo(fields || [], rows);
                     }
 
                     const criticalErrors = errors.filter((e) => e.type === 'FieldMismatch');
@@ -132,9 +134,9 @@ export async function importCSV(file, task, options = {}) {
                     if (coordInfo) {
                         let ds;
                         if (rows.length > CSV_BATCH_SIZE) {
-                            ds = await _buildSpatialDatasetBatched(name, file, rows, coordInfo, errors.length, task);
+                            ds = await _buildSpatialDatasetBatched(name, file, rows, coordInfo, errors.length, task, options);
                         } else {
-                            ds = _buildSpatialDataset(name, file, rows, coordInfo, errors.length);
+                            ds = _buildSpatialDataset(name, file, rows, coordInfo, errors.length, options);
                         }
                         task.updateProgress(100, 'Done');
                         resolve(ds);
@@ -157,7 +159,7 @@ export async function importCSV(file, task, options = {}) {
     });
 }
 
-async function _buildSpatialDatasetBatched(name, file, rows, coordInfo, parseErrors, task) {
+async function _buildSpatialDatasetBatched(name, file, rows, coordInfo, parseErrors, task, options = {}) {
     const features = [];
     for (let i = 0; i < rows.length; i += CSV_BATCH_SIZE) {
         task.throwIfCancelled?.();
@@ -177,41 +179,17 @@ async function _buildSpatialDatasetBatched(name, file, rows, coordInfo, parseErr
         await yieldToUI();
     }
     const fc = { type: 'FeatureCollection', features };
+    const crsMeta = coordInfo.projected
+        ? projectedTableCrsMetadata(options.sourceCrs)
+        : { crs: 'EPSG:4326', crsDetected: 'default' };
     const ds = createSpatialDataset(name, fc, {
         file: file.name, format: 'csv',
         coordDetected: coordInfo,
-        parseErrors: parseErrors || 0
-    });
+        parseErrors: parseErrors || 0,
+        crsDetected: crsMeta.crsDetected,
+        crsWarning: crsMeta.crsWarning
+    }, { crs: crsMeta.crs });
     ds._coordInfo = coordInfo;
     return ds;
 }
 
-function detectCoordinateColumns(fields, rows) {
-    const lower = fields.map((f) => f.toLowerCase());
-    const latPatterns = ['lat', 'latitude', 'y', 'lat_dd', 'latitude_dd'];
-    const lonPatterns = ['lon', 'lng', 'long', 'longitude', 'x', 'lon_dd', 'longitude_dd'];
-
-    let latField = null;
-    let lonField = null;
-    for (const p of latPatterns) {
-        const idx = lower.findIndex((f) => f === p || f === p.replace('_', ''));
-        if (idx >= 0) { latField = fields[idx]; break; }
-    }
-    for (const p of lonPatterns) {
-        const idx = lower.findIndex((f) => f === p || f === p.replace('_', ''));
-        if (idx >= 0) { lonField = fields[idx]; break; }
-    }
-
-    if (latField && lonField) {
-        const sample = rows.slice(0, 20);
-        const validCount = sample.filter((r) => {
-            const lat = parseCoordValue(r[latField]);
-            const lon = parseCoordValue(r[lonField]);
-            return !isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
-        }).length;
-        if (validCount >= sample.length * 0.5) {
-            return { latField, lonField };
-        }
-    }
-    return null;
-}

@@ -20,6 +20,10 @@ export const UDOT_ROUTE_SEGMENT_CONFIG = {
     negativeDirectionValue: 'N',
     routeSearchLimit: 25,
     milepostTolerance: 0.001,
+    /** Max distance (mi) to snap a requested MP to the nearest layer point (tenth-mile grid). */
+    milepostSnapTolerance: 0.051,
+    /** Max distance (mi) to snap to the nearest whole-mile layer point. */
+    milepostWholeSnapTolerance: 0.51,
     routeSearchOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON'],
     routeGeometryOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_DIRECTION', 'ROUTE_TYPE', 'Shape__Length', 'BEG_MILEAGE', 'END_MILEAGE'],
     milepostOutFields: ['ROUTE_ID', 'Measure', 'RouteDir', 'ROUTE_ALIAS_COMMON']

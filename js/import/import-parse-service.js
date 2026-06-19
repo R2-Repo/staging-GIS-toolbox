@@ -79,7 +79,8 @@ export async function parseShapefileForImport(buffer) {
         }
     }
     const shp = await loadShpjs();
-    return parseShapefileBuffer(buffer, shp);
+    const JSZipLib = await loadJSZip();
+    return parseShapefileBuffer(buffer, shp, { JSZipLib });
 }
 
 export { cancelWorkerParse, supportsWorkers };

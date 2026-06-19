@@ -3,6 +3,7 @@ import { openBulkUpdate } from './bulk-update/controller.js';
 import { openProximityJoin } from './proximity-join/controller.js';
 import { openRouteMilepostSegment } from './route-milepost-segment/controller.js';
 import { openProjectStationing } from './project-stationing/controller.js';
+import { openCrsManager } from './crs-manager/controller.js';
 
 /** @typedef {import('./widget-types.js').WidgetContext} WidgetContext */
 
@@ -46,6 +47,14 @@ export const GIS_WIDGETS = [
         icon: '📐',
         tip: 'Generate 100-ft project station segments along a UDOT route centerline.',
         open: openProjectStationing
+    },
+    {
+        type: 'crs-manager',
+        action: 'openCrsManager',
+        label: 'CRS Manager',
+        icon: '🌐',
+        tip: 'Audit layer coordinate systems, batch reproject, and manage CRS favorites.',
+        open: openCrsManager
     }
 ];
 

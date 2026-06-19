@@ -10,6 +10,7 @@ describe('station table parsing', () => {
     it.each([
         ['12+50', 1250],
         ['12+50.25', 1250.25],
+        ['611+44.00', 61144],
         ['STA 12+50', 1250],
         ['Sta. 12+50', 1250],
         ['12 + 50', 1250],
@@ -34,6 +35,8 @@ describe('station table parsing', () => {
         ['25L', '', 25, 'LT'],
         ['+25', '', 25, 'RT'],
         ['-25', '', 25, 'LT'],
+        ['91.29 RT', '', 91.29, 'RT'],
+        ['-63.00 LT', '', 63, 'LT'],
         ['CL', '', 0, 'CL'],
         ['centerline', '', 0, 'CL']
     ])('parses offset %s', (raw, sideRaw, feet, side) => {

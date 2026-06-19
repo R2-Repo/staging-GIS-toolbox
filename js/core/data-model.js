@@ -41,9 +41,13 @@ const UNIQUE_CAP = 10000;
 
 /**
  * Create a canonical spatial dataset
+ * @param {string} name
+ * @param {object} geojson
+ * @param {object} [source]
+ * @param {{ crs?: string, crsWkt?: string }} [schemaOpts]
  */
-export function createSpatialDataset(name, geojson, source = {}) {
-    const schema = analyzeSchema(geojson);
+export function createSpatialDataset(name, geojson, source = {}, schemaOpts = {}) {
+    const schema = analyzeSchema(geojson, schemaOpts);
     return {
         id: generateId(),
         name,
@@ -153,8 +157,10 @@ export function spatialToTable(dataset) {
 
 /**
  * Analyze GeoJSON FeatureCollection to produce schema
+ * @param {object} geojson
+ * @param {{ crs?: string, crsWkt?: string }} [opts]
  */
-export function analyzeSchema(geojson) {
+export function analyzeSchema(geojson, opts = {}) {
     const features = geojson?.features || [];
     const fieldMap = new Map();
     const geomTypes = new Set();
@@ -170,7 +176,7 @@ export function analyzeSchema(geojson) {
         }
     }
 
-    return _buildSchemaFromFieldMap(fieldMap, geomTypes, features.length);
+    return _buildSchemaFromFieldMap(fieldMap, geomTypes, features.length, opts);
 }
 
 /**
@@ -239,7 +245,7 @@ function _accumulateFieldValue(fm, val) {
     }
 }
 
-function _buildSchemaFromFieldMap(fieldMap, geomTypes, featureCount) {
+function _buildSchemaFromFieldMap(fieldMap, geomTypes, featureCount, opts = {}) {
     const fields = [];
     let order = 0;
     for (const [name, data] of fieldMap) {
@@ -266,7 +272,8 @@ function _buildSchemaFromFieldMap(fieldMap, geomTypes, featureCount) {
         fields,
         geometryType,
         featureCount,
-        crs: 'EPSG:4326'
+        crs: opts.crs || 'EPSG:4326',
+        ...(opts.crsWkt ? { crsWkt: opts.crsWkt } : {})
     };
 }
 

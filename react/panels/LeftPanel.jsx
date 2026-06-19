@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { isSpatialLayer, getLayerFeatureCount } from '../../js/core/data-model.js';
+import { isLayerDisplayReady, layerCrsWarning } from '../../js/crs/layer-crs.js';
 import { LayerDataToolsPanel } from './LayerDataToolsPanel.jsx';
 import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
@@ -34,6 +35,7 @@ export function LayerListPanel({
                 const geomType = layer.schema?.geometryType;
 
                 const outOfScale = layer._outOfScaleRange;
+                const crsWarning = isSpatial && !isLayerDisplayReady(layer) ? layerCrsWarning(layer) : '';
 
                 return (
                     <div
@@ -71,6 +73,14 @@ export function LayerListPanel({
                                     title={outOfScale ? 'Outside visible scale range at current zoom' : 'Scale range active'}
                                 >
                                     SCALE
+                                </span>
+                            ) : null}
+                            {crsWarning ? (
+                                <span
+                                    className="layer-filter-badge layer-crs-badge"
+                                    title={crsWarning}
+                                >
+                                    CRS
                                 </span>
                             ) : null}
                             <div className="layer-order-btns">

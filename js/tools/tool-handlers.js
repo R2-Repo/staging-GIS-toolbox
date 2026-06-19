@@ -10,6 +10,7 @@ import {
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from '../core/state.js';
 import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, createTableDataset, analyzeSchema, analyzeTableSchema, isSpatialLayer } from '../core/data-model.js';
+import { isLayerDisplayReady, layerCrsWarning } from '../crs/layer-crs.js';
 import { importFile, importFiles } from '../import/importer.js';
 import { cancelWorkerParse } from '../import/import-parse-service.js';
 import { convertSpatialDatasetToWorkspace } from '../import/workspace-import.js';
@@ -533,6 +534,16 @@ async function _addImportedDatasets(datasets, importOpts = {}) {
         }
         ids.push(ds.id);
     }
+
+    const crsWarnings = datasets.filter((ds) => isSpatialLayer(ds) && !isLayerDisplayReady(ds));
+    if (crsWarnings.length) {
+        const names = crsWarnings.map((ds) => ds.name).join(', ');
+        showToast(
+            `${crsWarnings.length} layer(s) need reprojection for map display: ${names}`,
+            'warning'
+        );
+    }
+
     return ids;
 }
 
@@ -610,6 +621,9 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
                     task: getActiveTask()
                 });
                 totalFiltered += tf;
+                const { resolveImportCrsForDatasets } = await import('../import/import-crs-resolve.js');
+                const { pickCrsConfirmModal } = await import('../../react/tools/mountCrsConfirmDialog.jsx');
+                await resolveImportCrsForDatasets(expanded, pickCrsConfirmModal);
                 const ids = await _addImportedDatasets(expanded, {
                     importMode: options.importMode,
                     useWorkspace: options.useWorkspace
@@ -1872,6 +1886,44 @@ async function openBuffer() {
             }
         });
 
+}
+
+async function openReproject() {
+    const layer = await requireSpatialLayer();
+    if (!layer) return;
+
+    const rootId = `reproject-tool-react-${Date.now()}`;
+    showModal('Reproject Layer', `<div id="${rootId}"></div>`, {
+        onMount: async (overlay, close) => {
+            const root = overlay.querySelector(`#${rootId}`);
+            if (!root) return;
+
+            const { mountReprojectDialog } = await import('../../react/tools/mountReprojectDialog.jsx');
+            const { getLayerCrs } = await import('../crs/layer-crs.js');
+            const mounted = mountReprojectDialog(root, {
+                layerName: layer.name,
+                sourceCrs: getLayerCrs(layer),
+                onCancel: () => close(),
+                onApply: async ({ fromCrs, toCrs, name }) => {
+                    close();
+                    try {
+                        const { reprojectLayer } = await import('./reproject.js');
+                        const result = await runWithTaskProgress('Reproject', () =>
+                            reprojectLayer(layer, { fromCrs, toCrs, name })
+                        );
+                        if (!result) return;
+                        addLayer(result);
+                        mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
+                        showToast(`Reproject complete — new layer "${result.name}" created`, 'success');
+                        refreshUI();
+                    } catch (e) {
+                        showErrorToast(handleError(e, 'GISTools', 'Reproject'));
+                    }
+                }
+            });
+            watchOverlayUnmount(overlay, () => mounted.unmount?.());
+        }
+    });
 }
 
 async function openSimplify() {
@@ -3645,7 +3697,19 @@ export async function doExport(format) {
         if (layerStyle && isSmartStyleActive(layerStyle) && ['shapefile', 'csv', 'xlsx'].includes(format)) {
             showToast('Smart styling is not included in this format. Use KML, KMZ, or GeoJSON for styled output.', 'info');
         }
-        await exportDataset(ds, format);
+
+        let exportOptions = {};
+        if (format === 'shapefile') {
+            const { pickExportCrsModal } = await import('../../react/tools/mountExportCrsDialog.jsx');
+            const picked = await pickExportCrsModal({
+                layerName: ds.name,
+                defaultCrs: ds.schema?.crs || 'EPSG:4326'
+            });
+            if (!picked) return;
+            exportOptions = { targetCrs: picked.targetCrs, sourceCrs: ds.schema?.crs };
+        }
+
+        await exportDataset(ds, format, exportOptions);
     } catch (e) {
         showErrorToast(handleError(e, 'Export', format));
     }
@@ -4255,6 +4319,7 @@ const APP_ACTIONS = {
     openValidation,
     addUID,
     openBuffer,
+    openReproject,
     openSimplify,
     openClip,
     openDistanceTool,

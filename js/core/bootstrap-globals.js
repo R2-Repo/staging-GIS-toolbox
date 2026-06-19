@@ -10,6 +10,7 @@ import JSZip from 'jszip';
 import toGeoJSON from '@mapbox/togeojson';
 import shp from 'shpjs';
 import * as exifr from 'exifr';
+import proj4 from 'proj4';
 
 export function bootstrapGlobals() {
     globalThis.maplibregl = maplibregl;
@@ -20,4 +21,5 @@ export function bootstrapGlobals() {
     globalThis.toGeoJSON = toGeoJSON;
     globalThis.shp = shp;
     globalThis.exifr = exifr;
+    globalThis.proj4 = proj4;
 }

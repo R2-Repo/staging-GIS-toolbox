@@ -133,7 +133,7 @@ export function ProjectStationingDialog({
     }, [searchText, routePickerOpen, onSearchRoutes]);
 
     useEffect(() => {
-        if (!canPreview) {
+        if (!canPreview || picking) {
             if (previewTimer.current) clearTimeout(previewTimer.current);
             if (!beginStationValidation.valid) setPreview(null);
             return undefined;
@@ -170,6 +170,7 @@ export function ProjectStationingDialog({
         endStation,
         intervalFt,
         outputMode,
+        picking,
         onStationPreview
     ]);
 
@@ -221,15 +222,20 @@ export function ProjectStationingDialog({
 
     const handlePickClip = async () => {
         if (!selectedRoute) return;
+        if (previewTimer.current) clearTimeout(previewTimer.current);
+        previewRequestId.current += 1;
+        setStartMilepost('');
+        setEndMilepost('');
+        setPreview(null);
         setPicking(true);
         setError('');
         try {
             const result = await onPickClipOnRoute?.();
-            if (result) {
-                setMapClip(result);
-                setStartMilepost('');
-                setEndMilepost('');
+            if (!result) {
+                setError('Clip pick cancelled.');
+                return;
             }
+            setMapClip(result);
         } catch (err) {
             setMapClip(null);
             setError(err?.message || 'Map pick failed.');
@@ -372,7 +378,7 @@ export function ProjectStationingDialog({
                         type="button"
                         className="btn btn-secondary btn-sm"
                         onClick={handlePickClip}
-                        disabled={!selectedRoute || picking || running || milepostClipValid}
+                        disabled={!selectedRoute || picking || running}
                     >
                         {picking ? 'Pick on map…' : 'Pick clip on route'}
                     </button>
@@ -388,7 +394,9 @@ export function ProjectStationingDialog({
                     ) : null}
                 </div>
                 {hasMapClip ? (
-                    <div className="text-xs text-muted">Clip defined from map pick.</div>
+                    <div className="text-xs text-muted">
+                        Clip defined from map pick ({Math.round(mapClip.mapClipStartFt).toLocaleString()}–{Math.round(mapClip.mapClipEndFt).toLocaleString()} ft along route).
+                    </div>
                 ) : null}
             </div>
 

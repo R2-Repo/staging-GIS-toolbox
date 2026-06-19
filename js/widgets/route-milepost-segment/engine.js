@@ -1,5 +1,5 @@
 import { nearestPointOnLineAny, pointToLineDistanceAny } from '../../tools/line-geojson.js';
-import { lineSlice, nearestPointOnLine } from '../../tools/gis-tools.js';
+import { lineSlice, lineSliceAlong, nearestPointOnLine } from '../../tools/gis-tools.js';
 import { OUTPUT_ALIGNMENT, METHOD_VALUES } from './config.js';
 
 const FEET_PER_MILE = 5280;
@@ -22,13 +22,8 @@ export function validateMilepostValue(value) {
         return { valid: false, error: 'Milepost is required.' };
     }
 
-    if (!/^\d+(\.\d)?$/.test(raw)) {
-        return { valid: false, error: 'Milepost must be a whole mile or one decimal place (tenth-mile).' };
-    }
-
-    const parts = raw.split('.');
-    if (parts.length === 2 && parts[1].length !== 1) {
-        return { valid: false, error: 'Milepost must be a whole mile or one decimal place (tenth-mile).' };
+    if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
+        return { valid: false, error: 'Milepost must be a whole mile or up to two decimal places (e.g. 10.65).' };
     }
 
     const num = Number(raw);
@@ -136,8 +131,82 @@ export function buildMilepostWhere(routeId, minMp, maxMp, config) {
     return `${config.milepostRouteIdField} = '${id}' AND ${config.milepostValueField} >= ${minMp} AND ${config.milepostValueField} <= ${maxMp}`;
 }
 
-export function buildMilepostPointWhere(routeId, mp, config) {
-    return buildMilepostWhere(routeId, mp, mp, config);
+/**
+ * Milepost layer query for a requested MP range, expanded by snap tolerance so
+ * bracketing tenth-mile points (e.g. 459.8 for 459.81) are included.
+ * @param {string} routeId
+ * @param {number} startMp
+ * @param {number} endMp
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ * @param {'whole'|'tenth'} [layerKey]
+ */
+export function buildMilepostRangeWhere(routeId, startMp, endMp, config, layerKey = 'tenth') {
+    const snapTolerance = getMilepostSnapTolerance(layerKey, config);
+    const minMp = Math.min(startMp, endMp) - snapTolerance;
+    const maxMp = Math.max(startMp, endMp) + snapTolerance;
+    return buildMilepostWhere(routeId, minMp, maxMp, config);
+}
+
+/**
+ * @param {'whole'|'tenth'} layerKey
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function getMilepostSnapTolerance(layerKey, config) {
+    if (layerKey === 'whole') {
+        return config.milepostWholeSnapTolerance ?? 0.51;
+    }
+    return config.milepostSnapTolerance ?? 0.051;
+}
+
+export function buildMilepostPointWhere(routeId, mp, config, layerKey = 'tenth') {
+    const snapTolerance = getMilepostSnapTolerance(layerKey, config);
+    return buildMilepostWhere(routeId, mp - snapTolerance, mp + snapTolerance, config);
+}
+
+/**
+ * @param {import('geojson').Feature[]} features
+ * @param {number} targetMp
+ * @param {number} exactTolerance
+ * @param {number} snapTolerance
+ * @param {string} valueField
+ * @returns {{ point: import('geojson').Feature, snapped: boolean, requested: number, resolved: number, snapDistance?: number } | null}
+ */
+export function resolveMilepostPoint(features, targetMp, exactTolerance, snapTolerance, valueField = 'Measure') {
+    let nearestFeature = null;
+    let nearestDistance = Infinity;
+
+    for (const feature of features || []) {
+        const measure = Number(feature?.properties?.[valueField]);
+        if (!Number.isFinite(measure)) continue;
+
+        const distance = Math.abs(measure - targetMp);
+        if (distance <= exactTolerance) {
+            return {
+                point: feature,
+                snapped: false,
+                requested: targetMp,
+                resolved: measure
+            };
+        }
+
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestFeature = feature;
+        }
+    }
+
+    if (!nearestFeature || nearestDistance > snapTolerance) {
+        return null;
+    }
+
+    const resolved = Number(nearestFeature.properties?.[valueField]);
+    return {
+        point: nearestFeature,
+        snapped: nearestDistance > exactTolerance,
+        requested: targetMp,
+        resolved,
+        snapDistance: nearestDistance
+    };
 }
 
 /**
@@ -146,23 +215,126 @@ export function buildMilepostPointWhere(routeId, mp, config) {
  * @param {number} endMp
  * @param {number} [tolerance]
  * @param {string} [valueField]
+ * @param {number} [snapTolerance]
  */
-export function findStartEndMilepostPoints(features, startMp, endMp, tolerance = 0.001, valueField = 'Measure') {
+export function findStartEndMilepostPoints(
+    features,
+    startMp,
+    endMp,
+    tolerance = 0.001,
+    valueField = 'Measure',
+    snapTolerance = 0.051
+) {
     const missing = [];
-    let startPoint = null;
-    let endPoint = null;
+    const snaps = [];
 
-    for (const feature of features || []) {
-        const measure = Number(feature?.properties?.[valueField]);
-        if (!Number.isFinite(measure)) continue;
-        if (Math.abs(measure - startMp) <= tolerance) startPoint = feature;
-        if (Math.abs(measure - endMp) <= tolerance) endPoint = feature;
+    const startResolved = resolveMilepostPoint(features, startMp, tolerance, snapTolerance, valueField);
+    const endResolved = resolveMilepostPoint(features, endMp, tolerance, snapTolerance, valueField);
+
+    if (!startResolved) missing.push(startMp);
+    else if (startResolved.snapped) snaps.push(startResolved);
+
+    if (!endResolved) missing.push(endMp);
+    else if (endResolved.snapped) snaps.push(endResolved);
+
+    return {
+        startPoint: startResolved?.point || null,
+        endPoint: endResolved?.point || null,
+        missing,
+        snaps
+    };
+}
+
+export function buildMilepostSnapWarnings(snaps) {
+    return (snaps || [])
+        .filter((snap) => snap?.snapped)
+        .map((snap) =>
+            `Milepost ${formatMilepost(snap.requested)} snapped to nearest measure ${formatMilepost(snap.resolved)} (${snap.snapDistance.toFixed(2)} mi).`
+        );
+}
+
+/**
+ * @param {import('geojson').Feature} positiveLine
+ * @param {object} [routeRecord]
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function readRouteMileageBounds(positiveLine, routeRecord, config) {
+    const begField = config.begMileageField;
+    const endField = config.endMileageField;
+    const beg = Number(routeRecord?.[begField] ?? positiveLine?.properties?.[begField]);
+    const end = Number(routeRecord?.[endField] ?? positiveLine?.properties?.[endField]);
+
+    if (!Number.isFinite(beg) || !Number.isFinite(end)) {
+        return { ok: false, error: 'Route mileage bounds are unavailable on the selected route.' };
     }
 
-    if (!startPoint) missing.push(startMp);
-    if (!endPoint) missing.push(endMp);
+    if (Math.abs(end - beg) < 0.0001) {
+        return { ok: false, error: 'Route mileage range is invalid.' };
+    }
 
-    return { startPoint, endPoint, missing };
+    return {
+        ok: true,
+        beg,
+        end,
+        minMp: Math.min(beg, end),
+        maxMp: Math.max(beg, end)
+    };
+}
+
+/**
+ * @param {number} targetMp
+ * @param {number} begMp
+ * @param {number} endMp
+ * @param {number} lineLengthFeet
+ */
+export function milepostToDistanceFeet(targetMp, begMp, endMp, lineLengthFeet) {
+    const t = (Number(targetMp) - Number(begMp)) / (Number(endMp) - Number(begMp));
+    return t * lineLengthFeet;
+}
+
+/**
+ * Locate an exact milepost along the route centerline via BEG/END linear referencing.
+ * @param {import('geojson').Feature} positiveLine
+ * @param {number} targetMp
+ * @param {object} [routeRecord]
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function locateMilepostOnRoute(positiveLine, targetMp, routeRecord, config) {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const bounds = readRouteMileageBounds(positiveLine, routeRecord, config);
+    if (!bounds.ok) {
+        return { ok: false, error: bounds.error };
+    }
+
+    const mp = Number(targetMp);
+    if (!Number.isFinite(mp)) {
+        return { ok: false, error: 'Milepost must be a number.' };
+    }
+
+    if (mp < bounds.minMp - 0.001 || mp > bounds.maxMp + 0.001) {
+        return {
+            ok: false,
+            error: `Milepost ${formatMilepost(mp)} is outside route mileage (${formatMilepost(bounds.beg)}–${formatMilepost(bounds.end)}).`
+        };
+    }
+
+    const lineLengthFeet = turf.length(positiveLine, { units: 'feet' });
+    if (!Number.isFinite(lineLengthFeet) || lineLengthFeet <= 0) {
+        return { ok: false, error: 'Route centerline length is invalid.' };
+    }
+
+    const distanceFeet = milepostToDistanceFeet(mp, bounds.beg, bounds.end, lineLengthFeet);
+    const clampedFeet = Math.max(0, Math.min(distanceFeet, lineLengthFeet));
+    const point = turf.along(positiveLine, clampedFeet, { units: 'feet' });
+    point.properties = {
+        ...(point.properties || {}),
+        [config.milepostValueField]: mp,
+        milepost: formatMilepost(mp),
+        located_by: 'linear_referencing'
+    };
+
+    return { ok: true, point, distanceFeet: clampedFeet, bounds };
 }
 
 function lineLengthValue(feature, config) {
@@ -349,7 +521,8 @@ export function formatMilepost(value) {
     const num = Number(value);
     if (!Number.isFinite(num)) return String(value ?? '');
     if (isWholeMilepost(num)) return String(Math.round(num));
-    return num.toFixed(1);
+    const rounded = Math.round(num * 100) / 100;
+    return rounded.toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
 /**
@@ -419,23 +592,24 @@ export function computeSegmentResult(input) {
         return { ok: false, errors: ['Positive-direction route centerline is required.'] };
     }
 
-    const { startPoint, endPoint, missing } = findStartEndMilepostPoints(
-        milepostFeatures,
-        startMp,
-        endMp,
-        config.milepostTolerance,
-        config.milepostValueField
-    );
-
-    if (missing.length > 0) {
-        return {
-            ok: false,
-            errors: [`Milepost point(s) not found for: ${missing.map(formatMilepost).join(', ')}.`]
-        };
+    const routeRecord = routeMeta.routeRecord ?? positiveLine.properties ?? {};
+    const startLocated = locateMilepostOnRoute(positiveLine, startMp, routeRecord, config);
+    if (!startLocated.ok) {
+        return { ok: false, errors: [startLocated.error || `Milepost point not found for: ${formatMilepost(startMp)}.`] };
     }
 
-    const { startSnap, endSnap } = snapMilepostsToRoute(positiveLine, startPoint, endPoint);
-    const centerlineSegment = sliceRouteBetweenMileposts(positiveLine, startSnap, endSnap);
+    const endLocated = locateMilepostOnRoute(positiveLine, endMp, routeRecord, config);
+    if (!endLocated.ok) {
+        return { ok: false, errors: [endLocated.error || `Milepost point not found for: ${formatMilepost(endMp)}.`] };
+    }
+
+    const startPoint = startLocated.point;
+    const endPoint = endLocated.point;
+    const startSnap = startPoint;
+    const endSnap = endPoint;
+    const lowDist = Math.min(startLocated.distanceFeet, endLocated.distanceFeet);
+    const highDist = Math.max(startLocated.distanceFeet, endLocated.distanceFeet);
+    const centerlineSegment = lineSliceAlong(positiveLine, lowDist, highDist, 'feet');
 
     let outputGeometry = centerlineSegment;
     let method = METHOD_VALUES.POSITIVE_CENTERLINE;
@@ -459,7 +633,11 @@ export function computeSegmentResult(input) {
         ? turf.length(outputGeometry, { units: 'miles' })
         : null;
 
-    const milepostPrecision = isWholeMilepost(startMp) && isWholeMilepost(endMp) ? 'whole' : 'tenth';
+    const milepostPrecision = isWholeMilepost(startMp) && isWholeMilepost(endMp)
+        ? 'whole'
+        : (Math.abs(startMp * 10 - Math.round(startMp * 10)) < 0.0001 && Math.abs(endMp * 10 - Math.round(endMp * 10)) < 0.0001)
+            ? 'tenth'
+            : 'hundredth';
     const routeAlias = routeMeta.routeAlias
         || positiveLine.properties?.[config.routeAliasField]
         || routeMeta.routeId

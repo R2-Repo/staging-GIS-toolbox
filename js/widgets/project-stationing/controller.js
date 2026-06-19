@@ -6,6 +6,7 @@ import {
     buildRouteIdWhere,
     chooseMilepostLayer,
     computeSegmentResult,
+    locateMilepostOnRoute,
     selectRouteFeatures,
     validateMilepostRange
 } from '../route-milepost-segment/engine.js';
@@ -16,8 +17,7 @@ import {
     validateWidgetLayerConfig,
     verifyDirectionValues
 } from '../route-milepost-segment/arcgis-client.js';
-import { nearestPointOnLineAny } from '../../tools/line-geojson.js';
-import { lineSliceAlong } from '../../tools/gis-tools.js';
+import { nearestPointOnLineAny, nearestPointOnRouteLine, lineSliceAlongRoute } from '../../tools/line-geojson.js';
 import {
     DEFAULT_INTERVAL_FT,
     CLIP_METHODS,
@@ -35,7 +35,7 @@ import {
 } from './route-profile.js';
 import { importFile } from '../../import/importer.js';
 import { createTableDataset } from '../../core/data-model.js';
-import { detectStationTableColumns, normalizeColumnMapping } from './table-import/station-table-detect.js';
+import { detectStationTableColumns, getOffsetEmbeddedSideForMapping, normalizeColumnMapping } from './table-import/station-table-detect.js';
 import { validateStationTableRows, buildUnplottedRowsReport } from './table-import/station-table-validation.js';
 
 /** @type {typeof UDOT_ROUTE_SEGMENT_CONFIG} */
@@ -191,13 +191,11 @@ async function buildMpClip(input, routeContext) {
     }
 
     const layerChoice = chooseMilepostLayer(range.startMp, range.endMp, activeConfig);
-    const milepostWhere = buildMilepostWhere(routeContext.routeId, range.startMp, range.endMp, activeConfig);
-    const milepostFeatures = await queryMilepostFeatures(milepostWhere, layerChoice.layerKey, activeConfig);
 
     const result = computeSegmentResult({
         positiveLine: routeContext.routeSelection.positiveLine,
         negativeLine: routeContext.routeSelection.negativeLine,
-        milepostFeatures,
+        milepostFeatures: [],
         startMp: range.startMp,
         endMp: range.endMp,
         alignment: 'positive_direction_centerline',
@@ -205,7 +203,8 @@ async function buildMpClip(input, routeContext) {
         milepostLayerKey: layerChoice.layerKey,
         routeMeta: {
             routeId: routeContext.routeId,
-            routeAlias: routeContext.routeAlias
+            routeAlias: routeContext.routeAlias,
+            routeRecord: routeContext.routeRecord
         },
         extraWarnings: routeContext.routeSelection.warnings
     });
@@ -248,7 +247,7 @@ function clipByMapPick(positiveLine, mapClipStartFt, mapClipEndFt, intervalFt = 
     if (endDist - startDist < intervalFt) {
         throw new Error(`Picked segment must be at least ${intervalFt} ft.`);
     }
-    const clipped = lineSliceAlong(positiveLine, startDist, endDist, 'feet');
+    const clipped = lineSliceAlongRoute(positiveLine, startDist, endDist, 'feet');
     return {
         clipMethod: CLIP_METHODS.MAP_PICK,
         baseCenterline: clipped,
@@ -280,19 +279,36 @@ async function resolveClip(input, routeContext) {
 }
 
 async function pickClipOnRoute(ctx, positiveLine) {
-    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
-    const pts = await ctx.mapService.startTwoPointPick(
-        'Click start of clip along route',
-        'Click end of clip along route'
-    );
-    if (!pts) return null;
+    const result = ctx.mapService.startRouteTwoPointPick
+        ? await ctx.mapService.startRouteTwoPointPick(
+            positiveLine,
+            'Click start of clip along route',
+            'Click end of clip along route'
+        )
+        : await (async () => {
+            if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+            const pts = await ctx.mapService.startTwoPointPick(
+                'Click start of clip along route',
+                'Click end of clip along route'
+            );
+            if (!pts) return null;
+            const snap1 = nearestPointOnRouteLine(turf.point(pts[0]), positiveLine, 'feet');
+            const snap2 = nearestPointOnRouteLine(turf.point(pts[1]), positiveLine, 'feet');
+            const loc1 = Number(snap1.properties?.location ?? 0);
+            const loc2 = Number(snap2.properties?.location ?? 0);
+            return {
+                mapClipStartFt: Math.min(loc1, loc2),
+                mapClipEndFt: Math.max(loc1, loc2)
+            };
+        })();
 
-    const snap1 = nearestPointOnLineAny(turf.point(pts[0]), positiveLine, 'feet');
-    const snap2 = nearestPointOnLineAny(turf.point(pts[1]), positiveLine, 'feet');
-    const loc1 = Number(snap1.properties?.location ?? 0);
-    const loc2 = Number(snap2.properties?.location ?? 0);
-    const startDist = Math.min(loc1, loc2);
-    const endDist = Math.max(loc1, loc2);
+    if (!result) return null;
+
+    const startDist = Number(result.mapClipStartFt);
+    const endDist = Number(result.mapClipEndFt);
+    if (!Number.isFinite(startDist) || !Number.isFinite(endDist)) {
+        throw new Error('Map pick did not return valid clip distances.');
+    }
 
     if (endDist - startDist < DEFAULT_INTERVAL_FT) {
         throw new Error(`Picked segment must be at least ${DEFAULT_INTERVAL_FT} ft.`);
@@ -459,18 +475,24 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
         datasetName: 'Station table'
     };
 
-    function analyze(mappingOverrides = {}) {
+    async function analyze(mappingOverrides = {}, plotOptions = {}) {
         const detection = importState.detection || detectStationTableColumns(importState.rows, importState.fields);
         const mapping = normalizeColumnMapping(detection, mappingOverrides);
-        const output = validateStationTableRows(importState.rows, routeLine, routeProfile, mapping, {
+        const output = await validateStationTableRows(importState.rows, routeLine, routeProfile, mapping, {
             positiveOffsetMeans: 'right',
-            includeQaLines: true
+            includeQaLines: true,
+            coordinateCrs: plotOptions.coordinateCrs
         });
-        return { detection, mapping, ...output };
+        return {
+            detection,
+            mapping,
+            offsetEmbeddedSide: getOffsetEmbeddedSideForMapping(importState.rows, mapping.offset),
+            ...output
+        };
     }
 
     await openReactIsland({
-        title: 'Import Station Table',
+        title: 'Import Station Table (RT/LT in Offset)',
         width: '680px',
         mountPath: '../../../react/widgets/project-stationing/mountImportStationTableDialog.jsx',
         mountExport: 'mountImportStationTableDialog',
@@ -484,17 +506,18 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
                 importState.fields = extracted.fields;
                 importState.datasetName = extracted.datasetName || file.name;
                 importState.detection = detectStationTableColumns(importState.rows, importState.fields);
-                const analysis = analyze();
+                const analysis = await analyze();
                 return {
                     rowCount: importState.rows.length,
                     fields: importState.fields,
                     datasetName: importState.datasetName,
+                    previewRows: importState.rows.slice(0, 5),
                     ...analysis
                 };
             },
             onAnalyzeMapping: async (mappingOverrides) => analyze(mappingOverrides),
             onPlot: async (mappingOverrides, options = {}) => {
-                const output = analyze(mappingOverrides);
+                const output = await analyze(mappingOverrides, options);
                 const baseName = routeProfile.route_name || routeLayer.name || 'Stationing';
                 const eventName = `${baseName} Imported Events`;
 
@@ -628,10 +651,10 @@ export async function openProjectStationing(ctx) {
                 };
             },
             onPickClipOnRoute: async () => {
-                await ensureLayersReady(ctx);
                 if (!previewState.routeContext) {
                     throw new Error('Select a route first.');
                 }
+                ctx.mapService.cancelInteraction?.();
                 return pickClipOnRoute(
                     ctx,
                     previewState.routeContext.routeSelection.positiveLine

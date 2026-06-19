@@ -1,6 +1,6 @@
 import { generateStationEventOutput, summarizeStationEventRows } from './station-event-plot.js';
 
-export function validateStationTableRows(rows, routeLine, routeProfile, mapping, options = {}) {
+export async function validateStationTableRows(rows, routeLine, routeProfile, mapping, options = {}) {
     return generateStationEventOutput(rows, routeLine, routeProfile, mapping, {
         ...options,
         includeQaLines: true

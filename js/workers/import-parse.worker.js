@@ -38,7 +38,7 @@ self.onmessage = async (event) => {
                 break;
             }
             case 'shapefile':
-                result = await parseShapefileBuffer(payload, shp);
+                result = await parseShapefileBuffer(payload, shp, { JSZipLib: JSZip });
                 break;
             default:
                 throw new Error(`Unknown import parse op: ${op}`);

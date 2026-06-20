@@ -1860,7 +1860,8 @@ class MapManager {
      * @param {string} [prompt2]
      * @returns {Promise<{ mapClipStartFt: number, mapClipEndFt: number } | null>}
      */
-    startRouteTwoPointPick(routeLine, prompt1 = 'Click start of clip along route', prompt2 = 'Click end of clip along route') {
+    startRouteTwoPointPick(routeLine, prompt1 = 'Click start of clip along route', prompt2 = 'Click end of clip along route', options = {}) {
+        const markerColor = options.markerColor || '#22c55e';
         return new Promise((resolve) => {
             this._cancelInteraction();
             const canvas = this.map.getCanvas();
@@ -1937,7 +1938,7 @@ class MapManager {
                 }
 
                 const el = document.createElement('div');
-                el.style.cssText = 'width:14px;height:14px;background:#d4a24e;border:2px solid #fff;border-radius:50%;';
+                el.style.cssText = `width:14px;height:14px;background:${markerColor};border:2px solid #fff;border-radius:50%;`;
                 const m = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(this.map);
                 markers.push(m);
 

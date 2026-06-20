@@ -181,8 +181,8 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         startTwoPointPick(prompt1, prompt2) {
             return mapAdapter.startTwoPointPick(prompt1, prompt2);
         },
-        startRouteTwoPointPick(routeLine, prompt1, prompt2) {
-            return mapAdapter.startRouteTwoPointPick(routeLine, prompt1, prompt2);
+        startRouteTwoPointPick(routeLine, prompt1, prompt2, options) {
+            return mapAdapter.startRouteTwoPointPick(routeLine, prompt1, prompt2, options);
         },
         startRectangleDraw(prompt) {
             return mapAdapter.startRectangleDraw(prompt);

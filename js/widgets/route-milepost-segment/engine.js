@@ -5,7 +5,37 @@ import { OUTPUT_ALIGNMENT, METHOD_VALUES } from './config.js';
 const FEET_PER_MILE = 5280;
 
 export function normalizeRouteSearchTerm(term) {
-    return String(term ?? '').trim();
+    return String(term ?? '').trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Expand a route search into multiple alias patterns (hyphen/space variants, numeric fragments).
+ * @param {string} searchTerm
+ * @returns {string[]}
+ */
+export function expandRouteSearchPatterns(searchTerm) {
+    const term = normalizeRouteSearchTerm(searchTerm);
+    if (!term) return [];
+
+    const upper = term.toUpperCase();
+    const patterns = new Set();
+
+    const add = (value) => {
+        const cleaned = String(value ?? '').trim();
+        if (cleaned.length >= 2) patterns.add(cleaned);
+    };
+
+    add(upper);
+    add(upper.replace(/-/g, ' '));
+    add(upper.replace(/[-\s]+/g, ''));
+    add(upper.replace(/[^A-Z0-9]+/g, ' ').replace(/\s+/g, ' ').trim());
+
+    const digits = upper.match(/\d+/g);
+    if (digits?.length) {
+        for (const part of digits) add(part);
+    }
+
+    return [...patterns];
 }
 
 export function escapeSqlLiteral(value) {
@@ -106,13 +136,16 @@ export function buildRouteBaseWhere(config) {
 }
 
 export function buildRouteSearchWhere(searchTerm, config) {
-    const term = normalizeRouteSearchTerm(searchTerm);
-    if (!term) return '1=2';
+    const patterns = expandRouteSearchPatterns(searchTerm);
+    if (!patterns.length) return '1=2';
 
-    const cleaned = escapeSqlLiteral(term).replace(/[%_]/g, '');
-    const upper = cleaned.toUpperCase();
     const alias = config.routeAliasField;
-    return `${buildRouteBaseWhere(config)} AND UPPER(${alias}) LIKE '%${upper}%'`;
+    const clauses = patterns.map((pattern) => {
+        const cleaned = escapeSqlLiteral(pattern).replace(/[%_]/g, '');
+        return `UPPER(${alias}) LIKE '%${cleaned}%'`;
+    });
+
+    return `${buildRouteBaseWhere(config)} AND (${clauses.join(' OR ')})`;
 }
 
 export function buildSelectedRouteWhere(routeId, direction, config) {

@@ -1,4 +1,5 @@
 import { lineSliceAlong } from '../../tools/gis-tools.js';
+import { validateMilepostValue, validateMilepostRange } from '../route-milepost-segment/engine.js';
 
 export const DEFAULT_INTERVAL_FT = 100;
 
@@ -40,6 +41,60 @@ export function formatRouteMileage(value) {
 export function parseRouteMileage(value) {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Resolve milepost inputs for live clip preview (supports partial start/end using route endpoints).
+ * @param {string|number} startMilepost
+ * @param {string|number} endMilepost
+ * @param {number|null} routeBegMileage
+ * @param {number|null} routeEndMileage
+ * @returns {{ ok: true, startMilepost: string, endMilepost: string, partial: boolean } | { ok: false }}
+ */
+export function resolvePartialMilepostClipInputs(startMilepost, endMilepost, routeBegMileage, routeEndMileage) {
+    const startTrim = String(startMilepost ?? '').trim();
+    const endTrim = String(endMilepost ?? '').trim();
+
+    if (startTrim && endTrim) {
+        const range = validateMilepostRange(startTrim, endTrim);
+        if (range.valid) {
+            return {
+                ok: true,
+                startMilepost: String(range.startMp),
+                endMilepost: String(range.endMp),
+                partial: false
+            };
+        }
+        return { ok: false };
+    }
+
+    if (startTrim) {
+        const startResult = validateMilepostValue(startTrim);
+        if (startResult.valid && routeEndMileage != null) {
+            return {
+                ok: true,
+                startMilepost: String(startResult.value),
+                endMilepost: String(routeEndMileage),
+                partial: true
+            };
+        }
+        return { ok: false };
+    }
+
+    if (endTrim) {
+        const endResult = validateMilepostValue(endTrim);
+        if (endResult.valid && routeBegMileage != null) {
+            return {
+                ok: true,
+                startMilepost: String(routeBegMileage),
+                endMilepost: String(endResult.value),
+                partial: true
+            };
+        }
+        return { ok: false };
+    }
+
+    return { ok: false };
 }
 
 /**

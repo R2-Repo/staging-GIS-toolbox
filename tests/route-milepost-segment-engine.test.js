@@ -3,6 +3,7 @@ import * as turf from '@turf/turf';
 import { UDOT_ROUTE_SEGMENT_CONFIG, OUTPUT_ALIGNMENT } from '../js/widgets/route-milepost-segment/config.js';
 import {
     normalizeRouteSearchTerm,
+    expandRouteSearchPatterns,
     validateMilepostValue,
     validateMilepostRange,
     isWholeMilepost,
@@ -82,6 +83,22 @@ describe('buildRouteSearchWhere', () => {
         expect(where).toContain("CARTO_CODE IN ('1', '2', '3', '4')");
         expect(where).toContain('ROUTE_ALIAS_COMMON');
         expect(where).not.toContain('ROUTE_ID LIKE');
+    });
+
+    it('matches hyphenated route queries against space-separated aliases', () => {
+        const where = buildRouteSearchWhere('SR-145', UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(where).toContain("LIKE '%SR 145%'");
+        expect(where).toContain("LIKE '%SR-145%'");
+        expect(where).toContain("LIKE '%SR145%'");
+        expect(where).not.toContain('REPLACE(');
+    });
+});
+
+describe('expandRouteSearchPatterns', () => {
+    it('includes hyphen, space, and compact variants', () => {
+        expect(expandRouteSearchPatterns('SR-145')).toEqual(
+            expect.arrayContaining(['SR-145', 'SR 145', 'SR145', '145'])
+        );
     });
 });
 

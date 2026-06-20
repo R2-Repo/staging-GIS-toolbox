@@ -2,27 +2,37 @@
 
 ## Latest
 
-- **Date**: 2026-06-19
-- **Status**: **Import Station Table — side-based locator direction (RT→EB, LT→WB)**
+- **Date**: 2026-06-20
+- **Status**: **Project Stationing — Import Table tab UI cleanup**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- Locator **travel direction is per point** from offset side: RT → primary (e.g. EB), LT → opposite (e.g. WB), CL → configurable
-- Route axis (EB/WB vs NB/SB) auto-detected from centerline; import dialog has editable RT / LT / CL direction dropdowns (2 choices each)
-- **No RT/LT text in calculated names** — format `SR-145 EB MP 611.44` only
-- Preview shows separate RT and LT row examples when table has both sides
+- **Import Table tab UI** simplified in `ImportStationTablePanel.jsx` + `.project-stationing-import-panel` CSS
+- Shorter section copy; locator fields in even 2×2 grid (Route / RT / LT / CL)
+- Native file input replaced with hidden input + styled **Choose file…** button + filename label
+- Detection, mapping, and preview blocks tightened (optional columns collapsed by default)
 
 ### Verification
 
-- `npm test -- tests/station-locator-name.test.js tests/station-event-plot.test.js` — 34 tests green
-- **Browser** (manual): SR-145 import → RT rows EB, LT rows WB, no RT/LT suffix in labels
+- `npm test` — 478 passed
+- **Browser** (manual): Import tab after Create Layers → choose file → verify layout + plot flow
 
 ### Next
 
-- Manual check on SR-145; swap RT/LT direction dropdowns if agency convention is reversed
+- Manual browser smoke on real station table import via tab
 
 ---
+
+## Previous (2026-06-20) — Import Table as in-widget tab
+
+## Previous (2026-06-20) — Project Stationing widget — progressive step UX + extent confirm
+
+
+## Previous (2026-06-20) — Project Stationing widget — progressive step UX (initial)
+
+## Previous (2026-06-19) — Import Station Table — side-based locator direction (RT→EB, LT→WB)
+
 
 ## Previous (2026-06-19) — Import Station Table — editable locator naming (suggested travel direction)
 

@@ -7,6 +7,7 @@ import {
     formatStation,
     formatRouteMileage,
     parseRouteMileage,
+    resolvePartialMilepostClipInputs,
     resolveClipMilepostRange,
     validateStation,
     computeStationBreaks,
@@ -130,6 +131,38 @@ describe('parseRouteMileage', () => {
     it('returns null for invalid', () => {
         expect(parseRouteMileage('abc')).toBeNull();
         expect(parseRouteMileage(12.34)).toBe(12.34);
+    });
+});
+
+describe('resolvePartialMilepostClipInputs', () => {
+    it('returns full range when both mileposts are valid', () => {
+        const result = resolvePartialMilepostClipInputs('12.5', '15.2', 10, 20);
+        expect(result.ok).toBe(true);
+        expect(result.partial).toBe(false);
+        expect(result.startMilepost).toBe('12.5');
+        expect(result.endMilepost).toBe('15.2');
+    });
+
+    it('extends start-only milepost to route end mileage', () => {
+        const result = resolvePartialMilepostClipInputs('12.5', '', 10, 20);
+        expect(result.ok).toBe(true);
+        expect(result.partial).toBe(true);
+        expect(result.startMilepost).toBe('12.5');
+        expect(result.endMilepost).toBe('20');
+    });
+
+    it('extends end-only milepost to route begin mileage', () => {
+        const result = resolvePartialMilepostClipInputs('', '15.2', 10, 20);
+        expect(result.ok).toBe(true);
+        expect(result.partial).toBe(true);
+        expect(result.startMilepost).toBe('10');
+        expect(result.endMilepost).toBe('15.2');
+    });
+
+    it('returns not ok when no valid partial mileposts are entered', () => {
+        expect(resolvePartialMilepostClipInputs('', '', 10, 20)).toEqual({ ok: false });
+        expect(resolvePartialMilepostClipInputs('bad', '', 10, 20)).toEqual({ ok: false });
+        expect(resolvePartialMilepostClipInputs('12.5', 'bad', 10, 20)).toEqual({ ok: false });
     });
 });
 

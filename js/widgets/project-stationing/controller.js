@@ -25,6 +25,7 @@ import {
     buildOutputLayerName,
     formatRouteMileage,
     parseRouteMileage,
+    resolvePartialMilepostClipInputs,
     resolveClipMilepostRange,
     resolveClipMilepostEndpoints
 } from './engine.js';
@@ -280,6 +281,40 @@ async function resolveClip(input, routeContext) {
     return clipFullRoute(routeContext);
 }
 
+async function resolveClipForPreview(input, routeContext) {
+    const positiveLine = routeContext.routeSelection.positiveLine;
+    const intervalFt = Number(input.intervalFt) || DEFAULT_INTERVAL_FT;
+    const mileage = readRouteMileage(routeContext);
+
+    if (input.mapClipStartFt != null && input.mapClipEndFt != null) {
+        return clipByMapPick(positiveLine, input.mapClipStartFt, input.mapClipEndFt, intervalFt);
+    }
+
+    if (input.clipMode === 'full') {
+        return clipFullRoute(routeContext);
+    }
+
+    const resolved = resolvePartialMilepostClipInputs(
+        input.startMilepost,
+        input.endMilepost,
+        mileage.begMileage,
+        mileage.endMileage
+    );
+
+    if (resolved.ok) {
+        return buildMpClip(
+            {
+                ...input,
+                startMilepost: resolved.startMilepost,
+                endMilepost: resolved.endMilepost
+            },
+            routeContext
+        );
+    }
+
+    return clipFullRoute(routeContext);
+}
+
 async function pickClipOnRoute(ctx, positiveLine) {
     const result = ctx.mapService.startRouteTwoPointPick
         ? await ctx.mapService.startRouteTwoPointPick(
@@ -461,7 +496,115 @@ function getRouteLineFromLayer(layer) {
     ) || null;
 }
 
-export async function openImportStationTable(ctx, routeLayerOrId) {
+async function plotStationTableOutput(ctx, routeLayer, routeProfile, importState, mappingOverrides, options = {}) {
+    const output = await analyzeStationTableImport(
+        ctx,
+        routeLayer,
+        routeProfile,
+        importState,
+        mappingOverrides,
+        options
+    );
+    const baseName = routeProfile.route_name || routeLayer.name || 'Stationing';
+    const eventName = `${baseName} Imported Events`;
+
+    if (output.eventPoints.length > 0) {
+        addDerivedLayer(
+            ctx,
+            eventName,
+            { type: 'FeatureCollection', features: output.eventPoints },
+            {
+                fit: true,
+                _mapLabels: { field: 'name', placement: 'point', minZoom: 10, size: 11 },
+                style: {
+                    mode: 'simple',
+                    strokeColor: '#ff7f00',
+                    fillColor: '#ff7f00',
+                    pointSize: 7,
+                    strokeWidth: 2,
+                    fillOpacity: 0.95
+                },
+                source: { stationingTable: importState.datasetName }
+            }
+        );
+    }
+
+    if (output.connectorLines.length > 0) {
+        addDerivedLayer(
+            ctx,
+            `${baseName} Offset Connectors`,
+            { type: 'FeatureCollection', features: output.connectorLines },
+            {
+                fit: false,
+                style: {
+                    mode: 'simple',
+                    strokeColor: '#ff7f00',
+                    strokeWidth: 2,
+                    strokeOpacity: 0.75
+                },
+                source: { stationingTable: importState.datasetName }
+            }
+        );
+    }
+
+    if (options.includeQaLines && output.qaLines.length > 0) {
+        addDerivedLayer(
+            ctx,
+            `${baseName} Coordinate QA Lines`,
+            { type: 'FeatureCollection', features: output.qaLines },
+            {
+                fit: false,
+                style: {
+                    mode: 'simple',
+                    strokeColor: '#cc0000',
+                    strokeWidth: 2,
+                    strokeOpacity: 0.8
+                },
+                source: { stationingTable: importState.datasetName }
+            }
+        );
+    }
+
+    if (output.unplottedRows.length > 0) {
+        const report = createTableDataset(
+            `${baseName} Unplotted Rows Report`,
+            buildUnplottedRowsReport(output.unplottedRows),
+            null,
+            { format: 'station-table-report', stationingTable: importState.datasetName }
+        );
+        ctx.addLayer(report);
+    }
+
+    ctx.refreshUI?.();
+    ctx.showToast?.(
+        `Plotted ${output.eventPoints.length} station table rows (${output.unplottedRows.length} unplotted).`,
+        output.unplottedRows.length ? 'info' : 'success'
+    );
+    return output;
+}
+
+async function analyzeStationTableImport(ctx, routeLayer, routeProfile, importState, mappingOverrides = {}, plotOptions = {}) {
+    const routeLine = getRouteLineFromLayer(routeLayer);
+    const suggestedNaming = suggestSideDirectionMapping(routeLine, routeProfile);
+    const detection = importState.detection || detectStationTableColumns(importState.rows, importState.fields);
+    const mapping = normalizeColumnMapping(detection, mappingOverrides);
+    const output = await validateStationTableRows(importState.rows, routeLine, routeProfile, mapping, {
+        positiveOffsetMeans: 'right',
+        includeQaLines: true,
+        coordinateCrs: plotOptions.coordinateCrs,
+        locatorNaming: plotOptions.locatorNaming,
+        sideDirectionSuggestion: suggestedNaming
+    });
+    return {
+        detection,
+        mapping,
+        offsetEmbeddedSide: getOffsetEmbeddedSideForMapping(importState.rows, mapping.offset),
+        suggestedNaming,
+        ...output
+    };
+}
+
+export function buildImportStationTableProps(ctx, routeLayerOrId, options = {}) {
     const routeLayer = typeof routeLayerOrId === 'string'
         ? ctx.getLayerById?.(routeLayerOrId)
         : routeLayerOrId;
@@ -473,8 +616,7 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
     );
     const suggestedNaming = suggestSideDirectionMapping(routeLine, routeProfile);
     if (!routeLayer || !routeProfile || !routeLine) {
-        ctx.showToast?.('Select a Project Stationing centerline layer first.', 'error');
-        return;
+        return null;
     }
 
     function buildDefaultLocatorNaming(overrides = {}) {
@@ -495,21 +637,63 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
     };
 
     async function analyze(mappingOverrides = {}, plotOptions = {}) {
-        const detection = importState.detection || detectStationTableColumns(importState.rows, importState.fields);
-        const mapping = normalizeColumnMapping(detection, mappingOverrides);
-        const output = await validateStationTableRows(importState.rows, routeLine, routeProfile, mapping, {
-            positiveOffsetMeans: 'right',
-            includeQaLines: true,
-            coordinateCrs: plotOptions.coordinateCrs,
-            locatorNaming: plotOptions.locatorNaming,
-            sideDirectionSuggestion: suggestedNaming
-        });
-        return {
-            detection,
-            mapping,
-            offsetEmbeddedSide: getOffsetEmbeddedSideForMapping(importState.rows, mapping.offset),
-            ...output
-        };
+        const result = await analyzeStationTableImport(
+            ctx,
+            routeLayer,
+            routeProfile,
+            importState,
+            mappingOverrides,
+            plotOptions
+        );
+        return result;
+    }
+
+    return {
+        routeProfile,
+        suggestedNaming,
+        onFileLoad: async (file, loadOptions = {}) => {
+            const result = await importFile(file, { skipGuard: true, source: 'project-stationing-table' });
+            const extracted = extractRowsFromImportResult(result);
+            importState.rows = extracted.rows;
+            importState.fields = extracted.fields;
+            importState.datasetName = extracted.datasetName || file.name;
+            importState.detection = detectStationTableColumns(importState.rows, importState.fields);
+            const naming = loadOptions.locatorNaming || buildDefaultLocatorNaming();
+            const analysis = await analyze({}, { locatorNaming: naming });
+            return {
+                rowCount: importState.rows.length,
+                fields: importState.fields,
+                datasetName: importState.datasetName,
+                previewRows: importState.rows.slice(0, 5),
+                ...analysis
+            };
+        },
+        onAnalyzeMapping: async (mappingOverrides, plotOptions = {}) => analyze(mappingOverrides, plotOptions),
+        onPlot: async (mappingOverrides, plotOptions = {}) => {
+            const output = await plotStationTableOutput(
+                ctx,
+                routeLayer,
+                routeProfile,
+                importState,
+                mappingOverrides,
+                plotOptions
+            );
+            options.afterPlot?.(output);
+            return output.summary;
+        }
+    };
+}
+
+export async function openImportStationTable(ctx, routeLayerOrId) {
+    const routeLayer = typeof routeLayerOrId === 'string'
+        ? ctx.getLayerById?.(routeLayerOrId)
+        : routeLayerOrId;
+    const props = buildImportStationTableProps(ctx, routeLayer, {
+        afterPlot: () => {}
+    });
+    if (!props) {
+        ctx.showToast?.('Select a Project Stationing centerline layer first.', 'error');
+        return;
     }
 
     await openReactIsland({
@@ -518,106 +702,12 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
         mountPath: '../../../react/widgets/project-stationing/mountImportStationTableDialog.jsx',
         mountExport: 'mountImportStationTableDialog',
         getProps: (close) => ({
-            routeProfile,
-            suggestedNaming,
+            ...props,
             onCancel: close,
-            onFileLoad: async (file, options = {}) => {
-                const result = await importFile(file, { skipGuard: true, source: 'project-stationing-table' });
-                const extracted = extractRowsFromImportResult(result);
-                importState.rows = extracted.rows;
-                importState.fields = extracted.fields;
-                importState.datasetName = extracted.datasetName || file.name;
-                importState.detection = detectStationTableColumns(importState.rows, importState.fields);
-                const naming = options.locatorNaming || buildDefaultLocatorNaming();
-                const analysis = await analyze({}, { locatorNaming: naming });
-                return {
-                    rowCount: importState.rows.length,
-                    fields: importState.fields,
-                    datasetName: importState.datasetName,
-                    previewRows: importState.rows.slice(0, 5),
-                    ...analysis
-                };
-            },
-            onAnalyzeMapping: async (mappingOverrides, options = {}) => analyze(mappingOverrides, options),
-            onPlot: async (mappingOverrides, options = {}) => {
-                const output = await analyze(mappingOverrides, options);
-                const baseName = routeProfile.route_name || routeLayer.name || 'Stationing';
-                const eventName = `${baseName} Imported Events`;
-
-                if (output.eventPoints.length > 0) {
-                    addDerivedLayer(
-                        ctx,
-                        eventName,
-                        { type: 'FeatureCollection', features: output.eventPoints },
-                        {
-                            fit: true,
-                            _mapLabels: { field: 'name', placement: 'point', minZoom: 10, size: 11 },
-                            style: {
-                                mode: 'simple',
-                                strokeColor: '#ff7f00',
-                                fillColor: '#ff7f00',
-                                pointSize: 7,
-                                strokeWidth: 2,
-                                fillOpacity: 0.95
-                            },
-                            source: { stationingTable: importState.datasetName }
-                        }
-                    );
-                }
-
-                if (output.connectorLines.length > 0) {
-                    addDerivedLayer(
-                        ctx,
-                        `${baseName} Offset Connectors`,
-                        { type: 'FeatureCollection', features: output.connectorLines },
-                        {
-                            fit: false,
-                            style: {
-                                mode: 'simple',
-                                strokeColor: '#ff7f00',
-                                strokeWidth: 2,
-                                strokeOpacity: 0.75
-                            },
-                            source: { stationingTable: importState.datasetName }
-                        }
-                    );
-                }
-
-                if (options.includeQaLines && output.qaLines.length > 0) {
-                    addDerivedLayer(
-                        ctx,
-                        `${baseName} Coordinate QA Lines`,
-                        { type: 'FeatureCollection', features: output.qaLines },
-                        {
-                            fit: false,
-                            style: {
-                                mode: 'simple',
-                                strokeColor: '#cc0000',
-                                strokeWidth: 2,
-                                strokeOpacity: 0.8
-                            },
-                            source: { stationingTable: importState.datasetName }
-                        }
-                    );
-                }
-
-                if (output.unplottedRows.length > 0) {
-                    const report = createTableDataset(
-                        `${baseName} Unplotted Rows Report`,
-                        buildUnplottedRowsReport(output.unplottedRows),
-                        null,
-                        { format: 'station-table-report', stationingTable: importState.datasetName }
-                    );
-                    ctx.addLayer(report);
-                }
-
-                ctx.refreshUI?.();
-                ctx.showToast?.(
-                    `Plotted ${output.eventPoints.length} station table rows (${output.unplottedRows.length} unplotted).`,
-                    output.unplottedRows.length ? 'info' : 'success'
-                );
+            onPlot: async (mappingOverrides, plotOptions = {}) => {
+                const summary = await props.onPlot(mappingOverrides, plotOptions);
                 close();
-                return output.summary;
+                return summary;
             }
         })
     });
@@ -683,9 +773,27 @@ export async function openProjectStationing(ctx) {
                     previewState.routeContext.routeSelection.positiveLine
                 );
             },
-            onImportStationTable: async (centerlineLayerId) => {
-                const layer = ctx.getLayerById?.(centerlineLayerId);
-                return openImportStationTable(ctx, layer);
+            onCancelMapInteraction: () => {
+                ctx.mapService.cancelInteraction?.();
+            },
+            onClipPreview: async (input) => {
+                await ensureLayersReady(ctx);
+                if (!previewState.routeContext) {
+                    previewState.routeContext = await loadRouteContext(input.routeRecord || {
+                        [activeConfig.routeIdField]: input.routeId,
+                        [activeConfig.routeAliasField]: input.routeAlias
+                    });
+                }
+
+                const clip = await resolveClipForPreview(input, previewState.routeContext);
+                const geojson = buildClipPreviewGeojson(
+                    clip,
+                    previewState.routeContext.routeSelection
+                );
+                showPreview(ctx, previewState, geojson);
+                fitPreviewBounds(ctx, geojson);
+
+                return { warnings: clip.warnings || [] };
             },
             onStationPreview: async (input) => {
                 await ensureLayersReady(ctx);
@@ -851,12 +959,14 @@ export async function openProjectStationing(ctx) {
                     ? `Created ${summary.tickCount} ticks + ${summary.labelCount} labels + ${milepostCount} milepost points`
                     : `Project stationing created: ${summary.tickCount} ticks, ${summary.labelCount} labels, ${Math.round(summary.lineLengthFeet)} ft`;
                 ctx.showToast(toastMsg, 'success');
+                const importTable = buildImportStationTableProps(ctx, centerlineDataset);
                 return {
                     layerName: centerlineDataset.name,
                     centerlineLayerId: centerlineDataset.id,
                     routeProfile,
                     summary,
-                    milepostCount
+                    milepostCount,
+                    importTable
                 };
             }
         })

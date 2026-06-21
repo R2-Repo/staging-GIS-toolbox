@@ -3,38 +3,37 @@
 ## Latest
 
 - **Date**: 2026-06-20
-- **Status**: **Divided highway route search — both widgets**
+- **Status**: **Project Stationing — Import line route source**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- **Route search** no longer filters `ROUTE_DIRECTION = 'P'` during alias lookup; divided carriageways (e.g. `0080PM` / `0080NM`) both appear
-- **Two-step divided highway picker** — first list shows plain names (`SR-155`, `I-80`); clicking a divided route opens direction step (`I-80 (0080P)` / `I-80 (0080N)`)
-- Undivided routes never show `(0155P)`-style suffixes
-- **`selectRouteFeatures` + `queryRouteFeaturesById`** — N-direction route IDs load their own centerline correctly
-- **Both widgets**: Project Stationing + Route Centerline controllers and dialog pickers updated
+- **Import line** tab at widget open: pick line layer from map → route name + optional travel direction → station longest line (or selection)
+- Reuses custom-route path (same as Draw centerline): no ArcGIS, no extent/milepost step, no LM tenth mileposts
+- **`resolveCenterlineFromLayer`** picks longest line (MultiLineString exploded); workspace layers materialized before read
+- **`buildCustomRouteContext`** generalizes drawn/imported sources; `isCustomRouteContext` in controller
+- **`getSpatialLayerOptions`** `requireLines` filter for layer picker
+- Draw centerline + divided-highway search + autofill fixes from prior session retained
 
 ### Files
 
-- `js/widgets/route-milepost-segment/engine.js`, `config.js`, `arcgis-client.js`
-- `js/widgets/project-stationing/controller.js`
-- `js/widgets/route-milepost-segment/controller.js`
-- `react/widgets/shared/RouteSearchResults.jsx`
-- `react/widgets/ProjectStationingDialog.jsx`, `RouteMilepostSegmentDialog.jsx`
-- `tests/route-milepost-segment-engine.test.js`
+- `js/widgets/project-stationing/drawn-route.js`, `engine.js`, `controller.js`
+- `js/widgets/widget-context.js`
+- `react/widgets/ProjectStationingDialog.jsx`
+- `tests/project-stationing-engine.test.js`
 
 ### Verification
 
-- `npm test` — 485 passed
-- **Browser** (manual): search `I-80` in both widgets → two options; select each → different preview/mileage
+- `npm test` — 491 passed
+- **Browser** (manual): line layer on map → Import line → station → Create Layers; selection-only import
 
 ### Next
 
-- Manual browser smoke on I-80 divided-highway pick in Project Stationing + Route Centerline
+- Manual browser smoke on import-line + draw + import-table flows
 
 ---
 
-## Previous (2026-06-20) — Import Table tab UI cleanup
+## Previous (2026-06-20) — Draw centerline route source
 
 ## Previous (2026-06-20) — Project Stationing widget — progressive step UX + extent confirm
 

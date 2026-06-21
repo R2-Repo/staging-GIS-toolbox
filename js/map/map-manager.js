@@ -2165,6 +2165,117 @@ class MapManager {
     }
 
     /**
+     * Sketch a polyline by clicking vertices; double-click or Enter finishes (min 2 vertices).
+     * @param {{ bannerText?: string, onInsufficientVertices?: () => void }} [opts]
+     * @returns {Promise<{ type: 'LineString', coordinates: number[][] } | null>}
+     */
+    startSketchPolyline(opts = {}) {
+        const {
+            bannerText = 'Click to add points. Double-click or Enter to finish the line.',
+            onInsufficientVertices
+        } = opts;
+        return new Promise((resolve) => {
+            this._cancelInteraction();
+            const map = this.map;
+            const canvas = map.getCanvas();
+            canvas.style.cursor = 'crosshair';
+
+            const dblClickZoom = suspendDoubleClickZoom(map);
+
+            const banner = this._showInteractionBanner(bannerText, () => { cleanup(); resolve(null); });
+
+            const points = [];
+            let clickTimer = null;
+            let previewSrcId = null;
+            let previewLayerIds = [];
+
+            const drawPreview = () => {
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = [];
+                previewSrcId = null;
+
+                if (points.length < 2) return;
+
+                previewSrcId = this._nextId('sketch-line');
+                const coords = points.map((p) => [p[0], p[1]]);
+                map.addSource(previewSrcId, {
+                    type: 'geojson',
+                    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+                });
+                const lineId = previewSrcId + '-line';
+                map.addLayer({
+                    id: lineId,
+                    type: 'line',
+                    source: previewSrcId,
+                    paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] }
+                });
+                previewLayerIds = [lineId];
+            };
+
+            const finishLine = () => {
+                if (points.length < 2) {
+                    if (typeof onInsufficientVertices === 'function') onInsufficientVertices();
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
+                const geom = { type: 'LineString', coordinates: points.map((p) => [p[0], p[1]]) };
+                cleanup();
+                resolve(geom);
+            };
+
+            const onClick = (e) => {
+                markMapInteractionHandled(e);
+                if (clickTimer) clearTimeout(clickTimer);
+                clickTimer = setTimeout(() => {
+                    clickTimer = null;
+                    points.push([e.lngLat.lng, e.lngLat.lat]);
+                    drawPreview();
+                }, 90);
+            };
+
+            const onDblClick = (e) => {
+                markMapInteractionHandled(e);
+                if (e.originalEvent) {
+                    e.originalEvent.preventDefault();
+                    e.originalEvent.stopPropagation();
+                }
+                if (clickTimer) {
+                    clearTimeout(clickTimer);
+                    clickTimer = null;
+                }
+                finishLine();
+            };
+
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') { cleanup(); resolve(null); }
+                if (e.key === 'Enter' && points.length >= 2) { finishLine(); }
+            };
+
+            const cleanup = () => {
+                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+                map.off('click', onClick);
+                map.off('dblclick', onDblClick);
+                document.removeEventListener('keydown', onKeyDown);
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = [];
+                previewSrcId = null;
+                canvas.style.cursor = '';
+                dblClickZoom.restore();
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
+            this._interactionCleanup = cleanup;
+            map.on('click', onClick);
+            map.on('dblclick', onDblClick);
+            document.addEventListener('keydown', onKeyDown);
+        });
+    }
+
+    /**
      * Two-click circle (center → radius point), Turf polygon output.
      * @param {{ bannerText?: string, onRadiusTooSmall?: () => void }} [opts]
      * @returns {Promise<{ type: 'Polygon' | 'MultiPolygon', coordinates: number[][][] | number[][][][] } | null>}

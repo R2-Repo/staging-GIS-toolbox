@@ -18,10 +18,23 @@ export const CLIP_METHODS = {
     MILEPOST: 'milepost',
     MAP_PICK: 'map_pick',
     FULL_ROUTE: 'full_route',
+    DRAWN: 'drawn',
     BOX: 'box',
     CIRCLE: 'circle',
     POLYGON: 'polygon'
 };
+
+export const ROUTE_SOURCE_UDOT = 'udot';
+
+export {
+    ROUTE_SOURCE_DRAWN,
+    ROUTE_SOURCE_IMPORTED,
+    CUSTOM_ROUTE_SOURCES,
+    isCustomRouteSource,
+    buildDrawnRouteContext,
+    buildCustomRouteContext,
+    resolveCenterlineFromLayer
+} from './drawn-route.js';
 
 /**
  * @param {string|number|null|undefined} value

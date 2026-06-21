@@ -385,3 +385,82 @@ describe('buildOutputLayerName', () => {
             .toBe('SR-145 Sta 817+15 to 825+00 (100ft) Centerline');
     });
 });
+
+describe('buildDrawnRouteContext', () => {
+    it('builds synthetic route context from a drawn line', async () => {
+        const { buildDrawnRouteContext } = await import('../js/widgets/project-stationing/drawn-route.js');
+        const line = turf.lineString([[-112, 40], [-111.9, 40.1], [-111.8, 40.2]]);
+        const result = buildDrawnRouteContext(line, { routeName: 'Project Main', travelDirection: 'NB' });
+        expect(result.ok).toBe(true);
+        expect(result.routeId).toMatch(/^drawn-[0-9a-f]+$/);
+        expect(result.routeAlias).toBe('Project Main');
+        expect(result.routeRecord.travel_direction).toBe('NB');
+        expect(result.routeSelection.positiveLine.geometry.coordinates).toHaveLength(3);
+        expect(result.routeSelection.negativeLine).toBeNull();
+    });
+
+    it('requires route name and at least two vertices', async () => {
+        const { buildDrawnRouteContext } = await import('../js/widgets/project-stationing/drawn-route.js');
+        const onePoint = { type: 'Feature', geometry: { type: 'LineString', coordinates: [[-112, 40]] }, properties: {} };
+        expect(buildDrawnRouteContext(onePoint, { routeName: 'X' }).ok).toBe(false);
+        expect(buildDrawnRouteContext(turf.lineString([[-112, 40], [-111.9, 40.1]]), {}).ok).toBe(false);
+    });
+});
+
+describe('buildCustomRouteContext (imported)', () => {
+    it('builds imported route context with source layer id', async () => {
+        const { buildCustomRouteContext, ROUTE_SOURCE_IMPORTED } = await import('../js/widgets/project-stationing/drawn-route.js');
+        const line = turf.lineString([[-112, 40], [-111.9, 40.1], [-111.8, 40.2]]);
+        const result = buildCustomRouteContext(line, {
+            routeName: 'Imported Main',
+            travelDirection: 'EB',
+            sourceLayerId: 'layer-42'
+        }, ROUTE_SOURCE_IMPORTED);
+        expect(result.ok).toBe(true);
+        expect(result.source).toBe('imported');
+        expect(result.routeId).toMatch(/^imported-[0-9a-f]+$/);
+        expect(result.routeRecord.source_layer_id).toBe('layer-42');
+    });
+});
+
+describe('resolveCenterlineFromLayer', () => {
+    const longLine = () => turf.lineString([
+        [-112, 40],
+        [-111.5, 40],
+        [-111, 40],
+        [-110.5, 40]
+    ]);
+
+    it('picks the longest line from multiple features', async () => {
+        const { resolveCenterlineFromLayer } = await import('../js/widgets/project-stationing/drawn-route.js');
+        const short = turf.lineString([[-112, 40], [-111.99, 40.01]]);
+        const long = longLine();
+        const geojson = turf.featureCollection([short, long]);
+        const result = resolveCenterlineFromLayer(geojson);
+        expect(result.ok).toBe(true);
+        expect(result.line.geometry.coordinates).toHaveLength(4);
+        expect(result.warnings.some((w) => w.includes('line segments'))).toBe(true);
+    });
+
+    it('explodes MultiLineString and picks longest segment', async () => {
+        const { resolveCenterlineFromLayer } = await import('../js/widgets/project-stationing/drawn-route.js');
+        const multi = turf.multiLineString([
+            [[-112, 40], [-111.99, 40.01]],
+            [[-112, 40], [-111.5, 40], [-111, 40]]
+        ]);
+        const result = resolveCenterlineFromLayer(turf.featureCollection([multi]));
+        expect(result.ok).toBe(true);
+        expect(result.line.geometry.coordinates).toHaveLength(3);
+    });
+
+    it('rejects empty layers and lines that are too short', async () => {
+        const { resolveCenterlineFromLayer } = await import('../js/widgets/project-stationing/drawn-route.js');
+        expect(resolveCenterlineFromLayer(turf.featureCollection([])).ok).toBe(false);
+        expect(resolveCenterlineFromLayer(turf.featureCollection([
+            turf.lineString([[-112, 40], [-112.00001, 40]])
+        ])).ok).toBe(false);
+        expect(resolveCenterlineFromLayer(turf.featureCollection([
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [-112, 40] }, properties: {} }
+        ])).ok).toBe(false);
+    });
+});

@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
 import { RouteSearchResults } from './shared/RouteSearchResults.jsx';
 import { RouteSearchField } from './shared/RouteSearchField.jsx';
+import { LayerSelect } from './shared/LayerSelect.jsx';
 import { RunPreviewFooter } from './shared/RunPreviewFooter.jsx';
 import { ImportStationTablePanel } from './project-stationing/ImportStationTablePanel.jsx';
 import { validateMilepostRange } from '../../js/widgets/route-milepost-segment/engine.js';
 import {
     validateStation,
-    DEFAULT_INTERVAL_FT
+    DEFAULT_INTERVAL_FT,
+    ROUTE_SOURCE_DRAWN,
+    ROUTE_SOURCE_IMPORTED,
+    isCustomRouteSource
 } from '../../js/widgets/project-stationing/engine.js';
+import { TRAVEL_DIRECTION_CHOICES } from '../../js/widgets/project-stationing/table-import/station-locator-name.js';
 
 const PREVIEW_DEBOUNCE_MS = 500;
 const CLIP_PREVIEW_DEBOUNCE_MS = 400;
@@ -27,12 +32,24 @@ export function ProjectStationingDialog({
     onCancel,
     onSearchRoutes,
     onSelectRoute,
+    onDrawCenterline,
+    onImportCenterline,
+    lineLayerOptions = [],
     onPickClipOnRoute,
     onClipPreview,
     onCancelMapInteraction,
     onStationPreview,
     onRun
 }) {
+    const [routeEntryMode, setRouteEntryMode] = useState('search');
+    const [drawRouteName, setDrawRouteName] = useState('');
+    const [drawTravelDirection, setDrawTravelDirection] = useState('');
+    const [drawing, setDrawing] = useState(false);
+    const [importLayerId, setImportLayerId] = useState('');
+    const [importRouteName, setImportRouteName] = useState('');
+    const [importTravelDirection, setImportTravelDirection] = useState('');
+    const [importing, setImporting] = useState(false);
+    const [lineLengthFormatted, setLineLengthFormatted] = useState('—');
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [dividedGroup, setDividedGroup] = useState(null);
@@ -75,6 +92,8 @@ export function ProjectStationingDialog({
     const startMpRef = useRef(null);
 
     const routeSelected = Boolean(selectedRoute?.routeId);
+    const isCustomRoute = isCustomRouteSource(selectedRoute?.routeSource);
+    const customRouteLabel = selectedRoute?.routeSource === ROUTE_SOURCE_IMPORTED ? 'imported' : 'drawn';
 
     const milepostValidation = useMemo(
         () => validateMilepostRange(startMilepost, endMilepost),
@@ -96,14 +115,15 @@ export function ProjectStationingDialog({
     const milepostClipInvalid = clipMode === 'milepost' && hasMilepostClip && !milepostValidation.valid;
 
     const includeMilepostTenths = outputMode === 'with_mileposts';
-    const showStationStep = routeSelected && extentConfirmed;
-    const showExtentEditor = routeSelected && clipMode && !extentConfirmed;
+    const showStationStep = routeSelected && (extentConfirmed || isCustomRoute);
+    const showExtentEditor = routeSelected && !isCustomRoute && clipMode && !extentConfirmed;
 
     const buildInput = useCallback(() => ({
         routeId: selectedRoute?.routeId,
         routeAlias: selectedRoute?.routeAlias,
-        routeRecord: selectedRoute?.raw,
-        clipMode,
+        routeSource: selectedRoute?.routeSource || 'udot',
+        routeRecord: selectedRoute?.routeRecord || selectedRoute?.raw,
+        clipMode: isCustomRoute ? 'full' : clipMode,
         startMilepost: clipMode === 'map' ? '' : startMilepost,
         endMilepost: clipMode === 'map' ? '' : endMilepost,
         mapClipStartFt: clipMode === 'map' ? (mapClip?.mapClipStartFt ?? null) : null,
@@ -111,9 +131,10 @@ export function ProjectStationingDialog({
         beginStation,
         endStation: showEndStationField ? endStation : '',
         intervalFt: Number(intervalFt) || DEFAULT_INTERVAL_FT,
-        includeMilepostTenths
+        includeMilepostTenths: isCustomRoute ? false : includeMilepostTenths
     }), [
         selectedRoute,
+        isCustomRoute,
         clipMode,
         startMilepost,
         endMilepost,
@@ -135,6 +156,7 @@ export function ProjectStationingDialog({
 
     const shouldRunClipPreview = Boolean(
         routeSelected &&
+        !isCustomRoute &&
         clipMode &&
         !extentConfirmed &&
         !picking &&
@@ -264,6 +286,36 @@ export function ProjectStationingDialog({
         beginStationValidation.valid
     ]);
 
+    const applySelectedRoute = (routeOption, info = {}) => {
+        const custom = isCustomRouteSource(info.routeSource);
+        setSelectedRoute({ ...routeOption, ...info });
+        setRouteWarnings(info?.warnings || []);
+        setBegMileageFormatted(info?.begMileageFormatted ?? '—');
+        setEndMileageFormatted(info?.endMileageFormatted ?? '—');
+        setLineLengthFormatted(
+            info?.lineLengthFt != null ? `${Math.round(info.lineLengthFt).toLocaleString()} ft` : '—'
+        );
+        setRoutePickerOpen(false);
+        setSearchText('');
+        setSearchResults([]);
+        setDividedGroup(null);
+        setRouteEntryMode('search');
+        setDrawRouteName('');
+        setDrawTravelDirection('');
+        setImportLayerId('');
+        setImportRouteName('');
+        setImportTravelDirection('');
+        if (custom) {
+            setClipMode('full');
+            setExtentConfirmed(true);
+            resetClipFields();
+            resetStationFields();
+            setPreview(null);
+        } else {
+            resetAllAfterRoute();
+        }
+    };
+
     const selectRoute = async (routeOption) => {
         setError('');
         setPreview(null);
@@ -271,19 +323,91 @@ export function ProjectStationingDialog({
         clipPreviewRequestId.current += 1;
         try {
             const info = await onSelectRoute?.(routeOption);
-            setSelectedRoute({ ...routeOption, ...info });
-            setRouteWarnings(info?.warnings || []);
-            setBegMileageFormatted(info?.begMileageFormatted ?? '—');
-            setEndMileageFormatted(info?.endMileageFormatted ?? '—');
-            setRoutePickerOpen(false);
-            setSearchText('');
-            setSearchResults([]);
-            setDividedGroup(null);
-            resetAllAfterRoute();
+            applySelectedRoute(routeOption, info);
         } catch (err) {
             setSelectedRoute(null);
             setError(err?.message || 'Unable to load selected route.');
         }
+    };
+
+    const startDrawCenterline = async () => {
+        const routeName = drawRouteName.trim();
+        if (!routeName) {
+            setError('Enter a route name before drawing.');
+            return;
+        }
+        setError('');
+        setDrawing(true);
+        onCancelMapInteraction?.();
+        try {
+            const info = await onDrawCenterline?.({
+                routeName,
+                travelDirection: drawTravelDirection
+            });
+            if (!info) return;
+            applySelectedRoute(
+                {
+                    routeId: info.routeId,
+                    routeAlias: info.routeAlias,
+                    routeRecord: info.routeRecord
+                },
+                info
+            );
+        } catch (err) {
+            setError(err?.message || 'Unable to use drawn centerline.');
+        } finally {
+            setDrawing(false);
+        }
+    };
+
+    const startImportCenterline = async () => {
+        const routeName = importRouteName.trim();
+        if (!importLayerId) {
+            setError('Select a line layer to import.');
+            return;
+        }
+        if (!routeName) {
+            setError('Enter a route name before importing.');
+            return;
+        }
+        setError('');
+        setImporting(true);
+        onCancelMapInteraction?.();
+        try {
+            const info = await onImportCenterline?.({
+                layerId: importLayerId,
+                routeName,
+                travelDirection: importTravelDirection
+            });
+            if (!info) return;
+            applySelectedRoute(
+                {
+                    routeId: info.routeId,
+                    routeAlias: info.routeAlias,
+                    routeRecord: info.routeRecord
+                },
+                info
+            );
+        } catch (err) {
+            setError(err?.message || 'Unable to import centerline from layer.');
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    const handleImportLayerChange = (layerId) => {
+        setImportLayerId(layerId);
+        const layer = lineLayerOptions.find((item) => item.id === layerId);
+        if (layer) {
+            setImportRouteName(layer.name);
+        }
+    };
+
+    const formatLineLayerOption = (layer) => {
+        const countLabel = layer.selectedCount > 0
+            ? `${layer.selectedCount} selected`
+            : `${layer.featureCount} features`;
+        return `${layer.name} (${countLabel})`;
     };
 
     const pickSearchGroup = (group) => {
@@ -310,6 +434,13 @@ export function ProjectStationingDialog({
         setSearchText('');
         setSearchResults([]);
         setDividedGroup(null);
+        setRouteEntryMode('search');
+        setDrawRouteName('');
+        setDrawTravelDirection('');
+        setImportLayerId('');
+        setImportRouteName('');
+        setImportTravelDirection('');
+        setLineLengthFormatted('—');
         resetAllAfterRoute();
         setError('');
     };
@@ -454,6 +585,7 @@ export function ProjectStationingDialog({
     }, [preview, routeWarnings]);
 
     const statusText = error
+        || (drawing ? 'Draw centerline on map…' : '')
         || (previewing ? 'Updating preview…' : '')
         || (clipPreviewing ? 'Updating clip…' : '')
         || (picking ? 'Click on map…' : '');
@@ -525,48 +657,180 @@ export function ProjectStationingDialog({
                 <>
             {routePickerOpen || !routeSelected ? (
                 <div className="route-mp-widget__route-search mb-8">
-                    <label className="text-xs text-muted" htmlFor="ps-route-search">Search routes</label>
-                    <RouteSearchField
-                        id="ps-route-search"
-                        placeholder="e.g. SR-145"
-                        value={searchText}
-                        onChange={(e) => {
-                            setSearchText(e.target.value);
-                            setDividedGroup(null);
-                        }}
-                    />
-                    {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
-                    <RouteSearchResults
-                        searchResults={searchResults}
-                        dividedGroup={dividedGroup}
-                        searching={searching}
-                        searchText={searchText}
-                        onPickGroup={pickSearchGroup}
-                        onPickVariant={selectRoute}
-                        onBackFromDivided={() => setDividedGroup(null)}
-                    />
+                    <div className="gis-widget__btn-row mb-8">
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${routeEntryMode === 'search' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setRouteEntryMode('search')}
+                            disabled={drawing || importing}
+                        >
+                            Search routes
+                        </button>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${routeEntryMode === 'draw' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setRouteEntryMode('draw')}
+                            disabled={drawing || importing}
+                        >
+                            Draw centerline
+                        </button>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${routeEntryMode === 'import' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setRouteEntryMode('import')}
+                            disabled={drawing || importing}
+                        >
+                            Import line
+                        </button>
+                    </div>
+
+                    {routeEntryMode === 'search' ? (
+                        <>
+                            <label className="text-xs text-muted" htmlFor="ps-route-search">Search routes</label>
+                            <RouteSearchField
+                                id="ps-route-search"
+                                placeholder="e.g. SR-145"
+                                value={searchText}
+                                onChange={(e) => {
+                                    setSearchText(e.target.value);
+                                    setDividedGroup(null);
+                                }}
+                            />
+                            {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
+                            <RouteSearchResults
+                                searchResults={searchResults}
+                                dividedGroup={dividedGroup}
+                                searching={searching}
+                                searchText={searchText}
+                                onPickGroup={pickSearchGroup}
+                                onPickVariant={selectRoute}
+                                onBackFromDivided={() => setDividedGroup(null)}
+                            />
+                        </>
+                    ) : routeEntryMode === 'draw' ? (
+                        <div className="project-stationing-draw-form">
+                            <div className="mb-8">
+                                <label className="text-xs text-muted" htmlFor="ps-draw-route-name">Route name</label>
+                                <input
+                                    id="ps-draw-route-name"
+                                    type="text"
+                                    className="route-mp-widget__input"
+                                    placeholder="e.g. Project Mainline"
+                                    value={drawRouteName}
+                                    onChange={(e) => setDrawRouteName(e.target.value)}
+                                    autoComplete="off"
+                                    disabled={drawing}
+                                />
+                            </div>
+                            <div className="mb-8">
+                                <label className="text-xs text-muted" htmlFor="ps-draw-travel-dir">Travel direction (optional)</label>
+                                <select
+                                    id="ps-draw-travel-dir"
+                                    className="route-mp-widget__input"
+                                    value={drawTravelDirection}
+                                    onChange={(e) => setDrawTravelDirection(e.target.value)}
+                                    disabled={drawing}
+                                >
+                                    <option value="">—</option>
+                                    {TRAVEL_DIRECTION_CHOICES.map((dir) => (
+                                        <option key={dir} value={dir}>{dir}</option>
+                                    ))}
+                                </select>
+                                <div className="text-xs text-muted mt-4">Used for station table import (RT/LT naming).</div>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={startDrawCenterline}
+                                disabled={drawing || !drawRouteName.trim()}
+                            >
+                                {drawing ? 'Drawing on map…' : 'Draw on map'}
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="project-stationing-import-form">
+                            {lineLayerOptions.length === 0 ? (
+                                <div className="text-xs text-muted mb-8">
+                                    Add a line layer to the map to import a centerline.
+                                </div>
+                            ) : (
+                                <LayerSelect
+                                    label="Line layer"
+                                    value={importLayerId}
+                                    onChange={handleImportLayerChange}
+                                    layers={lineLayerOptions}
+                                    formatOption={formatLineLayerOption}
+                                    className="mb-8"
+                                />
+                            )}
+                            <div className="mb-8">
+                                <label className="text-xs text-muted" htmlFor="ps-import-route-name">Route name</label>
+                                <input
+                                    id="ps-import-route-name"
+                                    type="text"
+                                    className="route-mp-widget__input"
+                                    placeholder="e.g. Project Mainline"
+                                    value={importRouteName}
+                                    onChange={(e) => setImportRouteName(e.target.value)}
+                                    autoComplete="off"
+                                    disabled={importing}
+                                />
+                            </div>
+                            <div className="mb-8">
+                                <label className="text-xs text-muted" htmlFor="ps-import-travel-dir">Travel direction (optional)</label>
+                                <select
+                                    id="ps-import-travel-dir"
+                                    className="route-mp-widget__input"
+                                    value={importTravelDirection}
+                                    onChange={(e) => setImportTravelDirection(e.target.value)}
+                                    disabled={importing}
+                                >
+                                    <option value="">—</option>
+                                    {TRAVEL_DIRECTION_CHOICES.map((dir) => (
+                                        <option key={dir} value={dir}>{dir}</option>
+                                    ))}
+                                </select>
+                                <div className="text-xs text-muted mt-4">
+                                    Uses the longest line in the layer (or selection). WGS84 coordinates assumed.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={startImportCenterline}
+                                disabled={importing || !importLayerId || !importRouteName.trim() || lineLayerOptions.length === 0}
+                            >
+                                {importing ? 'Importing…' : 'Use line'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <>
                     <div className="route-mp-widget__route-chip mb-8">
                         <span className="text-xs text-muted">Route:</span>{' '}
                         <strong>{selectedRoute.routeAlias}</strong>
+                        {isCustomRoute ? (
+                            <span className="text-xs text-muted"> ({customRouteLabel})</span>
+                        ) : null}
                         <button type="button" className="btn btn-sm btn-secondary route-mp-widget__change-btn" onClick={changeRoute}>
                             Change
                         </button>
-                        {extentConfirmed ? (
+                        {extentConfirmed && !isCustomRoute ? (
                             <button type="button" className="btn btn-sm btn-secondary route-mp-widget__change-btn" onClick={changeExtent}>
                                 Change extent
                             </button>
                         ) : null}
                     </div>
                     <div className="text-xs text-muted mb-8">
-                        Route mileage: {begMileageFormatted} → {endMileageFormatted}
+                        {isCustomRoute
+                            ? `Line length: ${lineLengthFormatted}`
+                            : `Route mileage: ${begMileageFormatted} → ${endMileageFormatted}`}
                     </div>
                 </>
             )}
 
-            {routeSelected && clipMode == null ? (
+            {routeSelected && !isCustomRoute && clipMode == null ? (
                 <div className="mb-8">
                     <div className="text-xs text-muted mb-4">Route extent</div>
                     <div className="gis-widget__btn-row">
@@ -780,6 +1044,7 @@ export function ProjectStationingDialog({
                         </div>
                     ) : null}
 
+                    {!isCustomRoute ? (
                     <div className="mb-8">
                         <div className="text-xs text-muted mb-4">Output layers</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -798,6 +1063,7 @@ export function ProjectStationingDialog({
                             ))}
                         </div>
                     </div>
+                    ) : null}
                 </>
             ) : null}
 

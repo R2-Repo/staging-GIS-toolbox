@@ -190,6 +190,9 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         startSketchPolygon(options = {}) {
             return mapAdapter.startSketchPolygon(options);
         },
+        startSketchPolyline(options = {}) {
+            return mapAdapter.startSketchPolyline(options);
+        },
         startSketchCirclePolygon(options = {}) {
             return mapAdapter.startSketchCirclePolygon(options);
         },

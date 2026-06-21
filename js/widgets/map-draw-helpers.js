@@ -79,3 +79,24 @@ export function createAreaDrawHandlers(ctx) {
 
     return { draw, useLayerArea };
 }
+
+/**
+ * @param {import('./widget-types.js').WidgetContext} ctx
+ */
+export function createCenterlineDrawHandlers(ctx) {
+    const { mapService, showToast, turf } = ctx;
+
+    async function drawCenterline() {
+        showToast('Click to place points, double-click or Enter to finish', 'info');
+        const geometry = await mapService.startSketchPolyline({
+            bannerText: 'Click to add points. Double-click or Enter to finish the centerline.',
+            onInsufficientVertices: () => showToast('Need at least 2 points for a centerline', 'warning')
+        });
+        if (!geometry) return null;
+        const feature = turf.feature(geometry);
+        mapService.cancelInteraction?.();
+        return feature;
+    }
+
+    return { drawCenterline };
+}

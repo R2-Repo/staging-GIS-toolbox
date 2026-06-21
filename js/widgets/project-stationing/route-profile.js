@@ -47,7 +47,10 @@ export function buildRouteProfile(input = {}, generatedOutput = {}) {
         route_id: routeId,
         route_name: routeName,
         route_direction: String(routeDirection || '').toUpperCase(),
-        travel_direction: input.travelDirection || centerline?.properties?.travel_direction || '',
+        travel_direction: input.travelDirection
+            || routeMeta.travelDirection
+            || centerline?.properties?.travel_direction
+            || '',
         source_layer_id: routeMeta.sourceLayerId || '',
         source_feature_id: routeMeta.sourceFeatureId ?? '',
         stationed_centerline_layer_id: input.stationedCenterlineLayerId || '',

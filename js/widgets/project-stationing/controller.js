@@ -23,6 +23,12 @@ import { nearestPointOnLineAny, nearestPointOnRouteLine, lineSliceAlongRoute } f
 import {
     DEFAULT_INTERVAL_FT,
     CLIP_METHODS,
+    ROUTE_SOURCE_DRAWN,
+    ROUTE_SOURCE_IMPORTED,
+    isCustomRouteSource,
+    buildDrawnRouteContext,
+    buildCustomRouteContext,
+    resolveCenterlineFromLayer,
     computeProjectStationing,
     buildOutputLayerName,
     formatRouteMileage,
@@ -31,6 +37,9 @@ import {
     resolveClipMilepostRange,
     resolveClipMilepostEndpoints
 } from './engine.js';
+import { createCenterlineDrawHandlers } from '../map-draw-helpers.js';
+import { getSpatialLayerOptions } from '../widget-context.js';
+import { materializeSpatialLayer, getWorkingFeaturesFromLayer } from '../../tools/gis-layer-context.js';
 import {
     buildRouteProfile,
     isProjectStationingCenterline,
@@ -48,6 +57,34 @@ const activeConfig = { ...UDOT_ROUTE_SEGMENT_CONFIG };
 let layersValidated = false;
 
 const NEAR_LINE_FT = 50;
+
+function isCustomRouteContext(routeContext) {
+    const source = routeContext?.source || routeContext?.routeRecord?.source;
+    return isCustomRouteSource(source);
+}
+
+function clipCustomCenterline(routeContext) {
+    const positiveLine = routeContext.routeSelection.positiveLine;
+    return {
+        clipMethod: CLIP_METHODS.DRAWN,
+        baseCenterline: positiveLine,
+        trimmedCenterline: positiveLine,
+        warnings: []
+    };
+}
+
+async function syncRouteContext(ctx, input, previewState) {
+    if (previewState.routeContext) return previewState.routeContext;
+    if (isCustomRouteSource(input?.routeSource)) {
+        throw new Error('Centerline route is missing. Select, draw, or import the line again.');
+    }
+    await ensureLayersReady(ctx);
+    previewState.routeContext = await loadRouteContext(input.routeRecord || {
+        [activeConfig.routeIdField]: input.routeId,
+        [activeConfig.routeAliasField]: input.routeAlias
+    });
+    return previewState.routeContext;
+}
 
 async function ensureLayersReady(ctx) {
     if (layersValidated) return;
@@ -272,6 +309,10 @@ function hasValidMilepostRange(input) {
 }
 
 async function resolveClip(input, routeContext) {
+    if (isCustomRouteContext(routeContext)) {
+        return clipCustomCenterline(routeContext);
+    }
+
     const positiveLine = routeContext.routeSelection.positiveLine;
     const intervalFt = Number(input.intervalFt) || DEFAULT_INTERVAL_FT;
 
@@ -287,6 +328,10 @@ async function resolveClip(input, routeContext) {
 }
 
 async function resolveClipForPreview(input, routeContext) {
+    if (isCustomRouteContext(routeContext)) {
+        return clipCustomCenterline(routeContext);
+    }
+
     const positiveLine = routeContext.routeSelection.positiveLine;
     const intervalFt = Number(input.intervalFt) || DEFAULT_INTERVAL_FT;
     const mileage = readRouteMileage(routeContext);
@@ -456,7 +501,8 @@ function buildStationingInput(input, clip, routeContext) {
         routeMeta: {
             routeId: routeContext.routeId,
             routeAlias: routeContext.routeAlias,
-            routeDirection: routeContext.routeSelection?.positiveLine?.properties?.[activeConfig.routeDirectionField] || ''
+            routeDirection: routeContext.routeSelection?.positiveLine?.properties?.[activeConfig.routeDirectionField] || '',
+            travelDirection: routeContext.routeRecord?.travel_direction || ''
         },
         clipMeta: {
             clipMethod: clip.clipMethod || CLIP_METHODS.FULL_ROUTE,
@@ -720,6 +766,7 @@ export async function openImportStationTable(ctx, routeLayerOrId) {
 
 export async function openProjectStationing(ctx) {
     const previewState = { previewEntry: null, routeContext: null };
+    const centerlineDraw = createCenterlineDrawHandlers(ctx);
 
     const cleanup = () => {
         clearPreview(ctx, previewState);
@@ -757,10 +804,111 @@ export async function openProjectStationing(ctx) {
                 return {
                     routeId: previewState.routeContext.routeId,
                     routeAlias: selection.routeLabel || previewState.routeContext.routeAlias,
+                    routeSource: 'udot',
                     warnings: previewState.routeContext.routeSelection.warnings,
                     ...mileage
                 };
             },
+            onDrawCenterline: async ({ routeName, travelDirection }) => {
+                ctx.mapService.cancelInteraction?.();
+                const lineFeature = await centerlineDraw.drawCenterline();
+                if (!lineFeature) return null;
+
+                const built = buildDrawnRouteContext(lineFeature, { routeName, travelDirection });
+                if (!built.ok) {
+                    throw new Error(built.error || 'Unable to use drawn centerline.');
+                }
+
+                previewState.routeContext = {
+                    routeId: built.routeId,
+                    routeAlias: built.routeAlias,
+                    routeRecord: built.routeRecord,
+                    routeFeatures: [],
+                    routeSelection: built.routeSelection,
+                    source: ROUTE_SOURCE_DRAWN
+                };
+
+                const geojson = buildClipPreviewGeojson(null, built.routeSelection);
+                showPreview(ctx, previewState, geojson);
+                fitPreviewBounds(ctx, geojson);
+
+                const lineLengthFt = typeof turf !== 'undefined'
+                    ? Math.round(turf.length(lineFeature, { units: 'feet' }) * 100) / 100
+                    : null;
+
+                return {
+                    routeId: built.routeId,
+                    routeAlias: built.routeAlias,
+                    routeSource: ROUTE_SOURCE_DRAWN,
+                    routeRecord: built.routeRecord,
+                    lineLengthFt,
+                    warnings: []
+                };
+            },
+            onImportCenterline: async ({ layerId, routeName, travelDirection }) => {
+                const layer = ctx.getLayerById?.(layerId);
+                if (!layer) {
+                    throw new Error('Layer not found.');
+                }
+
+                const materialized = await materializeSpatialLayer(layer);
+                if (!materialized) {
+                    throw new Error('Selected layer is not a spatial layer.');
+                }
+
+                const work = getWorkingFeaturesFromLayer(materialized, 'auto', {
+                    getSelectionCount: (id) => ctx.mapService.getSelectionCount?.(id) || 0,
+                    getSelectedFeatures: (id, geojson) => ctx.mapService.getSelectedFeatures?.(id, geojson)
+                });
+                if (!work?.geojson) {
+                    throw new Error('Unable to read features from the selected layer.');
+                }
+
+                const resolved = resolveCenterlineFromLayer(work.geojson, { minLengthFt: DEFAULT_INTERVAL_FT });
+                if (!resolved.ok) {
+                    throw new Error(resolved.error || 'Unable to use line from layer.');
+                }
+
+                const built = buildCustomRouteContext(resolved.line, {
+                    routeName,
+                    travelDirection,
+                    sourceLayerId: layerId
+                }, ROUTE_SOURCE_IMPORTED);
+                if (!built.ok) {
+                    throw new Error(built.error || 'Unable to use imported centerline.');
+                }
+
+                const warnings = [...(resolved.warnings || [])];
+                if (work.isSelection) {
+                    warnings.push(`Using ${work.count} selected feature${work.count === 1 ? '' : 's'} from the layer.`);
+                }
+                if (isProjectStationingCenterline(layer)) {
+                    warnings.push('Selected layer was created by Project Stationing; re-stationing may duplicate metadata.');
+                }
+
+                previewState.routeContext = {
+                    routeId: built.routeId,
+                    routeAlias: built.routeAlias,
+                    routeRecord: built.routeRecord,
+                    routeFeatures: [],
+                    routeSelection: built.routeSelection,
+                    source: ROUTE_SOURCE_IMPORTED
+                };
+
+                const geojson = buildClipPreviewGeojson(null, built.routeSelection);
+                showPreview(ctx, previewState, geojson);
+                fitPreviewBounds(ctx, geojson);
+
+                return {
+                    routeId: built.routeId,
+                    routeAlias: built.routeAlias,
+                    routeSource: ROUTE_SOURCE_IMPORTED,
+                    routeRecord: built.routeRecord,
+                    lineLengthFt: resolved.lineLengthFt,
+                    warnings
+                };
+            },
+            lineLayerOptions: getSpatialLayerOptions(ctx, { requireLines: true, includeSelectionCount: true }),
             onPickClipOnRoute: async () => {
                 if (!previewState.routeContext) {
                     throw new Error('Select a route first.');
@@ -775,13 +923,10 @@ export async function openProjectStationing(ctx) {
                 ctx.mapService.cancelInteraction?.();
             },
             onClipPreview: async (input) => {
-                await ensureLayersReady(ctx);
-                if (!previewState.routeContext) {
-                    previewState.routeContext = await loadRouteContext(input.routeRecord || {
-                        [activeConfig.routeIdField]: input.routeId,
-                        [activeConfig.routeAliasField]: input.routeAlias
-                    });
+                if (!isCustomRouteSource(input.routeSource)) {
+                    await ensureLayersReady(ctx);
                 }
+                await syncRouteContext(ctx, input, previewState);
 
                 const clip = await resolveClipForPreview(input, previewState.routeContext);
                 const geojson = buildClipPreviewGeojson(
@@ -794,13 +939,10 @@ export async function openProjectStationing(ctx) {
                 return { warnings: clip.warnings || [] };
             },
             onStationPreview: async (input) => {
-                await ensureLayersReady(ctx);
-                if (!previewState.routeContext) {
-                    previewState.routeContext = await loadRouteContext(input.routeRecord || {
-                        [activeConfig.routeIdField]: input.routeId,
-                        [activeConfig.routeAliasField]: input.routeAlias
-                    });
+                if (!isCustomRouteSource(input.routeSource)) {
+                    await ensureLayersReady(ctx);
                 }
+                await syncRouteContext(ctx, input, previewState);
 
                 const clip = await resolveClip(input, previewState.routeContext);
                 const stationInput = buildStationingInput(input, clip, previewState.routeContext);
@@ -833,13 +975,10 @@ export async function openProjectStationing(ctx) {
                 };
             },
             onRun: async (input) => {
-                await ensureLayersReady(ctx);
-                if (!previewState.routeContext) {
-                    previewState.routeContext = await loadRouteContext(input.routeRecord || {
-                        [activeConfig.routeIdField]: input.routeId,
-                        [activeConfig.routeAliasField]: input.routeAlias
-                    });
+                if (!isCustomRouteSource(input.routeSource)) {
+                    await ensureLayersReady(ctx);
                 }
+                await syncRouteContext(ctx, input, previewState);
 
                 const clip = await resolveClip(input, previewState.routeContext);
                 const stationInput = buildStationingInput(input, clip, previewState.routeContext);

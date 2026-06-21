@@ -1,8 +1,16 @@
 /**
  * Shared helpers for building widget layer options and context.
  */
+import { isWorkspaceLayer } from '../core/data-model.js';
 
 const DEFAULT_FIELD_SAMPLE = 200;
+
+function layerHasLineGeometry(features, sampleSize = DEFAULT_FIELD_SAMPLE) {
+    return (features || []).slice(0, sampleSize).some((feature) => {
+        const type = feature?.geometry?.type;
+        return type === 'LineString' || type === 'MultiLineString';
+    });
+}
 
 function collectFieldNames(features, sampleSize = DEFAULT_FIELD_SAMPLE) {
     const fields = new Set();
@@ -21,10 +29,15 @@ function collectFieldNames(features, sampleSize = DEFAULT_FIELD_SAMPLE) {
  * @returns {import('./widget-types.js').LayerOption[]}
  */
 export function getSpatialLayerOptions(ctx, opts = {}) {
-    const { includeFields = false, requirePolygons = false, includeSelectionCount = false } = opts;
+    const {
+        includeFields = false,
+        requirePolygons = false,
+        requireLines = false,
+        includeSelectionCount = false
+    } = opts;
     const spatialLayers = (ctx.getLayers() || []).filter((layer) => layer.type === 'spatial');
 
-    return spatialLayers.map((layer) => {
+    const options = spatialLayers.map((layer) => {
         const features = layer.geojson?.features || [];
         const option = {
             id: layer.id,
@@ -38,6 +51,12 @@ export function getSpatialLayerOptions(ctx, opts = {}) {
             );
         }
 
+        if (requireLines) {
+            option.hasLines = !features.length && isWorkspaceLayer(layer)
+                ? true
+                : layerHasLineGeometry(features);
+        }
+
         if (includeFields) {
             option.fields = collectFieldNames(features);
         }
@@ -48,6 +67,12 @@ export function getSpatialLayerOptions(ctx, opts = {}) {
 
         return option;
     });
+
+    if (requireLines) {
+        return options.filter((option) => option.hasLines);
+    }
+
+    return options;
 }
 
 /**

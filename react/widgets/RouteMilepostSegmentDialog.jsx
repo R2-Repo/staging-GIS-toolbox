@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
+import { RouteSearchResults } from './shared/RouteSearchResults.jsx';
+import { RouteSearchField } from './shared/RouteSearchField.jsx';
 import {
     formatMilepost,
     validateMilepostRange,
@@ -22,6 +24,7 @@ export function RouteMilepostSegmentDialog({
 }) {
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+    const [dividedGroup, setDividedGroup] = useState(null);
     const [searching, setSearching] = useState(false);
     const [selectedRoute, setSelectedRoute] = useState(null);
     const [routePickerOpen, setRoutePickerOpen] = useState(true);
@@ -62,6 +65,7 @@ export function RouteMilepostSegmentDialog({
         const term = searchText.trim();
         if (term.length < 2) {
             setSearchResults([]);
+            setDividedGroup(null);
             return undefined;
         }
 
@@ -132,6 +136,7 @@ export function RouteMilepostSegmentDialog({
             setRoutePickerOpen(false);
             setSearchText('');
             setSearchResults([]);
+            setDividedGroup(null);
             setStartMilepost('');
             setEndMilepost('');
             requestAnimationFrame(() => startMpRef.current?.focus());
@@ -139,6 +144,15 @@ export function RouteMilepostSegmentDialog({
             setSelectedRoute(null);
             setError(err?.message || 'Unable to load selected route.');
         }
+    };
+
+    const pickSearchGroup = (group) => {
+        if (group?.isDivided) {
+            setDividedGroup(group);
+            setError('');
+            return;
+        }
+        selectRoute(group?.variants?.[0]);
     };
 
     const changeRoute = () => {
@@ -151,6 +165,7 @@ export function RouteMilepostSegmentDialog({
         setRoutePickerOpen(true);
         setSearchText('');
         setSearchResults([]);
+        setDividedGroup(null);
         setError('');
     };
 
@@ -186,30 +201,25 @@ export function RouteMilepostSegmentDialog({
             {routePickerOpen || !selectedRoute ? (
                 <div className="route-mp-widget__route-search mb-8">
                     <label className="text-xs text-muted" htmlFor="route-search">Search routes</label>
-                    <input
+                    <RouteSearchField
                         id="route-search"
-                        type="search"
                         placeholder="e.g. I-15"
                         value={searchText}
-                        onChange={(e) => setSearchText(e.target.value)}
-                        className="route-mp-widget__input"
+                        onChange={(e) => {
+                            setSearchText(e.target.value);
+                            setDividedGroup(null);
+                        }}
                     />
                     {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
-                    <div className="route-search-results">
-                        {searchResults.map((route) => (
-                            <button
-                                key={route.routeAlias}
-                                type="button"
-                                className="route-search-result"
-                                onClick={() => selectRoute(route)}
-                            >
-                                {route.routeAlias}
-                            </button>
-                        ))}
-                        {!searching && searchText.trim().length >= 2 && searchResults.length === 0 ? (
-                            <div className="text-xs text-muted p-4">No routes matched.</div>
-                        ) : null}
-                    </div>
+                    <RouteSearchResults
+                        searchResults={searchResults}
+                        dividedGroup={dividedGroup}
+                        searching={searching}
+                        searchText={searchText}
+                        onPickGroup={pickSearchGroup}
+                        onPickVariant={selectRoute}
+                        onBackFromDivided={() => setDividedGroup(null)}
+                    />
                 </div>
             ) : (
                 <div className="route-mp-widget__route-chip mb-8">

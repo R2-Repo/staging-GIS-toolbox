@@ -3,28 +3,38 @@
 ## Latest
 
 - **Date**: 2026-06-20
-- **Status**: **Project Stationing — Import Table tab UI cleanup**
+- **Status**: **Divided highway route search — both widgets**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- **Import Table tab UI** simplified in `ImportStationTablePanel.jsx` + `.project-stationing-import-panel` CSS
-- Shorter section copy; locator fields in even 2×2 grid (Route / RT / LT / CL)
-- Native file input replaced with hidden input + styled **Choose file…** button + filename label
-- Detection, mapping, and preview blocks tightened (optional columns collapsed by default)
+- **Route search** no longer filters `ROUTE_DIRECTION = 'P'` during alias lookup; divided carriageways (e.g. `0080PM` / `0080NM`) both appear
+- **Two-step divided highway picker** — first list shows plain names (`SR-155`, `I-80`); clicking a divided route opens direction step (`I-80 (0080P)` / `I-80 (0080N)`)
+- Undivided routes never show `(0155P)`-style suffixes
+- **`selectRouteFeatures` + `queryRouteFeaturesById`** — N-direction route IDs load their own centerline correctly
+- **Both widgets**: Project Stationing + Route Centerline controllers and dialog pickers updated
+
+### Files
+
+- `js/widgets/route-milepost-segment/engine.js`, `config.js`, `arcgis-client.js`
+- `js/widgets/project-stationing/controller.js`
+- `js/widgets/route-milepost-segment/controller.js`
+- `react/widgets/shared/RouteSearchResults.jsx`
+- `react/widgets/ProjectStationingDialog.jsx`, `RouteMilepostSegmentDialog.jsx`
+- `tests/route-milepost-segment-engine.test.js`
 
 ### Verification
 
-- `npm test` — 478 passed
-- **Browser** (manual): Import tab after Create Layers → choose file → verify layout + plot flow
+- `npm test` — 485 passed
+- **Browser** (manual): search `I-80` in both widgets → two options; select each → different preview/mileage
 
 ### Next
 
-- Manual browser smoke on real station table import via tab
+- Manual browser smoke on I-80 divided-highway pick in Project Stationing + Route Centerline
 
 ---
 
-## Previous (2026-06-20) — Import Table as in-widget tab
+## Previous (2026-06-20) — Import Table tab UI cleanup
 
 ## Previous (2026-06-20) — Project Stationing widget — progressive step UX + extent confirm
 

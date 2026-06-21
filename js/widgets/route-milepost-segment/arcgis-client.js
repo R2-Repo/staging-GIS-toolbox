@@ -1,7 +1,7 @@
 import { ArcGISRestImporter, esriFeatureToGeoJSON } from '../../arcgis/rest-importer.js';
 import { AppError, ErrorCategory } from '../../core/error-handler.js';
 import { UDOT_ROUTE_SEGMENT_CONFIG } from './config.js';
-import { buildRouteIdWhere } from './engine.js';
+import { buildRouteIdWhere, buildSelectedRouteWhere } from './engine.js';
 
 const importerCache = new Map();
 
@@ -184,9 +184,12 @@ export async function searchRoutes(where, config = UDOT_ROUTE_SEGMENT_CONFIG) {
 /**
  * @param {string} routeId
  * @param {typeof UDOT_ROUTE_SEGMENT_CONFIG} config
+ * @param {string} [direction]
  */
-export async function queryRouteFeaturesById(routeId, config = UDOT_ROUTE_SEGMENT_CONFIG) {
-    const where = buildRouteIdWhere(routeId, config);
+export async function queryRouteFeaturesById(routeId, config = UDOT_ROUTE_SEGMENT_CONFIG, direction = null) {
+    const where = direction
+        ? buildSelectedRouteWhere(routeId, direction, config)
+        : buildRouteIdWhere(routeId, config);
     return queryAllFeatures(config.routeLayerUrl, {
         where,
         outFields: config.routeGeometryOutFields,

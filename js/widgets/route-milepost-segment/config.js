@@ -4,6 +4,7 @@ export const UDOT_ROUTE_SEGMENT_CONFIG = {
     milepostWholeLayerUrl: 'https://roads.udot.utah.gov/server/rest/services/Public/Mile_Point_Measures_Open_Data/MapServer/0',
     milepostTenthLayerUrl: 'https://roads.udot.utah.gov/server/rest/services/Public/Mile_Point_Tenth_Measures_Open_Data/MapServer/0',
     routeAliasField: 'ROUTE_ALIAS_COMMON',
+    routeAliasStdDirField: 'ROUTE_ALIAS_STD_DIR',
     routeIdField: 'ROUTE_ID',
     routeDirectionField: 'ROUTE_DIRECTION',
     routeTypeField: 'ROUTE_TYPE',
@@ -24,8 +25,8 @@ export const UDOT_ROUTE_SEGMENT_CONFIG = {
     milepostSnapTolerance: 0.051,
     /** Max distance (mi) to snap to the nearest whole-mile layer point. */
     milepostWholeSnapTolerance: 0.51,
-    routeSearchOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON'],
-    routeGeometryOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_DIRECTION', 'ROUTE_TYPE', 'Shape__Length', 'BEG_MILEAGE', 'END_MILEAGE'],
+    routeSearchOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_ALIAS_STD_DIR', 'ROUTE_DIRECTION'],
+    routeGeometryOutFields: ['ROUTE_ID', 'ROUTE_ALIAS_COMMON', 'ROUTE_ALIAS_STD_DIR', 'ROUTE_DIRECTION', 'ROUTE_TYPE', 'Shape__Length', 'BEG_MILEAGE', 'END_MILEAGE'],
     milepostOutFields: ['ROUTE_ID', 'Measure', 'RouteDir', 'ROUTE_ALIAS_COMMON']
 };
 

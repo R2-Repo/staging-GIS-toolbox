@@ -9,6 +9,11 @@ import {
     isWholeMilepost,
     chooseMilepostLayer,
     buildRouteSearchWhere,
+    buildRouteSearchBaseWhere,
+    normalizeRouteAliasCommon,
+    formatRouteVariantLabel,
+    mapRouteSearchRows,
+    groupRouteSearchResults,
     buildSelectedRouteWhere,
     buildMilepostWhere,
     buildMilepostRangeWhere,
@@ -74,15 +79,36 @@ describe('chooseMilepostLayer', () => {
     });
 });
 
+const I80_DIVIDED_ROWS = [
+    {
+        ROUTE_ID: '0080NM',
+        ROUTE_DIRECTION: 'N',
+        ROUTE_ALIAS_COMMON: 'I-80',
+        ROUTE_ALIAS_STD_DIR: '0080N'
+    },
+    {
+        ROUTE_ID: '0080PM',
+        ROUTE_DIRECTION: 'P',
+        ROUTE_ALIAS_COMMON: 'I 80',
+        ROUTE_ALIAS_STD_DIR: '0080P'
+    }
+];
+
 describe('buildRouteSearchWhere', () => {
-    it('escapes single quotes and filters by alias, direction, route type, and carto code', () => {
+    it('escapes single quotes and filters by alias, route type, and carto code without direction', () => {
         const where = buildRouteSearchWhere("O'Brien", UDOT_ROUTE_SEGMENT_CONFIG);
         expect(where).toContain("O''BRIEN");
-        expect(where).toContain("ROUTE_DIRECTION = 'P'");
+        expect(where).not.toContain('ROUTE_DIRECTION');
         expect(where).toContain("ROUTE_TYPE = 'M'");
         expect(where).toContain("CARTO_CODE IN ('1', '2', '3', '4')");
         expect(where).toContain('ROUTE_ALIAS_COMMON');
         expect(where).not.toContain('ROUTE_ID LIKE');
+    });
+
+    it('buildRouteSearchBaseWhere omits direction filter', () => {
+        const where = buildRouteSearchBaseWhere(UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(where).not.toContain('ROUTE_DIRECTION');
+        expect(where).toContain("ROUTE_TYPE = 'M'");
     });
 
     it('matches hyphenated route queries against space-separated aliases', () => {
@@ -179,7 +205,59 @@ describe('buildMilepostSnapWarnings', () => {
     });
 });
 
+describe('divided highway route search labels', () => {
+    it('normalizes common alias spacing', () => {
+        expect(normalizeRouteAliasCommon('I 80')).toBe('I-80');
+        expect(normalizeRouteAliasCommon('I-80')).toBe('I-80');
+    });
+
+    it('formats divided variant labels with std dir suffix only for disambiguation', () => {
+        expect(formatRouteVariantLabel(I80_DIVIDED_ROWS[0], UDOT_ROUTE_SEGMENT_CONFIG)).toBe('I-80 (0080N)');
+        expect(formatRouteVariantLabel(I80_DIVIDED_ROWS[1], UDOT_ROUTE_SEGMENT_CONFIG)).toBe('I-80 (0080P)');
+    });
+
+    it('returns one mapped row per route id with plain alias label', () => {
+        const mapped = mapRouteSearchRows(I80_DIVIDED_ROWS, UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(mapped).toHaveLength(2);
+        expect(mapped.map((row) => row.routeId).sort()).toEqual(['0080NM', '0080PM']);
+        expect(mapped.every((row) => row.routeLabel === 'I-80')).toBe(true);
+    });
+
+    it('groups divided highways for two-step picker', () => {
+        const mapped = mapRouteSearchRows(I80_DIVIDED_ROWS, UDOT_ROUTE_SEGMENT_CONFIG);
+        const groups = groupRouteSearchResults(mapped, UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(groups).toHaveLength(1);
+        expect(groups[0].routeLabel).toBe('I-80');
+        expect(groups[0].isDivided).toBe(true);
+        expect(groups[0].variants).toHaveLength(2);
+        expect(groups[0].variants[0].routeLabel).toMatch(/I-80 \(0080/);
+    });
+
+    it('keeps undivided routes as a single plain group', () => {
+        const mapped = mapRouteSearchRows([{
+            ROUTE_ID: '0155P',
+            ROUTE_DIRECTION: 'P',
+            ROUTE_ALIAS_COMMON: 'SR-155',
+            ROUTE_ALIAS_STD_DIR: '0155P'
+        }], UDOT_ROUTE_SEGMENT_CONFIG);
+        const groups = groupRouteSearchResults(mapped, UDOT_ROUTE_SEGMENT_CONFIG);
+        expect(groups).toHaveLength(1);
+        expect(groups[0].routeLabel).toBe('SR-155');
+        expect(groups[0].isDivided).toBe(false);
+        expect(groups[0].variants[0].routeLabel).toBe('SR-155');
+    });
+});
+
 describe('selectRouteFeatures', () => {
+    it('uses N-direction centerline when route record is negative-direction', () => {
+        const features = [
+            turf.lineString([[-112, 40], [-111.9, 40.1]], { ROUTE_DIRECTION: 'N', Shape__Length: 5000 })
+        ];
+        const result = selectRouteFeatures(features, UDOT_ROUTE_SEGMENT_CONFIG, I80_DIVIDED_ROWS[0]);
+        expect(result.positiveLine.properties.ROUTE_DIRECTION).toBe('N');
+        expect(result.negativeLine).toBeNull();
+    });
+
     it('picks longest positive-direction line and negative reference', () => {
         const features = [
             turf.lineString([[-112, 40], [-111.9, 40.1]], { ROUTE_DIRECTION: 'P', Shape__Length: 100 }),

@@ -135,6 +135,93 @@ export function buildRouteBaseWhere(config) {
     return `${config.routeDirectionField} = '${dir}' AND ${config.routeTypeField} = '${type}' AND ${buildRouteCartoCodeWhere(config)}`;
 }
 
+export function buildRouteSearchBaseWhere(config) {
+    const type = escapeSqlLiteral(config.routeTypeValue);
+    return `${config.routeTypeField} = '${type}' AND ${buildRouteCartoCodeWhere(config)}`;
+}
+
+/**
+ * Normalize ROUTE_ALIAS_COMMON for display (e.g. "I 80" → "I-80").
+ * @param {string} value
+ */
+export function normalizeRouteAliasCommon(value) {
+    const raw = String(value ?? '').trim().replace(/\s+/g, ' ');
+    if (!raw) return '';
+    return raw.replace(/\s+/g, '-').replace(/-+/g, '-');
+}
+
+/**
+ * @param {object} row
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function formatRouteVariantLabel(row, config) {
+    const alias = normalizeRouteAliasCommon(row?.[config.routeAliasField]);
+    const stdDir = String(row?.[config.routeAliasStdDirField] ?? '').trim();
+    if (alias && stdDir) return `${alias} (${stdDir})`;
+
+    const direction = String(row?.[config.routeDirectionField] ?? '').trim().toUpperCase();
+    if (alias && direction) return `${alias} (${direction})`;
+
+    return String(row?.[config.routeIdField] ?? (alias || 'Route'));
+}
+
+/**
+ * @param {object[]} rows
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function mapRouteSearchRows(rows, config) {
+    const seen = new Set();
+    const mapped = [];
+
+    for (const row of rows || []) {
+        const routeId = row?.[config.routeIdField];
+        if (!routeId || seen.has(routeId)) continue;
+        seen.add(routeId);
+        const routeAlias = normalizeRouteAliasCommon(row[config.routeAliasField]) || routeId;
+        mapped.push({
+            routeId,
+            routeAlias,
+            routeLabel: routeAlias,
+            routeDirection: String(row?.[config.routeDirectionField] ?? '').toUpperCase(),
+            raw: row
+        });
+    }
+
+    return mapped.sort((a, b) => a.routeAlias.localeCompare(b.routeAlias));
+}
+
+/**
+ * Group route variants by common alias for two-step divided-highway selection.
+ * @param {object[]} rows
+ * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ */
+export function groupRouteSearchResults(rows, config) {
+    const byAlias = new Map();
+
+    for (const row of rows || []) {
+        if (!byAlias.has(row.routeAlias)) byAlias.set(row.routeAlias, []);
+        byAlias.get(row.routeAlias).push(row);
+    }
+
+    return [...byAlias.entries()]
+        .map(([routeAlias, variants]) => {
+            const isDivided = variants.length > 1;
+            return {
+                groupKey: routeAlias,
+                routeAlias,
+                routeLabel: routeAlias,
+                isDivided,
+                variants: variants.map((variant) => ({
+                    ...variant,
+                    routeLabel: isDivided
+                        ? formatRouteVariantLabel(variant.raw, config)
+                        : routeAlias
+                }))
+            };
+        })
+        .sort((a, b) => a.routeLabel.localeCompare(b.routeLabel));
+}
+
 export function buildRouteSearchWhere(searchTerm, config) {
     const patterns = expandRouteSearchPatterns(searchTerm);
     if (!patterns.length) return '1=2';
@@ -145,7 +232,7 @@ export function buildRouteSearchWhere(searchTerm, config) {
         return `UPPER(${alias}) LIKE '%${cleaned}%'`;
     });
 
-    return `${buildRouteBaseWhere(config)} AND (${clauses.join(' OR ')})`;
+    return `${buildRouteSearchBaseWhere(config)} AND (${clauses.join(' OR ')})`;
 }
 
 export function buildSelectedRouteWhere(routeId, direction, config) {
@@ -395,42 +482,50 @@ function lineLengthValue(feature, config) {
 /**
  * @param {import('geojson').Feature[]} features
  * @param {import('./config.js').UDOT_ROUTE_SEGMENT_CONFIG} config
+ * @param {object} [routeRecord]
  */
-export function selectRouteFeatures(features, config) {
+export function selectRouteFeatures(features, config, routeRecord = null) {
     const warnings = [];
-    const positiveDir = config.positiveDirectionValue;
-    const negativeDir = config.negativeDirectionValue;
+    const positiveDir = String(config.positiveDirectionValue).toUpperCase();
+    const negativeDir = String(config.negativeDirectionValue).toUpperCase();
+    const selectedDir = String(
+        routeRecord?.[config.routeDirectionField] ?? config.positiveDirectionValue
+    ).toUpperCase();
+    const primaryDir = selectedDir === negativeDir ? negativeDir : positiveDir;
+    const secondaryDir = primaryDir === positiveDir ? negativeDir : positiveDir;
+    const primaryLabel = primaryDir === positiveDir ? 'positive' : 'negative';
+    const secondaryLabel = secondaryDir === positiveDir ? 'positive' : 'negative';
 
-    const positiveCandidates = (features || []).filter((feature) =>
+    const primaryCandidates = (features || []).filter((feature) =>
         feature?.geometry &&
-        String(feature.properties?.[config.routeDirectionField] ?? '').toUpperCase() === String(positiveDir).toUpperCase()
+        String(feature.properties?.[config.routeDirectionField] ?? '').toUpperCase() === primaryDir
     );
 
-    const negativeCandidates = (features || []).filter((feature) =>
+    const secondaryCandidates = (features || []).filter((feature) =>
         feature?.geometry &&
-        String(feature.properties?.[config.routeDirectionField] ?? '').toUpperCase() === String(negativeDir).toUpperCase()
+        String(feature.properties?.[config.routeDirectionField] ?? '').toUpperCase() === secondaryDir
     );
 
-    if (positiveCandidates.length === 0) {
+    if (primaryCandidates.length === 0) {
         return {
             positiveLine: null,
             negativeLine: null,
-            warnings: ['No positive-direction route centerline found for the selected route.']
+            warnings: [`No ${primaryLabel}-direction route centerline found for the selected route.`]
         };
     }
 
-    if (positiveCandidates.length > 1) {
-        warnings.push('Multiple positive-direction route features found; using the longest segment.');
+    if (primaryCandidates.length > 1) {
+        warnings.push(`Multiple ${primaryLabel}-direction route features found; using the longest segment.`);
     }
 
-    const positiveLine = positiveCandidates.reduce((best, current) => {
+    const positiveLine = primaryCandidates.reduce((best, current) => {
         if (!best) return current;
         return lineLengthValue(current, config) > lineLengthValue(best, config) ? current : best;
     }, null);
 
     let negativeLine = null;
-    if (negativeCandidates.length > 0) {
-        negativeLine = negativeCandidates.reduce((best, current) => {
+    if (secondaryCandidates.length > 0) {
+        negativeLine = secondaryCandidates.reduce((best, current) => {
             if (!best) return current;
             return lineLengthValue(current, config) > lineLengthValue(best, config) ? current : best;
         }, null);

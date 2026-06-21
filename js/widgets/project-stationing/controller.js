@@ -7,6 +7,8 @@ import {
     chooseMilepostLayer,
     computeSegmentResult,
     locateMilepostOnRoute,
+    mapRouteSearchRows,
+    groupRouteSearchResults,
     selectRouteFeatures,
     validateMilepostRange
 } from '../route-milepost-segment/engine.js';
@@ -172,15 +174,18 @@ async function loadRouteContext(routeRecord) {
         throw new Error('Selected route is missing a route ID.');
     }
 
-    const routeFeatures = await queryRouteFeaturesById(routeId, activeConfig);
-    const routeSelection = selectRouteFeatures(routeFeatures, activeConfig);
+    const routeDirection = routeRecord?.[activeConfig.routeDirectionField] || null;
+    const routeFeatures = await queryRouteFeaturesById(routeId, activeConfig, routeDirection);
+    const routeSelection = selectRouteFeatures(routeFeatures, activeConfig, routeRecord);
     if (!routeSelection.positiveLine) {
         throw new Error(routeSelection.warnings[0] || 'Unable to find a matching route centerline.');
     }
 
+    const routeAlias = routeRecord?.[activeConfig.routeAliasField] || routeId;
+
     return {
         routeId,
-        routeAlias: routeRecord?.[activeConfig.routeAliasField] || routeId,
+        routeAlias,
         routeRecord,
         routeFeatures,
         routeSelection
@@ -737,28 +742,21 @@ export async function openProjectStationing(ctx) {
                 if (term.length < 2) return [];
                 const where = buildRouteSearchWhere(term, activeConfig);
                 const rows = await searchRoutes(where, activeConfig);
-                const seen = new Set();
-                return rows.filter((row) => {
-                    const alias = row[activeConfig.routeAliasField];
-                    if (!alias || seen.has(alias)) return false;
-                    seen.add(alias);
-                    return true;
-                }).map((row) => ({
-                    routeId: row[activeConfig.routeIdField],
-                    routeAlias: row[activeConfig.routeAliasField],
-                    raw: row
-                }));
+                return groupRouteSearchResults(mapRouteSearchRows(rows, activeConfig), activeConfig);
             },
             onSelectRoute: async (routeOption) => {
                 await ensureLayersReady(ctx);
-                previewState.routeContext = await loadRouteContext(routeOption?.raw || routeOption);
+                const selection = routeOption?.raw
+                    ? routeOption
+                    : { raw: routeOption, routeId: routeOption?.routeId, routeAlias: routeOption?.routeAlias };
+                previewState.routeContext = await loadRouteContext(selection.raw || selection);
                 const mileage = readRouteMileage(previewState.routeContext);
                 const geojson = buildClipPreviewGeojson(null, previewState.routeContext.routeSelection);
                 showPreview(ctx, previewState, geojson);
                 fitPreviewBounds(ctx, geojson);
                 return {
                     routeId: previewState.routeContext.routeId,
-                    routeAlias: previewState.routeContext.routeAlias,
+                    routeAlias: selection.routeLabel || previewState.routeContext.routeAlias,
                     warnings: previewState.routeContext.routeSelection.warnings,
                     ...mileage
                 };

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WidgetPanelShell } from './shared/WidgetPanelShell.jsx';
+import { RouteSearchResults } from './shared/RouteSearchResults.jsx';
+import { RouteSearchField } from './shared/RouteSearchField.jsx';
 import { RunPreviewFooter } from './shared/RunPreviewFooter.jsx';
 import { ImportStationTablePanel } from './project-stationing/ImportStationTablePanel.jsx';
 import { validateMilepostRange } from '../../js/widgets/route-milepost-segment/engine.js';
@@ -33,6 +35,7 @@ export function ProjectStationingDialog({
 }) {
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+    const [dividedGroup, setDividedGroup] = useState(null);
     const [searching, setSearching] = useState(false);
     const [selectedRoute, setSelectedRoute] = useState(null);
     const [routePickerOpen, setRoutePickerOpen] = useState(true);
@@ -171,6 +174,7 @@ export function ProjectStationingDialog({
         const term = searchText.trim();
         if (term.length < 2) {
             setSearchResults([]);
+            setDividedGroup(null);
             return undefined;
         }
 
@@ -274,11 +278,21 @@ export function ProjectStationingDialog({
             setRoutePickerOpen(false);
             setSearchText('');
             setSearchResults([]);
+            setDividedGroup(null);
             resetAllAfterRoute();
         } catch (err) {
             setSelectedRoute(null);
             setError(err?.message || 'Unable to load selected route.');
         }
+    };
+
+    const pickSearchGroup = (group) => {
+        if (group?.isDivided) {
+            setDividedGroup(group);
+            setError('');
+            return;
+        }
+        selectRoute(group?.variants?.[0]);
     };
 
     const changeRoute = () => {
@@ -295,6 +309,7 @@ export function ProjectStationingDialog({
         setRoutePickerOpen(true);
         setSearchText('');
         setSearchResults([]);
+        setDividedGroup(null);
         resetAllAfterRoute();
         setError('');
     };
@@ -511,30 +526,25 @@ export function ProjectStationingDialog({
             {routePickerOpen || !routeSelected ? (
                 <div className="route-mp-widget__route-search mb-8">
                     <label className="text-xs text-muted" htmlFor="ps-route-search">Search routes</label>
-                    <input
+                    <RouteSearchField
                         id="ps-route-search"
-                        type="search"
                         placeholder="e.g. SR-145"
                         value={searchText}
-                        onChange={(e) => setSearchText(e.target.value)}
-                        className="route-mp-widget__input"
+                        onChange={(e) => {
+                            setSearchText(e.target.value);
+                            setDividedGroup(null);
+                        }}
                     />
                     {searching ? <div className="text-xs text-muted mt-4">Searching…</div> : null}
-                    <div className="route-search-results">
-                        {searchResults.map((route) => (
-                            <button
-                                key={route.routeAlias}
-                                type="button"
-                                className="route-search-result"
-                                onClick={() => selectRoute(route)}
-                            >
-                                {route.routeAlias}
-                            </button>
-                        ))}
-                        {!searching && searchText.trim().length >= 2 && searchResults.length === 0 ? (
-                            <div className="text-xs text-muted p-4">No routes matched.</div>
-                        ) : null}
-                    </div>
+                    <RouteSearchResults
+                        searchResults={searchResults}
+                        dividedGroup={dividedGroup}
+                        searching={searching}
+                        searchText={searchText}
+                        onPickGroup={pickSearchGroup}
+                        onPickVariant={selectRoute}
+                        onBackFromDivided={() => setDividedGroup(null)}
+                    />
                 </div>
             ) : (
                 <>

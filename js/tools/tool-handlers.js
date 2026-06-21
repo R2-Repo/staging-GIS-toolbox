@@ -66,6 +66,19 @@ import { findFirstLineStringFeature, listLineStringFeatures } from './line-geojs
 import drawManager from '../map/draw-manager.js';
 import { initSelectionShortcuts } from '../map/selection-shortcuts.js';
 import sessionStore from '../core/session-store.js';
+import { buildDatasetFromSavedLayer, buildDatasetFromWorkspaceRef, prepareLayersFromKitSection } from '../core/layer-restore.js';
+import {
+    buildProjectKitSnapshot,
+    packProjectKit,
+    parseProjectKit,
+    downloadProjectKit,
+    summarizeProjectKit,
+    PROJECT_KIT_SECTIONS
+} from '../core/project-kit.js';
+import { loadJSZip } from '../core/libs.js';
+import { loadPaletteFavorites, savePaletteFavorites } from '../map/palette-store.js';
+import { getWorkspaceLayer, exportWorkspaceLayerBundle } from '../workspace/workspace-store.js';
+import { WorkflowStore } from '../workflow/workflow-store.js';
 import { buildWidgetActions } from '../widgets/registry.js';
 import { createWidgetContext } from '../widgets/widget-context.js';
 import { openImportStationTable } from '../widgets/project-stationing/controller.js';
@@ -105,38 +118,33 @@ export async function restoreSessionIfAvailable() {
             let restored = 0;
             for (const saved of session.layers) {
                 try {
-                    if (saved.type === 'spatial' && saved.geojson) {
-                        const schema = analyzeSchema(saved.geojson);
-                        const dataset = {
-                            id: saved.id,
-                            name: saved.name,
-                            type: 'spatial',
-                            geojson: saved.geojson,
-                            schema,
-                            source: saved.source || { file: saved.name, format: 'session' },
-                            visible: saved.visible !== false,
-                            active: false,
-                            created: saved.created || new Date().toISOString()
-                        };
-                        addLayer(dataset);
-                        mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
-                        restored++;
-                    } else if (saved.type === 'table' && saved.rows) {
-                        const fields = saved.rows.length > 0 ? Object.keys(saved.rows[0]) : [];
-                        const schema = analyzeTableSchema(saved.rows, fields);
-                        addLayer({
-                            id: saved.id,
-                            name: saved.name,
-                            type: 'table',
-                            rows: saved.rows,
-                            schema,
-                            source: saved.source || { file: saved.name, format: 'session' },
-                            visible: saved.visible !== false,
-                            active: false,
-                            created: saved.created || new Date().toISOString()
+                    let dataset = null;
+                    if (saved.type === 'spatial-chunked' || saved.storage === 'workspace') {
+                        const wsId = saved.workspaceLayerId || saved.id;
+                        const wsMeta = await getWorkspaceLayer(wsId);
+                        if (!wsMeta) {
+                            logger.warn('Session', `Workspace layer "${saved.name}" not found in storage`);
+                            continue;
+                        }
+                        dataset = buildDatasetFromWorkspaceRef(saved);
+                    } else {
+                        dataset = await buildDatasetFromSavedLayer(saved, {
+                            spatial: saved.geojson,
+                            tableRows: saved.rows
                         });
-                        restored++;
                     }
+                    if (!dataset) continue;
+
+                    addLayer(dataset);
+                    const layerIdx = getLayers().indexOf(dataset);
+                    applyImportLayerStyles(dataset, { mapService, getLayers, layerIndex: layerIdx });
+
+                    if (isWorkspaceLayer(dataset)) {
+                        await mapService.addWorkspaceLayer(dataset, layerIdx, { fit: false });
+                    } else if (dataset.type === 'spatial') {
+                        mapService.addLayer(dataset, layerIdx, { fit: false });
+                    }
+                    restored++;
                 } catch (err) {
                     logger.warn('Session', `Failed to restore layer "${saved.name}"`, { error: err.message });
                 }
@@ -172,6 +180,247 @@ function _timeAgo(ts) {
     if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
     const days = Math.floor(hrs / 24);
     return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+// ============================
+// Toolbox Kit — project export/import
+// ============================
+
+function _getMapChromeSnapshot() {
+    const map = mapService.getMap();
+    let viewport = null;
+    if (map) {
+        const center = map.getCenter();
+        viewport = {
+            center: [center.lng, center.lat],
+            zoom: map.getZoom(),
+            bearing: map.getBearing?.() ?? 0,
+            pitch: map.getPitch?.() ?? 0
+        };
+    }
+    return {
+        basemap: mapService.getCurrentBasemap(),
+        is3d: mapService.is3DEnabled(),
+        viewport
+    };
+}
+
+function _collectWorkflowNodeCache(engine) {
+    const cache = {};
+    if (!engine?.nodes) return cache;
+    for (const node of engine.nodes.values()) {
+        if (node._cachedResult) cache[node.id] = node._cachedResult;
+    }
+    return cache;
+}
+
+async function _clearLayersForKitReplace() {
+    const ids = [...getLayers().map((layer) => layer.id)];
+    for (const id of ids) {
+        const layer = getLayers().find((entry) => entry.id === id);
+        if (layer) revokeKmzBlobUrls(layer);
+        if (isWorkspaceLayer(layer)) {
+            await removeWorkspaceLayer(layer.workspaceLayerId || id);
+        }
+        mapService.removeLayer(id);
+        removeLayer(id);
+    }
+}
+
+function _mergePaletteFavorites(existing, incoming, mode) {
+    if (mode !== 'merge') return incoming;
+    const byId = new Map(existing.map((entry) => [entry.id, entry]));
+    for (const entry of incoming) {
+        if (!byId.has(entry.id)) byId.set(entry.id, entry);
+    }
+    return [...byId.values()];
+}
+
+async function _addRestoredDatasets(datasets, styles, activeLayerId, { replaceStyles = false } = {}) {
+    if (replaceStyles) {
+        mapService.setLayerStylesRecord(styles || {});
+    } else if (styles && Object.keys(styles).length) {
+        mapService.setLayerStylesRecord({
+            ...mapService.getLayerStylesRecord(),
+            ...styles
+        });
+    }
+
+    for (const dataset of datasets) {
+        addLayer(dataset, { activate: false });
+        const layerIdx = getLayers().indexOf(dataset);
+        applyImportLayerStyles(dataset, { mapService, getLayers, layerIndex: layerIdx });
+        if (isWorkspaceLayer(dataset)) {
+            await mapService.addWorkspaceLayer(dataset, layerIdx, { fit: false });
+        } else if (dataset.type === 'spatial') {
+            mapService.addLayer(dataset, layerIdx, { fit: false });
+        }
+    }
+
+    if (activeLayerId) {
+        setActiveLayer(activeLayerId);
+    }
+}
+
+async function applyProjectKitSnapshot(snapshot, { sections, mode = 'replace' }) {
+    const selected = PROJECT_KIT_SECTIONS.filter((key) => sections.includes(key));
+    sessionStore.pauseSessionSave();
+    try {
+        if (selected.includes('layers') && snapshot.layers) {
+            if (mode === 'replace') {
+                await _clearLayersForKitReplace();
+            }
+            const { datasets, styles, activeLayerId } = await prepareLayersFromKitSection({
+                layersSection: snapshot.layers,
+                mode,
+                existingLayerIds: new Set(getLayers().map((layer) => layer.id))
+            });
+            await _addRestoredDatasets(datasets, styles, activeLayerId, {
+                replaceStyles: mode === 'replace'
+            });
+        }
+
+        if (selected.includes('map') && snapshot.map) {
+            if (snapshot.map.basemap) applyBasemapHeaderSelection(snapshot.map.basemap);
+            applyDimensionHeaderSelection(snapshot.map.is3d ? '3d' : '2d');
+            const map = mapService.getMap();
+            if (snapshot.map.viewport && map) {
+                map.jumpTo(snapshot.map.viewport);
+            }
+        }
+
+        if (selected.includes('workflow') && snapshot.workflow?.pipeline) {
+            const wf = getWorkflowOverlay();
+            if (wf?.applyConfig) {
+                wf.applyConfig(snapshot.workflow.pipeline);
+                const cache = snapshot.workflow.pipeline.nodeCache || {};
+                for (const [nodeId, data] of Object.entries(cache)) {
+                    const node = wf.engine?.nodes?.get(nodeId);
+                    if (node) node._cachedResult = data;
+                }
+                WorkflowStore.save(wf.engine);
+            }
+        }
+
+        if (selected.includes('preferences') && snapshot.preferences?.paletteFavorites) {
+            savePaletteFavorites(_mergePaletteFavorites(
+                loadPaletteFavorites(),
+                snapshot.preferences.paletteFavorites,
+                mode
+            ));
+        }
+
+        refreshUI();
+        if (selected.includes('layers')) {
+            mapService.fitToAll();
+        }
+    } finally {
+        sessionStore.resumeSessionSave(true);
+    }
+}
+
+export async function exportProjectKit(options = {}) {
+    const { pickExportProjectKitModal } = await import('../../react/tools/mountProjectKitDialog.jsx');
+    const dialogResult = await pickExportProjectKitModal({
+        defaultName: options.defaultName || 'toolbox-kit',
+        layerCount: getLayers().length
+    });
+    if (!dialogResult) return;
+
+    await runWithTaskProgress('Export Toolbox Kit', async () => {
+        const { TaskRunner } = await import('../core/task-runner.js');
+        const task = new TaskRunner('Export Toolbox Kit', 'ProjectKit');
+        await task.run(async (t) => {
+            const JSZip = await loadJSZip();
+            const wf = getWorkflowOverlay();
+            const snapshot = await buildProjectKitSnapshot({
+                sections: dialogResult.sections,
+                projectName: dialogResult.projectName,
+                layers: getLayers(),
+                activeLayerId: getState().activeLayerId,
+                layerStyles: mapService.getLayerStylesRecord(),
+                map: _getMapChromeSnapshot(),
+                workflow: wf?.engine ? {
+                    pipeline: wf.engine.toJSON(),
+                    nodeCache: _collectWorkflowNodeCache(wf.engine)
+                } : null,
+                preferences: { paletteFavorites: loadPaletteFavorites() },
+                exportWorkspaceLayerBundle
+            });
+            const blob = await packProjectKit(snapshot, JSZip, t);
+            downloadProjectKit(blob, dialogResult.projectName || 'toolbox-kit');
+            showToast('Toolbox Kit exported.', 'success');
+        });
+    });
+}
+
+export async function importProjectKit(initialFile = null) {
+    let file = initialFile;
+    if (!file) {
+        file = await _pickProjectKitFile();
+        if (!file) return;
+    }
+
+    let snapshot;
+    try {
+        const JSZip = await loadJSZip();
+        snapshot = await parseProjectKit(file, JSZip);
+    } catch (err) {
+        showToast(err.message || 'Invalid Toolbox Kit file.', 'error');
+        return;
+    }
+
+    const summary = summarizeProjectKit(snapshot);
+    const { pickImportProjectKitModal } = await import('../../react/tools/mountProjectKitDialog.jsx');
+    const dialogResult = await pickImportProjectKitModal({ summary, availableSections: summary.sections });
+    if (!dialogResult) return;
+
+    if (dialogResult.mode === 'replace') {
+        const ok = await confirm(
+            'Replace current workspace?',
+            'Importing will replace the selected sections of your current workspace. Continue?',
+            { layer: 'deferred' }
+        );
+        if (!ok) return;
+    }
+
+    await runWithTaskProgress('Import Toolbox Kit', async () => {
+        const { TaskRunner } = await import('../core/task-runner.js');
+        const task = new TaskRunner('Import Toolbox Kit', 'ProjectKit');
+        await task.run(async () => {
+            await applyProjectKitSnapshot(snapshot, {
+                sections: dialogResult.sections,
+                mode: dialogResult.mode
+            });
+            const parts = [];
+            if (dialogResult.sections.includes('layers')) parts.push(`${summary.layerCount} layer${summary.layerCount !== 1 ? 's' : ''}`);
+            if (dialogResult.sections.includes('workflow') && summary.hasWorkflow) parts.push('pipeline');
+            if (dialogResult.sections.includes('map') && summary.hasMap) parts.push('map settings');
+            if (dialogResult.sections.includes('preferences') && summary.hasPreferences) parts.push('preferences');
+            showToast(`Toolbox Kit restored${parts.length ? ` (${parts.join(', ')})` : ''}.`, 'success');
+            logger.info('ProjectKit', 'Import complete', { mode: dialogResult.mode, sections: dialogResult.sections });
+        });
+    });
+}
+
+function _pickProjectKitFile() {
+    return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.gtbx,application/zip';
+        input.addEventListener('change', () => {
+            resolve(input.files?.[0] || null);
+        });
+        input.click();
+    });
+}
+
+export function getProjectKitPanelSnapshot() {
+    return {
+        layerCount: getLayers().length,
+        hasWorkflow: !!getWorkflowOverlay()?.engine?.nodes?.size,
+        paletteCount: loadPaletteFavorites().length
+    };
 }
 
 export function buildMapContextMenuItems(payload) {
@@ -1105,6 +1354,15 @@ export function setupAppWiring() {
     bus.on('coord-search:add-existing', _coordSearchAddToExisting);
     bus.on('coord-search:clear', _coordSearchClear);
 
+    if ('launchQueue' in window) {
+        window.launchQueue.setConsumer(async (launchParams) => {
+            const file = launchParams.files?.[0];
+            if (!file) return;
+            const name = file.name?.toLowerCase?.() || '';
+            if (!name.endsWith('.gtbx')) return;
+            await importProjectKit(file);
+        });
+    }
 }
 
 // ============================
@@ -4306,6 +4564,8 @@ const APP_ACTIONS = {
     renameLayer, renameField,
     addField,
     doExport,
+    exportProjectKit,
+    importProjectKit,
     fixAGOL,
     showDataTable,
     openSplitColumn,

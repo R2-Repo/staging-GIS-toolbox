@@ -598,7 +598,7 @@ class DrawManager {
         const info = mapService.getLayerRecord(this._targetLayerId);
         if (!info) return;
 
-        const features = this.map.queryRenderedFeatures(e.point, { layers: info.layerIds });
+        const features = mapService.queryFeaturesAtPoint(e.point, info.layerIds);
         if (features.length > 0) {
             const props = features[0].properties;
             const featureIndex = props._featureIndex;

@@ -380,6 +380,93 @@ export async function getWorkspaceLayerBounds(layerId) {
     return [west, south, east, north];
 }
 
+/**
+ * @param {string} layerId
+ * @returns {Promise<object[]>}
+ */
+export async function getWorkspaceLayerAttributes(layerId) {
+    const idb = await openDB();
+    const tx = idb.transaction(STORE_ATTRIBUTES, 'readonly');
+    const all = await new Promise((resolve, reject) => {
+        const r = tx.objectStore(STORE_ATTRIBUTES).getAll();
+        r.onsuccess = () => resolve(r.result || []);
+        r.onerror = () => reject(r.error);
+    });
+    return all.filter((rec) => rec.layerId === layerId);
+}
+
+/**
+ * Export full workspace layer payload for Toolbox Kit bundles.
+ * @param {string} layerId
+ */
+export async function exportWorkspaceLayerBundle(layerId) {
+    const meta = await getWorkspaceLayer(layerId);
+    if (!meta) return null;
+    const chunks = await loadWorkspaceChunks(meta.chunkIds || []);
+    const attributes = await getWorkspaceLayerAttributes(layerId);
+    return { meta, chunks, attributes };
+}
+
+/**
+ * @param {{ meta: object, chunks: object[], attributes: object[] }} bundle
+ * @param {{ newLayerId?: string }} [options]
+ */
+export async function importWorkspaceLayerBundle(bundle, options = {}) {
+    const oldId = bundle.meta.id;
+    const layerId = options.newLayerId || oldId;
+    const remapped = oldId === layerId ? bundle : _remapWorkspaceBundle(bundle, layerId);
+
+    const existing = await getWorkspaceLayer(layerId);
+    if (existing) await removeWorkspaceLayer(layerId);
+
+    const idb = await openDB();
+    const idx = await _getSpatialIndex();
+    const meta = { ...remapped.meta, id: layerId };
+
+    const tx = idb.transaction([STORE_LAYERS, STORE_CHUNKS, STORE_ATTRIBUTES], 'readwrite');
+    tx.objectStore(STORE_LAYERS).put(meta);
+    for (const chunk of remapped.chunks) {
+        tx.objectStore(STORE_CHUNKS).put(chunk);
+    }
+    for (const attr of remapped.attributes) {
+        tx.objectStore(STORE_ATTRIBUTES).put(attr);
+    }
+    await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+
+    for (const chunk of remapped.chunks) {
+        idx.insert(chunk.id, layerId, chunk.bbox, chunk.featureCount);
+    }
+    markSpatialIndexDirty();
+    await flushSpatialIndexSave();
+    return meta;
+}
+
+function _remapWorkspaceBundle(bundle, newLayerId) {
+    const oldId = bundle.meta.id;
+    const replaceId = (value) => (typeof value === 'string' ? value.split(oldId).join(newLayerId) : value);
+    return {
+        meta: {
+            ...bundle.meta,
+            id: newLayerId,
+            chunkIds: (bundle.meta.chunkIds || []).map(replaceId)
+        },
+        chunks: (bundle.chunks || []).map((chunk) => ({
+            ...chunk,
+            id: replaceId(chunk.id),
+            layerId: newLayerId,
+            geojson: replaceId(chunk.geojson)
+        })),
+        attributes: (bundle.attributes || []).map((attr) => ({
+            ...attr,
+            id: replaceId(attr.id),
+            layerId: newLayerId
+        }))
+    };
+}
+
 /** Reset in-memory index (tests). */
 export function _resetWorkspaceCache() {
     spatialIndex = null;
@@ -398,6 +485,9 @@ export default {
     removeWorkspaceLayer,
     getWorkspaceLayer,
     getWorkspaceLayerBounds,
+    getWorkspaceLayerAttributes,
+    exportWorkspaceLayerBundle,
+    importWorkspaceLayerBundle,
     flushSpatialIndexSave,
     markSpatialIndexDirty,
     _resetWorkspaceCache

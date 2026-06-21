@@ -44,8 +44,11 @@ import {
     deleteSelectedFeatures,
     clearSelection,
     getRightPanelSnapshot,
+    getProjectKitPanelSnapshot,
     handleLayerStyleChange,
     handleLayerScaleRangeChange,
+    exportProjectKit,
+    importProjectKit,
     buildMapContextMenuItems,
     setPanelCollapsed
 } from '../js/tools/tool-handlers.js';
@@ -139,6 +142,7 @@ function AppShell() {
     }), []);
 
     const rightSnapshot = useMemo(() => getRightPanelSnapshot(), [refreshTick, activeLayer?.id]);
+    const kitSnapshot = useMemo(() => getProjectKitPanelSnapshot(), [refreshTick, layers.length]);
     const fields = activeLayer?.schema?.fields || [];
 
     const layersForPanel = useMemo(() => {
@@ -282,8 +286,11 @@ function AppShell() {
                         <div className="panel-body" id="output-panel-content">
                             <RightPanel
                                 snapshot={rightSnapshot}
+                                kitSnapshot={kitSnapshot}
                                 onToggleAgol={onToggleAgol}
                                 onExport={doExport}
+                                onExportProjectKit={exportProjectKit}
+                                onImportProjectKit={importProjectKit}
                                 onFixAgol={fixAGOL}
                                 onShowDataTable={showDataTable}
                                 onStyleChange={handleLayerStyleChange}

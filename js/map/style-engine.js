@@ -39,10 +39,20 @@ export function createDefaultStyle(defaultColor = DEFAULT_FLAT_STYLE.strokeColor
     };
 }
 
+function _preserveLabels(stored) {
+    if (!stored?.labels) return undefined;
+    const labels = stored.labels;
+    return {
+        ...labels,
+        offset: Array.isArray(labels.offset) ? [...labels.offset] : labels.offset
+    };
+}
+
 export function normalizeStyle(stored, defaultColor = DEFAULT_FLAT_STYLE.strokeColor) {
     if (!stored) return createDefaultStyle(defaultColor);
+    const labels = _preserveLabels(stored);
     if (stored.mode === 'smart') {
-        return {
+        const result = {
             mode: 'smart',
             ...DEFAULT_FLAT_STYLE,
             ...stored,
@@ -55,8 +65,12 @@ export function normalizeStyle(stored, defaultColor = DEFAULT_FLAT_STYLE.strokeC
                 filterRules: [...(stored.smart?.filterRules || [])]
             }
         };
+        if (labels) result.labels = labels;
+        return result;
     }
-    return { mode: 'simple', ...DEFAULT_FLAT_STYLE, ...stored };
+    const result = { mode: 'simple', ...DEFAULT_FLAT_STYLE, ...stored };
+    if (labels) result.labels = labels;
+    return result;
 }
 
 export function detectGeometryKinds(layer) {

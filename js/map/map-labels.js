@@ -2,6 +2,25 @@
  * MapLibre text label layer config for GeoJSON sources.
  */
 
+export const DEFAULT_LAYER_LABELS = {
+    enabled: false,
+    field: '',
+    placement: 'point',
+    minZoom: 11,
+    size: 11,
+    offset: [0, 1.1],
+    anchor: 'top',
+    color: '#111111',
+    haloColor: '#ffffff',
+    haloWidth: 1.5,
+    verticalStack: false,
+    writingMode: null,
+    rotateField: null,
+    lineHeight: 0.95,
+    allowOverlap: false,
+    ignorePlacement: false
+};
+
 const DEFAULT_LABELS = {
     field: 'station',
     placement: 'point',
@@ -18,6 +37,109 @@ const DEFAULT_LABELS = {
     allowOverlap: false,
     ignorePlacement: false
 };
+
+const NAME_LIKE_FIELD_RE = /^(name|label|title|station|route|road|street|description|desc)$/i;
+
+/**
+ * @param {Array<{ name: string, type?: string, uniqueCount?: number, selected?: boolean }>} fields
+ * @returns {object|null}
+ */
+export function pickLabelField(fields) {
+    const visible = (fields || []).filter((f) => f.selected !== false && f.name);
+    const nameLike = visible.find((f) => NAME_LIKE_FIELD_RE.test(f.name));
+    if (nameLike) return nameLike;
+    return visible.find((f) => f.type === 'string' || (f.uniqueCount ?? Infinity) <= 50)
+        || visible.find((f) => f.type === 'number')
+        || visible[0]
+        || null;
+}
+
+/**
+ * @param {object[]} features
+ * @param {string} field
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+export function sampleFieldValues(features, field, limit = 3) {
+    if (!field || !features?.length) return [];
+    const out = [];
+    const seen = new Set();
+    for (const f of features) {
+        const raw = f?.properties?.[field];
+        if (raw == null || raw === '') continue;
+        const text = String(raw);
+        if (seen.has(text)) continue;
+        seen.add(text);
+        out.push(text);
+        if (out.length >= limit) break;
+    }
+    return out;
+}
+
+/**
+ * @param {object[]} features
+ * @param {string} field
+ * @param {number} [sampleSize]
+ * @returns {number} fraction empty in sample (0–1)
+ */
+export function fieldEmptyRatio(features, field, sampleSize = 20) {
+    if (!field || !features?.length) return 1;
+    const sample = features.slice(0, sampleSize);
+    let empty = 0;
+    for (const f of sample) {
+        const raw = f?.properties?.[field];
+        if (raw == null || raw === '') empty++;
+    }
+    return empty / sample.length;
+}
+
+/**
+ * Resolve active label config from layer style or legacy dataset._mapLabels.
+ * @param {object|null} style
+ * @param {object|null} dataset
+ * @returns {object|null} normalized mapLabels for buildMapLabelLayerSpec
+ */
+export function resolveLayerLabels(style, dataset) {
+    const fromStyle = style?.labels;
+    if (fromStyle?.enabled && fromStyle.field) {
+        const { enabled, ...rest } = fromStyle;
+        return normalizeMapLabels(rest);
+    }
+    if (dataset?._mapLabels?.field) {
+        return normalizeMapLabels(dataset._mapLabels);
+    }
+    return null;
+}
+
+/**
+ * @param {object|null} labels partial labels block from layer style
+ * @returns {object}
+ */
+export function normalizeLayerLabels(labels) {
+    if (!labels) return { ...DEFAULT_LAYER_LABELS };
+    return {
+        ...DEFAULT_LAYER_LABELS,
+        ...labels,
+        offset: Array.isArray(labels.offset) ? [...labels.offset] : DEFAULT_LAYER_LABELS.offset
+    };
+}
+
+/**
+ * Resolve KML placemark name from label config or fallback properties.
+ * @param {object} feature
+ * @param {number} idx
+ * @param {object|null} style
+ * @returns {string}
+ */
+export function resolvePlacemarkLabel(feature, idx, style) {
+    const labels = style?.labels;
+    if (labels?.enabled && labels.field) {
+        const val = feature?.properties?.[labels.field];
+        if (val != null && val !== '') return String(val);
+    }
+    const props = feature?.properties || {};
+    return props.name || props.Name || props.NAME || `Feature ${idx + 1}`;
+}
 
 /**
  * @param {object} mapLabels

@@ -14,6 +14,7 @@ import {
     MAPLIBRE_MIN_ZOOM,
     MAPLIBRE_MAX_ZOOM
 } from './scale-range.js';
+import { resetMapPopupScroll } from './map-popup-utils.js';
 
 const POINT_CLUSTER_THRESHOLD = 10000;
 
@@ -49,8 +50,14 @@ function _tagFeaturesForMap(dataset) {
 import { bboxDiagonalMeetsMinDragPx, markMapInteractionHandled, shouldStartBoxSelectDrag, suspendDoubleClickZoom } from './map-interaction-utils.js';
 import { nearestPointOnRouteLine, lineSliceAlongRoute } from '../tools/line-geojson.js';
 import { normalizeStyle, compilePaint, getBaseFlatStyle } from './style-engine.js';
+import {
+    buildLineHitWidth,
+    FEATURE_QUERY_BUFFER_PX,
+    lineHitLayerId,
+    shouldSkipClickBinding
+} from './interaction-hit.js';
 import { buildSymbolLayerLayout } from './style-symbols.js';
-import { buildMapLabelLayerSpec } from './map-labels.js';
+import { buildMapLabelLayerSpec, resolveLayerLabels } from './map-labels.js';
 
 const BASEMAPS = {
     voyager: {
@@ -294,7 +301,7 @@ class MapManager {
         this.map.on('contextmenu', (e) => {
             e.preventDefault();
             const hitLayers = this._getInteractiveLayerIds();
-            const features = hitLayers.length > 0 ? this.map.queryRenderedFeatures(e.point, { layers: hitLayers }) : [];
+            const features = hitLayers.length > 0 ? this._queryFeaturesAtPoint(e.point, hitLayers) : [];
             if (features.length === 0) {
                 bus.emit('map:contextmenu', {
                     latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng },
@@ -556,6 +563,9 @@ class MapManager {
                 }
             });
             layerIds.push(outlineId);
+            layerIds.push(this._ensureLineHitLayer(
+                sourceId, outlineId, _geomTypesFilter(['Polygon', 'MultiPolygon']), styPoly.strokeWidth
+            ));
         }
 
         // Lines
@@ -571,6 +581,9 @@ class MapManager {
                 }
             });
             layerIds.push(lineId);
+            layerIds.push(this._ensureLineHitLayer(
+                sourceId, lineId, _geomTypesFilter(['LineString', 'MultiLineString']), styLine.strokeWidth
+            ));
         }
 
         // Points
@@ -628,15 +641,11 @@ class MapManager {
             }
         }
 
-        if (dataset._mapLabels?.field) {
-            const labelSpec = buildMapLabelLayerSpec(dataset.id, sourceId, dataset._mapLabels, useCluster);
-            const isLineLabels = dataset._mapLabels.placement === 'line';
-            const shouldAdd = labelSpec && ((isLineLabels && hasLines) || (!isLineLabels && hasPoints));
-            if (shouldAdd) {
-                this.map.addLayer(labelSpec);
-                layerIds.push(labelSpec.id);
-            }
-        }
+        this._addLabelLayers(layerStyle, dataset, dataset.id, sourceId, layerIds, {
+            hasPoints,
+            hasLines,
+            useCluster
+        });
 
         // Click handlers
         this._bindLayerClickHandlers(dataset, layerIds, styFlat);
@@ -868,6 +877,9 @@ class MapManager {
                 });
             }
             layerIds.push(outlineId);
+            layerIds.push(this._ensureLineHitLayer(
+                sourceId, outlineId, _geomTypesFilter(['Polygon', 'MultiPolygon']), styPoly.strokeWidth
+            ));
         }
 
         if (hasLines) {
@@ -884,6 +896,9 @@ class MapManager {
                 });
             }
             layerIds.push(lineId);
+            layerIds.push(this._ensureLineHitLayer(
+                sourceId, lineId, _geomTypesFilter(['LineString', 'MultiLineString']), styLine.strokeWidth
+            ));
         }
 
         if (hasPoints) {
@@ -905,14 +920,55 @@ class MapManager {
             layerIds.push(ptId);
         }
 
+        this._addLabelLayers(layerStyle, dataset, idBase, sourceId, layerIds, {
+            hasPoints,
+            hasLines,
+            useCluster
+        });
+
         this._bindLayerClickHandlers(dataset, layerIds, flat);
         const zoomRange = this._getLayerZoomRange(dataset);
         this._applyZoomRangeToLayerIds(layerIds, zoomRange);
         return layerIds;
     }
 
+    _addLabelLayers(layerStyle, dataset, idBase, sourceId, layerIds, { hasPoints, hasLines, useCluster = false } = {}) {
+        const mapLabels = resolveLayerLabels(layerStyle, dataset);
+        if (!mapLabels?.field) return;
+
+        const labelSpec = buildMapLabelLayerSpec(idBase, sourceId, mapLabels, useCluster);
+        const isLineLabels = mapLabels.placement === 'line';
+        const shouldAdd = labelSpec && ((isLineLabels && hasLines) || (!isLineLabels && hasPoints));
+        if (!shouldAdd) return;
+
+        if (this.map.getLayer(labelSpec.id)) {
+            this.map.removeLayer(labelSpec.id);
+        }
+        this.map.addLayer(labelSpec);
+        layerIds.push(labelSpec.id);
+    }
+
+    _ensureLineHitLayer(sourceId, visibleLayerId, filter, strokeWidthPaint) {
+        const hitId = lineHitLayerId(visibleLayerId);
+        if (!this.map.getLayer(hitId)) {
+            this.map.addLayer({
+                id: hitId,
+                type: 'line',
+                source: sourceId,
+                filter,
+                paint: {
+                    'line-color': '#000000',
+                    'line-width': buildLineHitWidth(strokeWidthPaint),
+                    'line-opacity': 0
+                }
+            });
+        }
+        return hitId;
+    }
+
     _bindLayerClickHandlers(dataset, layerIds, styFlat) {
         for (const lid of layerIds) {
+            if (shouldSkipClickBinding(lid, layerIds)) continue;
             if (this._boundClickLayers?.has(lid)) continue;
             if (!this._boundClickLayers) this._boundClickLayers = new Set();
 
@@ -1168,14 +1224,20 @@ class MapManager {
         return imgHtml + tableHtml;
     }
 
+    _attachPopup(popup) {
+        popup.addTo(this.map);
+        resetMapPopupScroll(popup);
+        popup.on('open', () => resetMapPopupScroll(popup));
+    }
+
     showPopup(feature, layer, latlng) {
         const html = this._buildPopupHtml(feature);
         const pos = latlng || this._getFeatureCenter(feature);
         this._closePopup();
         this._popup = new maplibregl.Popup({ maxWidth: '350px' })
             .setLngLat([pos.lng, pos.lat])
-            .setHTML(`<div class="map-popup-content">${html}</div>`)
-            .addTo(this.map);
+            .setHTML(`<div class="map-popup-content"><div class="map-popup-attributes">${html}</div></div>`);
+        this._attachPopup(this._popup);
         this._popup.on('close', () => this.clearHighlight());
     }
 
@@ -1199,7 +1261,7 @@ class MapManager {
     // Feature hit detection
     // ==========================================
 
-    _queryFeaturesAtPoint(point, layerIds = null, bufferPx = 8) {
+    _queryFeaturesAtPoint(point, layerIds = null, bufferPx = FEATURE_QUERY_BUFFER_PX) {
         const layers = layerIds ?? this._getInteractiveLayerIds();
         if (!layers.length || !this.map) return [];
         const min = { x: point.x - bufferPx, y: point.y - bufferPx };
@@ -1322,7 +1384,7 @@ class MapManager {
             <button type="button" data-map-popup-action="edit" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button>
         </div>`;
 
-        const html = `<div class="map-popup-content">${layerLabel}${navHtml}${bodyHtml}${editBtn}</div>`;
+        const html = `<div class="map-popup-content">${layerLabel}${navHtml}<div class="map-popup-attributes">${bodyHtml}</div>${editBtn}</div>`;
 
         this.highlightFeature(hit.layerId, hit.featureIndex, hit.layerColor);
 
@@ -1333,8 +1395,8 @@ class MapManager {
 
         this._popup = new maplibregl.Popup({ maxWidth: '350px', closeOnClick: false })
             .setLngLat([this._popupLatLng.lng, this._popupLatLng.lat])
-            .setHTML(html)
-            .addTo(this.map);
+            .setHTML(html);
+        this._attachPopup(this._popup);
 
         this._popup.on('close', () => {
             if (this._cyclingPopup) return;

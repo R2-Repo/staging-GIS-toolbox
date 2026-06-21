@@ -447,7 +447,8 @@ html, body {
     background: var(--primary);
     color: #fff;
 }
-#map-container .maplibregl-popup-content { max-width: 300px; max-height: 250px; overflow-y: auto; font-size: 12px; }
+#map-container .maplibregl-popup-content { max-width: 300px; font-size: 12px; }
+#map-container .map-popup-attributes { max-height: 200px; overflow-y: auto; overflow-anchor: none; }
 #map-container .maplibregl-popup-content table { width: 100%; border-collapse: collapse; }
 #map-container .maplibregl-popup-content td,
 #map-container .maplibregl-popup-content th {
@@ -2035,6 +2036,7 @@ textarea { resize: vertical; min-height: 60px; }
     margin-bottom: 12px;
 }
 .smart-style-panel select,
+.labels-panel select,
 .smart-style-num-input {
     flex: 1;
     min-width: 0;
@@ -2048,6 +2050,19 @@ textarea { resize: vertical; min-height: 60px; }
 .smart-style-panel select option {
     background: var(--bg-panel);
     color: var(--text);
+}
+.labels-placement-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    flex: 1;
+}
+.labels-placement-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    cursor: pointer;
 }
 .smart-style-legend {
     max-height: 180px;
@@ -2806,4 +2821,25 @@ textarea { resize: vertical; min-height: 60px; }
 }
 .measure-clear:hover {
     color: var(--error);
+}
+
+.project-kit-dialog .project-kit-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.project-kit-dialog .project-kit-summary {
+    margin: 0;
+    padding-left: 18px;
+}
+.project-kit-dialog .radio-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+.project-kit-dialog .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }

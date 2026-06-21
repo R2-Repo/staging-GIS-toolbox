@@ -243,6 +243,9 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         findFeaturesNearClick(latlng, clickedLayerId, clickedFeatureIndex) {
             return mapAdapter._findFeaturesNearClick(latlng, clickedLayerId, clickedFeatureIndex);
         },
+        queryFeaturesAtPoint(point, layerIds = null, bufferPx) {
+            return mapAdapter._queryFeaturesAtPoint(point, layerIds, bufferPx);
+        },
         showMultiPopup(hits, latlng) {
             return mapAdapter._showMultiPopup(hits, latlng);
         },

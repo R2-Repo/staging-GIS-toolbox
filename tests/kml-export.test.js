@@ -173,3 +173,34 @@ describe('kml-export milepost layers', () => {
         expect(resolveMilepostPlacemarkName(feature, {})).toBe('12.50');
     });
 });
+
+describe('kml-export layer label field', () => {
+    it('uses style.labels.field for placemark name when enabled', async () => {
+        const dataset = {
+            name: 'Routes',
+            geojson: {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [-111.5, 40.2] },
+                    properties: { route_name: 'I-15 NB', name: 'ignored' }
+                }]
+            }
+        };
+
+        const { text } = await exportKML(dataset, {
+            style: {
+                mode: 'simple',
+                strokeColor: '#0066cc',
+                fillColor: '#0066cc',
+                pointSize: 6,
+                fillOpacity: 1,
+                labels: { enabled: true, field: 'route_name', color: '#ff0000' }
+            }
+        });
+
+        expect(text).toContain('<name>I-15 NB</name>');
+        expect(text).not.toContain('<name>ignored</name>');
+        expect(text).toContain('<LabelStyle>');
+    });
+});

@@ -169,3 +169,4 @@
 .map-popup-content table { width: 100%; font-size: 12px; border-collapse: collapse; }
 .map-popup-content th { text-align: left; padding: 2px 6px 2px 0; color: #9aa0a6; vertical-align: top; }
 .map-popup-content td { padding: 2px 0; word-break: break-word; }
+.map-popup-attributes { max-height: 200px; overflow-y: auto; overflow-anchor: none; }

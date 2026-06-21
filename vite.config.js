@@ -109,6 +109,15 @@ export default defineConfig({
             type: 'image/png',
             purpose: 'maskable'
           }
+        ],
+        file_handlers: [
+          {
+            action: './',
+            accept: {
+              'application/zip': ['.gtbx'],
+              'application/octet-stream': ['.gtbx']
+            }
+          }
         ]
       },
       workbox: {

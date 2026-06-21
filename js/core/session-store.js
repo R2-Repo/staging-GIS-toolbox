@@ -100,6 +100,11 @@ async function saveSession(layers, layerStyles = null) {
     }
 }
 
+/** @param {object} layer */
+export function serializeLayerForPersistence(layer) {
+    return _serializeLayer(layer);
+}
+
 function _serializeLayer(layer) {
     // Store only the data we need to reconstruct – drop transient/computed state
     const out = {

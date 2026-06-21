@@ -2,6 +2,7 @@
  * KML exporter — with optional styling and folder grouping
  */
 import { isSmartStyleActive } from '../map/style-engine.js';
+import { resolvePlacemarkLabel } from '../map/map-labels.js';
 import { bakeFeatureKmlStyle, styleHash } from './style-baker.js';
 import {
     isKmlMilepostLayer,
@@ -51,10 +52,15 @@ export async function exportKML(dataset, options = {}, task) {
         const folderParts = [];
         const styleUrl = style || labelOnlyLayer || milepostLayer ? `#${defaultStyleId}` : '';
         if (style && !useGeomFolders) {
-            styleBlock = _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
+            styleBlock = _kmlStyleEl(
+                'style_default',
+                _applyKmlLabelColor(style, style),
+                _layerIconMode(style, dataset, features),
+                exportOptions
+            );
         }
         for (const [srcName, feats] of Object.entries(sourceGroups)) {
-            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
+            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset, style)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(srcName)}</name>\n${marks}\n    </Folder>`);
         }
         placemarkXml = folderParts.join('\n');
@@ -65,16 +71,21 @@ export async function exportKML(dataset, options = {}, task) {
             if (feats.length === 0) continue;
             const label = { point: 'Points', line: 'Lines', polygon: 'Polygons' }[gtype] || gtype;
             const styleUrl = style ? `#style_${gtype}` : '';
-            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
+            const marks = feats.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset, style)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(label)}</name>\n${marks}\n    </Folder>`);
         }
         placemarkXml = folderParts.join('\n');
     } else {
         const styleUrl = style || labelOnlyLayer || milepostLayer ? `#${defaultStyleId}` : '';
         if (style && !useGeomFolders) {
-            styleBlock = _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
+            styleBlock = _kmlStyleEl(
+                'style_default',
+                _applyKmlLabelColor(style, style),
+                _layerIconMode(style, dataset, features),
+                exportOptions
+            );
         }
-        placemarkXml = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
+        placemarkXml = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset, style)).filter(Boolean).join('\n');
     }
 
     const kml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -108,13 +119,13 @@ function _exportKmlWithBakedStyles(dataset, features, style, task, exportOptions
                 else if (milepostLayer) iconMode = 'milepost';
                 else iconMode = 'icon';
             }
-            styleEls.push(_kmlStyleEl(id, baked, iconMode, exportOptions));
+            styleEls.push(_kmlStyleEl(id, _applyKmlLabelColor(baked, style), iconMode, exportOptions));
         }
         return `#${hashToId.get(h)}`;
     };
 
     const placemarkXml = features
-        .map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset))
+        .map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset, style))
         .filter(Boolean)
         .join('\n');
 
@@ -130,9 +141,9 @@ ${styleEls.join('\n')}${placemarkXml}
     return { text: kml, mimeType: 'application/vnd.google-earth.kml+xml' };
 }
 
-function _buildPlacemark(f, idx, styleUrl, dataset) {
-    const fallback = f.properties?.name || f.properties?.Name || f.properties?.NAME || `Feature ${idx + 1}`;
-    const name = isKmlMilepostLayer(dataset, null, [f])
+function _buildPlacemark(f, idx, styleUrl, dataset, style = null) {
+    const fallback = resolvePlacemarkLabel(f, idx, style);
+    const name = isKmlMilepostLayer(dataset, style, [f])
         ? (resolveMilepostPlacemarkName(f, dataset) || fallback)
         : fallback;
     const desc = buildDescription(f.properties);
@@ -208,11 +219,18 @@ function _groupBySource(features) {
  * Convert app style to KML <Style> elements.
  * KML colors are AABBGGRR format (alpha, blue, green, red).
  */
+function _applyKmlLabelColor(s, layerStyle) {
+    if (layerStyle?.labels?.enabled && layerStyle.labels.color) {
+        return { ...s, labelColor: layerStyle.labels.color };
+    }
+    return s;
+}
+
 function _buildKmlStyles(style, useFolders, dataset, features, exportOptions = {}) {
     if (useFolders) {
-        const ps = { ...style, ...(style.point || {}) };
-        const ls = { ...style, ...(style.line || {}) };
-        const gs = { ...style, ...(style.polygon || {}) };
+        const ps = _applyKmlLabelColor({ ...style, ...(style.point || {}) }, style);
+        const ls = _applyKmlLabelColor({ ...style, ...(style.line || {}) }, style);
+        const gs = _applyKmlLabelColor({ ...style, ...(style.polygon || {}) }, style);
         const pointIconMode = _layerIconMode(ps, dataset, features);
         return [
             _kmlStyleEl('style_point', ps, pointIconMode, exportOptions),
@@ -220,7 +238,12 @@ function _buildKmlStyles(style, useFolders, dataset, features, exportOptions = {
             _kmlStyleEl('style_polygon', gs, 'none', exportOptions)
         ].join('\n');
     }
-    return _kmlStyleEl('style_default', style, _layerIconMode(style, dataset, features), exportOptions);
+    return _kmlStyleEl(
+        'style_default',
+        _applyKmlLabelColor(style, style),
+        _layerIconMode(style, dataset, features),
+        exportOptions
+    );
 }
 
 function _isKmlLabelOnlyLayer(style, dataset) {
@@ -263,6 +286,10 @@ function _kmlStyleEl(id, s, iconMode = 'none', exportOptions = {}) {
         const ic = _hexToKmlColor(s.fillColor || s.strokeColor || '#2563eb', Math.min(1, (s.fillOpacity ?? 0.3) + 0.3));
         const scale = ((s.pointSize || 6) / 6).toFixed(1);
         xml += `      <IconStyle><color>${ic}</color><scale>${scale}</scale></IconStyle>\n`;
+        if (s.labelColor) {
+            const lc = _hexToKmlColor(s.labelColor, 1);
+            xml += `      <LabelStyle><scale>1</scale><color>${lc}</color></LabelStyle>\n`;
+        }
     } else if (iconMode === 'milepost') {
         const ic = _hexToKmlColor(s.fillColor || s.strokeColor || MILEPOST_ICON_COLOR, 1);
         const href = getMilepostIconHref(exportOptions.forKmzArchive === true);
@@ -404,26 +431,31 @@ export async function exportMultiLayerKML(layers, options = {}, task) {
                         else if (milepostLayer) iconMode = 'milepost';
                         else iconMode = 'icon';
                     }
-                    layerStyleEls.push(_kmlStyleEl(id, baked, iconMode, options));
+                    layerStyleEls.push(_kmlStyleEl(id, _applyKmlLabelColor(baked, style), iconMode, options));
                 }
                 return `#${hashToId.get(h)}`;
             };
             styleBlock += layerStyleEls.join('\n');
-            const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset)).filter(Boolean).join('\n');
+            const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrlFor(f), dataset, style)).filter(Boolean).join('\n');
             folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
             return;
         }
 
         const styleId = `style_layer_${idx}`;
         if (style) {
-            styleBlock += _kmlStyleEl(styleId, style, _layerIconMode(style, dataset, features), options);
+            styleBlock += _kmlStyleEl(
+                styleId,
+                _applyKmlLabelColor(style || {}, style),
+                _layerIconMode(style, dataset, features),
+                options
+            );
         } else if (labelOnlyLayer) {
             styleBlock += _kmlStyleEl(styleId, {}, 'hidden', options);
         } else if (milepostLayer) {
             styleBlock += _kmlStyleEl(styleId, {}, 'milepost', options);
         }
         const styleUrl = (style || labelOnlyLayer || milepostLayer) ? `#${styleId}` : '';
-        const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset)).filter(Boolean).join('\n');
+        const marks = features.map((f, i) => _buildPlacemark(f, i, styleUrl, dataset, style)).filter(Boolean).join('\n');
         folderParts.push(`    <Folder>\n      <name>${escapeXml(folderName)}</name>\n${marks}\n    </Folder>`);
     });
 

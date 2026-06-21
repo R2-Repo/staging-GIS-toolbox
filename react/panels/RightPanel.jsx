@@ -1,7 +1,31 @@
 import { isSpatialLayer } from '../../js/core/data-model.js';
 import { SmartStylePanel } from './SmartStylePanel.jsx';
+import { LabelsSection } from './LabelsSection.jsx';
 import { VisibilityRangeSection } from './VisibilityRangeSection.jsx';
 import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
+
+function ToolboxKitSection({ snapshot, onExportProjectKit, onImportProjectKit }) {
+    const layerCount = snapshot?.layerCount ?? 0;
+    return (
+        <CollapsibleSection title="Toolbox Kit" defaultOpen={true}>
+            <p className="text-sm text-muted mb-8">
+                Export or import a portable <strong>.gtbx</strong> project file — layers, map, pipeline, and preferences.
+            </p>
+            <div className="text-xs text-muted mb-8">
+                {layerCount} layer{layerCount !== 1 ? 's' : ''} in workspace
+                {snapshot?.hasWorkflow ? ' · pipeline saved' : ''}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => onExportProjectKit?.()}>
+                    Export Kit…
+                </button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => onImportProjectKit?.()}>
+                    Import Kit…
+                </button>
+            </div>
+        </CollapsibleSection>
+    );
+}
 
 function renderAgolIssue(issue) {
     const suffix = issue.message || issue.fixed ? ` -> ${issue.message || issue.fixed}` : '';
@@ -10,8 +34,11 @@ function renderAgolIssue(issue) {
 
 export function RightPanel({
     snapshot,
+    kitSnapshot,
     onToggleAgol,
     onExport,
+    onExportProjectKit,
+    onImportProjectKit,
     onFixAgol,
     onShowDataTable,
     onStyleChange,
@@ -28,11 +55,25 @@ export function RightPanel({
     const mapLatitude = snapshot?.mapLatitude ?? 0;
 
     if (!layer) {
-        return <div className="empty-state"><p>No layer selected</p></div>;
+        return (
+            <>
+                <ToolboxKitSection
+                    snapshot={kitSnapshot}
+                    onExportProjectKit={onExportProjectKit}
+                    onImportProjectKit={onImportProjectKit}
+                />
+                <div className="empty-state"><p>No layer selected</p></div>
+            </>
+        );
     }
 
     return (
         <>
+            <ToolboxKitSection
+                snapshot={kitSnapshot}
+                onExportProjectKit={onExportProjectKit}
+                onImportProjectKit={onImportProjectKit}
+            />
             <CollapsibleSection title={`Output Schema (${selectedFields.length} fields)`} defaultOpen={false}>
                 {selectedFields.map((field) => (
                     <div className="field-item" key={field.name}>
@@ -63,13 +104,22 @@ export function RightPanel({
             </CollapsibleSection>
 
             {isSpatialLayer(layer) ? (
-                <SmartStylePanel
-                    key={layer.id}
-                    layer={layer}
-                    style={layerStyle}
-                    defaultColor={styleDefaultColor}
-                    onStyleChange={onStyleChange}
-                />
+                <>
+                    <SmartStylePanel
+                        key={layer.id}
+                        layer={layer}
+                        style={layerStyle}
+                        defaultColor={styleDefaultColor}
+                        onStyleChange={onStyleChange}
+                    />
+                    <LabelsSection
+                        key={`${layer.id}-labels`}
+                        layer={layer}
+                        style={layerStyle}
+                        defaultColor={styleDefaultColor}
+                        onStyleChange={onStyleChange}
+                    />
+                </>
             ) : null}
 
             {agolMode ? (

@@ -19,6 +19,12 @@ import {
 
 const LARGE_DATASET_WARNING = 50000;
 
+function warnIfFeatureFailures(action, failed, total) {
+    if (failed > 0) {
+        logger.warn('GISTools', `${action} feature failures`, { failed, total });
+    }
+}
+
 function _requireDisplayReady(dataset, context) {
     assertDisplayReady(dataset, context);
 }
@@ -37,6 +43,7 @@ export async function bufferFeatures(dataset, distance, units = 'kilometers') {
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const buffered = [];
+        let failures = 0;
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
             if (i % 100 === 0) {
@@ -51,10 +58,11 @@ export async function bufferFeatures(dataset, distance, units = 'kilometers') {
                         buffered.push(b);
                     }
                 } catch (e) {
-                    logger.warn('GISTools', 'Buffer failed for feature', { index: i, error: e.message });
+                    failures++;
                 }
             }
         }
+        warnIfFeatureFailures('Buffer', failures, features.length);
         const fc = { type: 'FeatureCollection', features: buffered };
         return createSpatialDataset(`${dataset.name}_buffer_${distance}${units}`, fc, { format: 'derived' });
     });
@@ -74,6 +82,7 @@ export async function simplifyFeatures(dataset, tolerance = 0.001) {
 
         const features = dataset.geojson.features;
         const verticesBefore = countVertices(dataset.geojson);
+        let simplifyFailures = 0;
 
         const simplifiedFeatures = await processInChunks(
             features,
@@ -83,12 +92,13 @@ export async function simplifyFeatures(dataset, tolerance = 0.001) {
                 try {
                     return turf.simplify(f, { tolerance, highQuality: true });
                 } catch (e) {
-                    logger.warn('GISTools', 'Simplify failed for feature', { error: e.message });
+                    simplifyFailures++;
                     return f;
                 }
             },
             t
         );
+        warnIfFeatureFailures('Simplify', simplifyFailures, features.length);
 
         const simplified = { type: 'FeatureCollection', features: simplifiedFeatures };
         t.throwIfCancelled();
@@ -287,6 +297,7 @@ export async function bboxClipFeatures(dataset, bbox) {
         const features = dataset.geojson.features;
         const clipped = [];
         const clipBox = Array.isArray(bbox) && bbox.length >= 4 ? bbox : null;
+        let failures = 0;
 
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
@@ -308,9 +319,10 @@ export async function bboxClipFeatures(dataset, bbox) {
                     clipped.push(c);
                 }
             } catch (e) {
-                logger.warn('GISTools', 'bboxClip failed for feature', { index: i, error: e.message });
+                failures++;
             }
         }
+        warnIfFeatureFailures('BBox clip', failures, features.length);
         const fc = { type: 'FeatureCollection', features: clipped };
         return createSpatialDataset(`${dataset.name}_bboxclip`, fc, { format: 'derived' });
     });
@@ -326,6 +338,7 @@ export async function bezierSplineFeatures(dataset, resolution = 10000, sharpnes
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const smoothed = [];
+        let failures = 0;
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
             if (i % 50 === 0) {
@@ -347,13 +360,14 @@ export async function bezierSplineFeatures(dataset, resolution = 10000, sharpnes
                         }
                     }
                 } catch (e) {
-                    logger.warn('GISTools', 'bezierSpline failed', { index: i, error: e.message });
+                    failures++;
                     smoothed.push(f); // keep original
                 }
             } else {
                 smoothed.push(f); // non-line features pass through
             }
         }
+        warnIfFeatureFailures('Bezier spline', failures, features.length);
         const fc = { type: 'FeatureCollection', features: smoothed };
         return createSpatialDataset(`${dataset.name}_spline`, fc, { format: 'derived' });
     });
@@ -370,6 +384,7 @@ export async function polygonSmoothFeatures(dataset, iterations = 1) {
         t.updateProgress(10, 'Smoothing polygons...');
         t.throwIfCancelled();
         const features = dataset.geojson.features;
+        let smoothFailures = 0;
 
         const smoothedFeatures = await processInChunks(
             features,
@@ -385,12 +400,13 @@ export async function polygonSmoothFeatures(dataset, iterations = 1) {
                     );
                     return part.features[0] || f;
                 } catch (e) {
-                    logger.warn('GISTools', 'Polygon smooth failed for feature', { error: e.message });
+                    smoothFailures++;
                     return f;
                 }
             },
             t
         );
+        warnIfFeatureFailures('Polygon smooth', smoothFailures, features.length);
 
         t.throwIfCancelled();
         const smoothed = { type: 'FeatureCollection', features: smoothedFeatures };
@@ -408,6 +424,7 @@ export async function lineOffsetFeatures(dataset, offsetDistance, units = 'kilom
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const results = [];
+        let failures = 0;
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
             if (i % 100 === 0) {
@@ -424,13 +441,14 @@ export async function lineOffsetFeatures(dataset, offsetDistance, units = 'kilom
                         results.push(offset);
                     }
                 } catch (e) {
-                    logger.warn('GISTools', 'lineOffset failed', { index: i, error: e.message });
+                    failures++;
                     results.push(f);
                 }
             } else {
                 results.push(f);
             }
         }
+        warnIfFeatureFailures('Line offset', failures, features.length);
         const fc = { type: 'FeatureCollection', features: results };
         return createSpatialDataset(`${dataset.name}_offset`, fc, { format: 'derived' });
     });
@@ -482,6 +500,7 @@ export async function findKinks(dataset) {
     return task.run(async (t) => {
         const features = dataset.geojson.features;
         const allKinks = [];
+        let failures = 0;
         for (let i = 0; i < features.length; i++) {
             t.throwIfCancelled();
             if (i % 100 === 0) {
@@ -503,9 +522,10 @@ export async function findKinks(dataset) {
                     });
                 }
             } catch (e) {
-                logger.warn('GISTools', 'kinks check failed', { index: i, error: e.message });
+                failures++;
             }
         }
+        warnIfFeatureFailures('Kinks check', failures, features.length);
         const fc = { type: 'FeatureCollection', features: allKinks };
         logger.info('GISTools', `Found ${allKinks.length} self-intersections`);
         return createSpatialDataset(`${dataset.name}_kinks`, fc, { format: 'derived' });
@@ -542,6 +562,7 @@ export async function unionFeatures(dataset) {
 
         t.updateProgress(10, `Merging ${polygons.length} polygons...`);
         let result = polygons[0];
+        let unionFailures = 0;
         for (let i = 1; i < polygons.length; i++) {
             t.throwIfCancelled();
             if (i % 20 === 0) {
@@ -552,9 +573,10 @@ export async function unionFeatures(dataset) {
                 const merged = turf.union(turf.featureCollection([result, polygons[i]]));
                 if (merged) result = merged;
             } catch (e) {
-                logger.warn('GISTools', `Union skipped feature ${i}`, { error: e.message });
+                unionFailures++;
             }
         }
+        warnIfFeatureFailures('Union', unionFailures, polygons.length - 1);
 
         const fc = { type: 'FeatureCollection', features: [result] };
         return createSpatialDataset(`${dataset.name}_union`, fc, { format: 'derived' });

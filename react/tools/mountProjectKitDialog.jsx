@@ -26,7 +26,7 @@ export async function pickExportProjectKitModal(options = {}) {
             resolve(result);
         };
 
-        showModal('Export Toolbox Kit', `<div id="${rootId}"></div>`, {
+        showModal('Toolbox Export', `<div id="${rootId}"></div>`, {
             width: '480px',
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);
@@ -66,7 +66,7 @@ export async function pickImportProjectKitModal(options = {}) {
             resolve(result);
         };
 
-        showModal('Import Toolbox Kit', `<div id="${rootId}"></div>`, {
+        showModal('Import .gis-toolbox', `<div id="${rootId}"></div>`, {
             width: '480px',
             onMount: async (overlay, close) => {
                 const root = overlay.querySelector(`#${rootId}`);

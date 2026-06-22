@@ -98,7 +98,7 @@ class DrawManager {
         this._active = true;
         void this._mountOrUpdateReactToolbar();
 
-        logger.info('Draw', `Draw toolbar opened for layer: ${layerName}`);
+        logger.debug('Draw', `Draw toolbar opened for layer: ${layerName}`);
         bus.emit('draw:toolbarOpened', { layerId });
     }
 
@@ -197,7 +197,7 @@ class DrawManager {
                 }
             };
             document.addEventListener('keydown', this._escHandler);
-            logger.info('Draw', 'Started tool: select');
+            logger.debug('Draw', 'Started tool: select');
             return;
         }
 
@@ -214,7 +214,7 @@ class DrawManager {
                 }
             };
             document.addEventListener('keydown', this._escHandler);
-            logger.info('Draw', 'Started tool: rectangle');
+            logger.debug('Draw', 'Started tool: rectangle');
             void this._runDelegatedRectangleDraw();
             return;
         }
@@ -230,7 +230,7 @@ class DrawManager {
             this.map.on('click', this._clickHandler);
             this.map.on('mousemove', this._moveHandler);
             document.addEventListener('keydown', this._escHandler);
-            logger.info('Draw', 'Started tool: circle');
+            logger.debug('Draw', 'Started tool: circle');
             return;
         }
 
@@ -247,7 +247,7 @@ class DrawManager {
             this.map.on('click', this._clickHandler);
             this.map.on('mousemove', this._moveHandler);
             document.addEventListener('keydown', this._escHandler);
-            logger.info('Draw', 'Started tool: sector');
+            logger.debug('Draw', 'Started tool: sector');
             return;
         }
 
@@ -299,7 +299,7 @@ class DrawManager {
         this._enterHandler = enterHandler;
         document.addEventListener('keydown', enterHandler);
 
-        logger.info('Draw', `Started tool: ${tool}`);
+        logger.debug('Draw', `Started tool: ${tool}`);
     }
 
     cancelDraw() {
@@ -714,7 +714,7 @@ class DrawManager {
         });
 
         this._setHint('Feature deleted.');
-        logger.info('Draw', `Deleted feature at index ${featureIndex}`);
+        logger.debug('Draw', `Deleted feature at index ${featureIndex}`);
     }
 
     _updateActionButtons() {
@@ -994,7 +994,7 @@ class DrawManager {
             feature
         });
 
-        logger.info('Draw', `Created ${type} feature`);
+        logger.debug('Draw', `Created ${type} feature`);
 
         if (this._tool === 'point') {
             this._setHint('Point placed! Click again to add another.');

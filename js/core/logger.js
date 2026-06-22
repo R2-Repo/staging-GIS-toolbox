@@ -13,6 +13,18 @@ class Logger {
         this.listeners = new Set();
         this.minLevel = LOG_LEVELS.DEBUG;
         this.lastErrorBundle = null;
+        /** When false, DEBUG/INFO are kept in memory but not mirrored to console. */
+        this.panelOpen = false;
+    }
+
+    setPanelOpen(open) {
+        this.panelOpen = Boolean(open);
+    }
+
+    _shouldConsoleLog(level) {
+        const numLevel = LOG_LEVELS[level] ?? 1;
+        if (numLevel >= LOG_LEVELS.WARN) return numLevel >= this.minLevel;
+        return this.panelOpen && numLevel >= this.minLevel;
     }
 
     _emit(level, module, action, context = {}, duration = null) {
@@ -31,8 +43,7 @@ class Logger {
             this.lastErrorBundle = { ...entry, stack: new Error().stack };
         }
 
-        const numLevel = LOG_LEVELS[level] ?? 1;
-        if (numLevel >= this.minLevel) {
+        if (this._shouldConsoleLog(level)) {
             const style = level === 'ERROR' ? 'color:red' : level === 'WARN' ? 'color:orange' : level === 'DEBUG' ? 'color:gray' : 'color:blue';
             console.log(`%c[${level}] [${module}] ${action}`, style, context, duration != null ? `(${duration}ms)` : '');
         }

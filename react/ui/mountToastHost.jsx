@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { dismissToast, subscribeToasts } from '../../js/ui/toast.js';
+import { dismissToast, MAX_VISIBLE_TOASTS, subscribeToasts } from '../../js/ui/toast.js';
 import { ToastHost } from './ToastHost.jsx';
 
 export function mountToastHost(element) {
@@ -28,6 +28,9 @@ export function mountToastHost(element) {
     const unsubscribe = subscribeToasts((event) => {
         if (event?.type === 'add' && event.toast) {
             toasts = [...toasts, event.toast];
+            if (toasts.length > MAX_VISIBLE_TOASTS) {
+                toasts = toasts.slice(-MAX_VISIBLE_TOASTS);
+            }
             render();
             return;
         }

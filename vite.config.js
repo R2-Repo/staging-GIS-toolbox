@@ -114,8 +114,8 @@ export default defineConfig({
           {
             action: './',
             accept: {
-              'application/zip': ['.gtbx'],
-              'application/octet-stream': ['.gtbx']
+              'application/zip': ['.gis-toolbox', '.gtbx'],
+              'application/octet-stream': ['.gis-toolbox', '.gtbx']
             }
           }
         ]

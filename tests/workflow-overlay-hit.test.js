@@ -28,4 +28,31 @@ describe('header pipeline button layout', () => {
     it('normalizes header button hit height for the pipeline control', () => {
         expect(mainCss).toMatch(/\.header \.btn-sm\s*\{[^}]*min-height:\s*28px/);
     });
+
+    it('aligns import with the left panel width via shared CSS variable', () => {
+        expect(mainCss).toContain('--panel-left-w');
+        expect(mainCss).toMatch(/grid-template-columns:\s*var\(--panel-left-w\)/);
+        expect(mainCss).toContain('--header-import-tools-gap');
+    });
+});
+
+describe('header import consolidation', () => {
+    it('keeps a single Import button in the header', () => {
+        expect(headerSource).toContain('id="btn-import"');
+        expect(headerSource).toContain('header-import-slot');
+    });
+
+    it('does not expose fence, photos, arcgis, or draw as separate header buttons', () => {
+        expect(headerSource).not.toContain('id="btn-fence"');
+        expect(headerSource).not.toContain('id="btn-photo-mapper"');
+        expect(headerSource).not.toContain('id="btn-arcgis"');
+        expect(headerSource).not.toContain('id="btn-draw-layer"');
+    });
+
+    it('separates import from map tools for panel-aligned layout', () => {
+        expect(headerSource).toContain('header-left-col');
+        expect(headerSource).toContain('header-import-slot');
+        expect(headerSource).toContain('header-tool-actions');
+        expect(headerSource).not.toContain('header-center');
+    });
 });

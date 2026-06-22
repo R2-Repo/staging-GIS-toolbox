@@ -50,6 +50,13 @@ export async function exportDataset(dataset, format, options = {}) {
     const exp = EXPORTERS[format];
     if (!exp) throw new Error(`Unknown export format: ${format}`);
 
+    logger.info('Exporter', 'Starting export', {
+        format,
+        name: dataset.name,
+        type: dataset.type,
+        featureCount: dataset.geojson?.features?.length ?? dataset.rows?.length ?? null
+    });
+
     const task = new TaskRunner(`Export ${format.toUpperCase()}`, 'Exporter');
     return task.run(async (t) => {
         t.updateProgress(10, 'Preparing data...');
@@ -154,6 +161,7 @@ function _flattenAttachments(dataset) {
  * @param {object} options - { filename }
  */
 export async function exportMultiLayerKMZFile(layers, options = {}) {
+    logger.info('Exporter', 'Starting multi-layer KMZ export', { layers: layers.length });
     const task = new TaskRunner('Export Multi-Layer KMZ', 'Exporter');
     return task.run(async (t) => {
         t.updateProgress(10, 'Preparing layers...');
@@ -175,6 +183,7 @@ export async function exportMultiLayerKMZFile(layers, options = {}) {
  * @param {object} options - { filename }
  */
 export async function exportMultiLayerKMLFile(layers, options = {}) {
+    logger.info('Exporter', 'Starting multi-layer KML export', { layers: layers.length });
     const task = new TaskRunner('Export Multi-Layer KML', 'Exporter');
     return task.run(async (t) => {
         t.updateProgress(10, 'Preparing layers...');

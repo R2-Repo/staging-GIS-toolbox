@@ -2,6 +2,7 @@
  * Workflow Engine — topological sort + sequential execution of the node graph
  */
 import { bus } from '../core/event-bus.js';
+import logger from '../core/logger.js';
 
 export class WorkflowEngine {
     constructor() {
@@ -174,6 +175,8 @@ export class WorkflowEngine {
         }
 
         bus.emit('workflow:run-start');
+        const pipelineTimer = logger.timed('Workflow', 'Pipeline run');
+        logger.info('Workflow', 'Pipeline started', { nodes: this.nodes.size, wires: this.wires.length });
 
         try {
             const order = this._topoSort();
@@ -182,6 +185,7 @@ export class WorkflowEngine {
                 const node = this.nodes.get(nodeId);
                 node._running = true;
                 bus.emit('workflow:node-start', { nodeId });
+                const nodeTimer = logger.timed('Workflow', `Node: ${node.name}`);
 
                 try {
                     // Gather inputs in port order
@@ -213,9 +217,12 @@ export class WorkflowEngine {
                         node._outputData = result;
                     }
                     node._error = null;
+                    nodeTimer.end({ nodeId, type: node.type, success: true });
                     bus.emit('workflow:node-done', { nodeId, success: true });
                 } catch (err) {
                     node._error = err.message;
+                    nodeTimer.fail({ nodeId, type: node.type, error: err.message });
+                    logger.error('Workflow', 'Node failed', { nodeId, name: node.name, type: node.type, error: err.message });
                     bus.emit('workflow:node-done', { nodeId, success: false, error: err.message });
                     throw new Error(`Node "${node.name}" failed: ${err.message}`);
                 } finally {
@@ -223,8 +230,11 @@ export class WorkflowEngine {
                 }
             }
 
+            pipelineTimer.end({ nodes: order.length, success: true });
             bus.emit('workflow:run-done', { success: true });
         } catch (err) {
+            pipelineTimer.fail({ success: false, error: err.message });
+            logger.error('Workflow', 'Pipeline failed', { error: err.message });
             bus.emit('workflow:run-done', { success: false, error: err.message });
             throw err;
         } finally {

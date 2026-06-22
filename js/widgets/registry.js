@@ -4,6 +4,7 @@ import { openProximityJoin } from './proximity-join/controller.js';
 import { openRouteMilepostSegment } from './route-milepost-segment/controller.js';
 import { openProjectStationing } from './project-stationing/controller.js';
 import { openCrsManager } from './crs-manager/controller.js';
+import logger from '../core/logger.js';
 
 /** @typedef {import('./widget-types.js').WidgetContext} WidgetContext */
 
@@ -66,7 +67,10 @@ export const GIS_WIDGETS = [
 export function buildWidgetActions(getCtx) {
     const actions = {};
     for (const widget of GIS_WIDGETS) {
-        actions[widget.action] = () => widget.open(getCtx());
+        actions[widget.action] = () => {
+            logger.info('Widget', 'Open', { type: widget.type, label: widget.label });
+            widget.open(getCtx());
+        };
     }
     return actions;
 }
@@ -77,6 +81,10 @@ export function buildWidgetActions(getCtx) {
  */
 export function openWidget(type, ctx) {
     const widget = GIS_WIDGETS.find((entry) => entry.type === type);
-    if (!widget) return;
+    if (!widget) {
+        logger.warn('Widget', 'Unknown widget type', { type });
+        return;
+    }
+    logger.info('Widget', 'Open', { type: widget.type, label: widget.label });
     widget.open(ctx);
 }

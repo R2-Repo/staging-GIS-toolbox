@@ -152,7 +152,7 @@ export class PhotoMapper {
                     data.longitude = gps.longitude;
                 }
 
-                logger.info('PhotoMapper', 'EXIF extracted', {
+                logger.debug('PhotoMapper', 'EXIF extracted', {
                     file: file.name,
                     lat: data.latitude,
                     lon: data.longitude,

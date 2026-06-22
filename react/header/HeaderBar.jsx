@@ -2,10 +2,6 @@ import { PipelineIcon } from '../ui/PipelineIcon.jsx';
 
 export function HeaderBar({
     onImport,
-    onFence,
-    onPhotoMapper,
-    onArcGIS,
-    onDrawLayer,
     onUndo,
     onRedo,
     onMergeLayers,
@@ -22,29 +18,21 @@ export function HeaderBar({
 }) {
     return (
         <>
-            <div className="header-left">
-                <span className="header-logo">
-                    <img src="icons/favicon.png" alt="GIS-Toolbox.com" width="36" height="36" />
-                </span>
-                <h1 className="header-title">GIS-Toolbox<span className="title-com">.com</span></h1>
+            <div className="header-left-col">
+                <div className="header-left">
+                    <span className="header-logo">
+                        <img src="icons/favicon.png" alt="GIS-Toolbox.com" width="36" height="36" />
+                    </span>
+                    <h1 className="header-title">GIS-Toolbox<span className="title-com">.com</span></h1>
+                </div>
             </div>
-            <div className="header-center">
-                <button className="btn btn-secondary btn-sm" id="btn-import" onClick={() => onImport?.()}>
-                    <span className="btn-icon-text">📂</span><span>Import</span>
-                </button>
-                <button className="btn btn-secondary btn-sm" id="btn-fence" title="Draw a fence on the map — all imports will be filtered to this area" onClick={() => onFence?.()}>
-                    <span className="btn-icon-text">⛶</span><span>Import Fence</span>
-                </button>
-                <button className="btn btn-secondary btn-sm" id="btn-photo-mapper" onClick={() => onPhotoMapper?.()}>
-                    <span className="btn-icon-text">📷</span><span>Photos</span>
-                </button>
-                <button className="btn btn-secondary btn-sm" id="btn-arcgis" onClick={() => onArcGIS?.()}>
-                    <span className="btn-icon-text">🌐</span><span>ArcGIS</span>
-                </button>
-                <button className="btn btn-secondary btn-sm" id="btn-draw-layer" onClick={() => onDrawLayer?.()}>
-                    <span className="btn-icon-text">✏️</span><span>Draw</span>
-                </button>
-                <div className="header-sep"></div>
+            <div className="header-tools">
+                <div className="header-import-slot">
+                    <button className="btn btn-secondary btn-sm" id="btn-import" onClick={() => onImport?.()}>
+                        <span className="btn-icon-text">📂</span><span>Import</span>
+                    </button>
+                </div>
+                <div className="header-tool-actions">
                 <button className="btn btn-ghost btn-sm" id="btn-undo" disabled={!canUndo} title="Undo" onClick={() => onUndo?.()}>↩</button>
                 <button className="btn btn-ghost btn-sm" id="btn-redo" disabled={!canRedo} title="Redo" onClick={() => onRedo?.()}>↪</button>
                 <button className={`btn btn-secondary btn-sm${showMerge ? '' : ' hidden'}`} id="btn-merge" onClick={() => onMergeLayers?.()}>Merge Layers</button>
@@ -62,6 +50,7 @@ export function HeaderBar({
                             <span className="btn-icon-text">🖥️</span><span className="btn-label">Dual Screen</span>
                         </button>
                     </div>
+                </div>
                 </div>
             </div>
             <div className="header-right">

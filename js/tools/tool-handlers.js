@@ -73,6 +73,7 @@ import {
     parseProjectKit,
     downloadProjectKit,
     summarizeProjectKit,
+    isProjectKitFile,
     PROJECT_KIT_SECTIONS
 } from '../core/project-kit.js';
 import { loadJSZip } from '../core/libs.js';
@@ -289,16 +290,23 @@ async function applyProjectKitSnapshot(snapshot, { sections, mode = 'replace' })
             }
         }
 
-        if (selected.includes('workflow') && snapshot.workflow?.pipeline) {
+        if (selected.includes('workflow')) {
             const wf = getWorkflowOverlay();
-            if (wf?.applyConfig) {
-                wf.applyConfig(snapshot.workflow.pipeline);
-                const cache = snapshot.workflow.pipeline.nodeCache || {};
-                for (const [nodeId, data] of Object.entries(cache)) {
-                    const node = wf.engine?.nodes?.get(nodeId);
-                    if (node) node._cachedResult = data;
+            if (wf?.clearPipeline || wf?.applyConfig) {
+                const config = snapshot.workflow?.pipeline;
+                const inner = config?.pipeline ?? config;
+                const nodeCount = inner?.nodes?.length ?? 0;
+                if (nodeCount > 0 && wf.applyConfig) {
+                    wf.applyConfig(config);
+                    const cache = config?.nodeCache || {};
+                    for (const [nodeId, data] of Object.entries(cache)) {
+                        const node = wf.engine?.nodes?.get(nodeId);
+                        if (node) node._cachedResult = data;
+                    }
+                    WorkflowStore.save(wf.engine);
+                } else {
+                    wf.clearPipeline?.();
                 }
-                WorkflowStore.save(wf.engine);
             }
         }
 
@@ -322,7 +330,7 @@ async function applyProjectKitSnapshot(snapshot, { sections, mode = 'replace' })
 export async function exportProjectKit(options = {}) {
     const { pickExportProjectKitModal } = await import('../../react/tools/mountProjectKitDialog.jsx');
     const dialogResult = await pickExportProjectKitModal({
-        defaultName: options.defaultName || 'toolbox-kit',
+        defaultName: options.defaultName || 'toolbox-project',
         layerCount: getLayers().length
     });
     if (!dialogResult) return;
@@ -348,23 +356,19 @@ export async function exportProjectKit(options = {}) {
                 exportWorkspaceLayerBundle
             });
             const blob = await packProjectKit(snapshot, JSZip, t);
-            downloadProjectKit(blob, dialogResult.projectName || 'toolbox-kit');
-            showToast('Toolbox Kit exported.', 'success');
+            downloadProjectKit(blob, dialogResult.projectName || 'toolbox-project');
+            showToast('Toolbox Export saved.', 'success');
         });
     });
 }
 
-export async function importProjectKit(initialFile = null) {
-    let file = initialFile;
-    if (!file) {
-        file = await _pickProjectKitFile();
-        if (!file) return;
-    }
+export async function importProjectKit(initialFile) {
+    if (!initialFile) return;
 
     let snapshot;
     try {
         const JSZip = await loadJSZip();
-        snapshot = await parseProjectKit(file, JSZip);
+        snapshot = await parseProjectKit(initialFile, JSZip);
     } catch (err) {
         showToast(err.message || 'Invalid Toolbox Kit file.', 'error');
         return;
@@ -397,30 +401,10 @@ export async function importProjectKit(initialFile = null) {
             if (dialogResult.sections.includes('workflow') && summary.hasWorkflow) parts.push('pipeline');
             if (dialogResult.sections.includes('map') && summary.hasMap) parts.push('map settings');
             if (dialogResult.sections.includes('preferences') && summary.hasPreferences) parts.push('preferences');
-            showToast(`Toolbox Kit restored${parts.length ? ` (${parts.join(', ')})` : ''}.`, 'success');
+            showToast(`Toolbox project restored${parts.length ? ` (${parts.join(', ')})` : ''}.`, 'success');
             logger.info('ProjectKit', 'Import complete', { mode: dialogResult.mode, sections: dialogResult.sections });
         });
     });
-}
-
-function _pickProjectKitFile() {
-    return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.gtbx,application/zip';
-        input.addEventListener('change', () => {
-            resolve(input.files?.[0] || null);
-        });
-        input.click();
-    });
-}
-
-export function getProjectKitPanelSnapshot() {
-    return {
-        layerCount: getLayers().length,
-        hasWorkflow: !!getWorkflowOverlay()?.engine?.nodes?.size,
-        paletteCount: loadPaletteFavorites().length
-    };
 }
 
 export function buildMapContextMenuItems(payload) {
@@ -459,8 +443,7 @@ export function buildMapContextMenuItems(payload) {
         label: 'Copy coordinates',
         action: () => {
             const text = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
-            navigator.clipboard.writeText(text).then(() => showToast(`Copied: ${text}`, 'success'))
-                .catch(() => showToast(text, 'info'));
+            navigator.clipboard.writeText(text).catch(() => showToast(text, 'info'));
         }
     });
 
@@ -470,7 +453,6 @@ export function buildMapContextMenuItems(payload) {
             label: 'Stop camera orbit',
             action: () => {
                 mapService.stopCameraOrbit();
-                showToast('Camera orbit stopped', 'info');
             }
         });
     } else {
@@ -479,7 +461,6 @@ export function buildMapContextMenuItems(payload) {
             label: 'Orbit camera around point',
             action: () => {
                 mapService.startCameraOrbit({ lat: latlng.lat, lng: latlng.lng });
-                showToast('Camera orbiting — right-click to stop', 'info');
             }
         });
     }
@@ -639,7 +620,7 @@ export function setupDragDrop() {
     // Create full-screen drop overlay
     const overlay = document.createElement('div');
     overlay.id = 'global-drop-overlay';
-    overlay.innerHTML = '<div class="drop-overlay-content">📂<br>Drop files to import</div>';
+    overlay.innerHTML = '<div class="drop-overlay-content">📂<br>Drop files to import<br><span class="text-sm text-muted">GeoJSON, CSV, KML, .gis-toolbox, …</span></div>';
     document.body.appendChild(overlay);
 
     // Prevent default browser behavior for all drag events on the document
@@ -797,6 +778,20 @@ async function _addImportedDatasets(datasets, importOpts = {}) {
 }
 
 export async function handleFileImport(files, fenceBbox = null, options = {}) {
+    const fileList = Array.from(files || []);
+    const kitFiles = fileList.filter(isProjectKitFile);
+    const dataFiles = fileList.filter((file) => !isProjectKitFile(file));
+
+    if (kitFiles.length) {
+        if (!dataFiles.length) {
+            options.onComplete?.();
+        }
+        for (const file of kitFiles) {
+            await importProjectKit(file);
+        }
+        if (!dataFiles.length) return;
+    }
+
     let progress = null;
     let userCancelled = false;
     const batchLayerIds = [];
@@ -805,7 +800,7 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
 
     try {
         if (!options.preflightConfirmed) {
-            const guard = await guardFilesBeforeImport(files, {
+            const guard = await guardFilesBeforeImport(dataFiles, {
                 source: 'handleFileImport',
                 getLayers
             });
@@ -857,7 +852,7 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
         let totalFiltered = 0;
 
         sessionStore.pauseSessionSave();
-        const { errors, cancelled } = await importFiles(files, {
+        const { errors, cancelled } = await importFiles(dataFiles, {
             importMode: options.importMode,
             useWorkspace: options.useWorkspace,
             selectedFields: options.selectedFields,
@@ -967,6 +962,7 @@ export async function handleFileImport(files, fenceBbox = null, options = {}) {
 }
 
 export function openImportFlow() {
+    clearImportReopenAfterFence();
     _openImportFlowModal();
 }
 
@@ -1001,10 +997,25 @@ function _openImportOptimizerModal(files) {
     });
 }
 
+function _pickProjectKitFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gis-toolbox,.gtbx';
+    input.setAttribute('aria-label', 'Import Toolbox Kit');
+    input.style.cssText = 'opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+        const file = input.files?.[0];
+        input.remove();
+        if (file) await importProjectKit(file);
+    }, { once: true });
+    input.click();
+}
+
 function _openImportFlowModal(flowProps = {}) {
     const rootId = `import-flow-react-${Date.now()}`;
-    showModal('Import Files', `<div id="${rootId}"></div>`, {
-        width: '560px',
+    showModal('Import', `<div id="${rootId}"></div>`, {
+        width: '680px',
         onMount: async (overlay, close) => {
             const root = overlay.querySelector(`#${rootId}`);
             if (!root) return;
@@ -1012,6 +1023,7 @@ function _openImportFlowModal(flowProps = {}) {
             const { mountImportFlowDialog } = await import('../../react/tools/mountImportFlowDialog.jsx');
             const mounted = mountImportFlowDialog(root, {
                 onCancel: () => close(),
+                hasActiveFence: hasActiveImportFence(),
                 onImportFiles: async (files, importOpts = {}, ui = {}) => {
                     await handleFileImport(files, _fenceBbox, {
                         preflightConfirmed: importOpts.preflightConfirmed,
@@ -1036,6 +1048,14 @@ function _openImportFlowModal(flowProps = {}) {
                     close();
                     openPhotoMapper();
                 },
+                onOpenProjectKit: () => {
+                    close();
+                    _pickProjectKitFile();
+                },
+                onOpenDraw: () => {
+                    close();
+                    createDrawLayer();
+                },
                 onOpenFence: () => {
                     close();
                     startImportFence();
@@ -1059,8 +1079,16 @@ function _openImportFlowModal(flowProps = {}) {
 export async function openImportForFiles(files, fenceBbox = null) {
     if (!files?.length) return;
 
+    const kitFiles = files.filter(isProjectKitFile);
+    const dataFiles = files.filter((file) => !isProjectKitFile(file));
+
+    for (const file of kitFiles) {
+        await importProjectKit(file);
+    }
+    if (!dataFiles.length) return;
+
     try {
-        await guardFilesBeforeImport(files, {
+        await guardFilesBeforeImport(dataFiles, {
             source: 'openImportForFiles',
             getLayers
         });
@@ -1075,22 +1103,22 @@ export async function openImportForFiles(files, fenceBbox = null) {
     const { preflightFile, PREFLIGHT_LEVEL } = await import('../import/import-preflight.js');
     const { detectFormat } = await import('../import/importer.js');
 
-    const shouldPreScan = files.some((f) => {
+    const shouldPreScan = dataFiles.some((f) => {
         const pf = preflightFile(f);
         const fmt = detectFormat(f);
         return pf.level === PREFLIGHT_LEVEL.SOFT || fmt === 'zip' || fmt === 'kmz';
     });
 
-    let scans = shouldPreScan ? await scanFilesForImport(files) : [];
-    const assessment = await assessImportRoute(files, { scans });
+    let scans = shouldPreScan ? await scanFilesForImport(dataFiles) : [];
+    const assessment = await assessImportRoute(dataFiles, { scans });
 
     if (assessment.route === 'optimizer') {
-        _openImportOptimizerModal(files);
+        _openImportOptimizerModal(dataFiles);
         return;
     }
 
     // Standard route: import as-is (in-memory). Field picking stays in the Import Files dialog.
-    await handleFileImport(files, fenceBbox ?? _fenceBbox, { preflightConfirmed: true });
+    await handleFileImport(dataFiles, fenceBbox ?? _fenceBbox, { preflightConfirmed: true });
     } catch (e) {
         const classified = handleError(e, 'Import', 'openImportForFiles');
         showErrorToast(classified);
@@ -1160,7 +1188,7 @@ export function setupAppWiring() {
     _importInputEl = document.createElement('input');
     _importInputEl.type = 'file';
     _importInputEl.multiple = true;
-    _importInputEl.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml';
+    _importInputEl.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml,.gis-toolbox,.gtbx';
     _importInputEl.setAttribute('aria-label', 'Import files');
     _importInputEl.style.cssText = 'opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
     document.body.appendChild(_importInputEl);
@@ -1195,7 +1223,6 @@ export function setupAppWiring() {
                     mapService.addLayer(existing, idx, { fit: !opts.workflow });
                     applyImportLayerStyles(existing, { mapService, getLayers, layerIndex: idx });
                     refreshUI();
-                    showToast(`Layer "${name}" updated`, 'success');
                     return existing.id;
                 }
                 // New layer
@@ -1240,7 +1267,6 @@ export function setupAppWiring() {
         bus.emit('layers:changed', getLayers());
         mapService.addLayer(layer, getLayers().indexOf(layer));
         refreshUI();
-        showToast(`Added ${feature.geometry.type} to ${layer.name}`, 'success');
     });
 
     // Handle edited features (vertex dragging)
@@ -1265,7 +1291,6 @@ export function setupAppWiring() {
         bus.emit('layers:changed', getLayers());
         mapService.addLayer(layer, getLayers().indexOf(layer));
         refreshUI();
-        showToast('Feature deleted', 'success');
     });
 
     // App action delegation for HTML-rendered tool buttons (replaces inline onclick usage)
@@ -1357,9 +1382,7 @@ export function setupAppWiring() {
     if ('launchQueue' in window) {
         window.launchQueue.setConsumer(async (launchParams) => {
             const file = launchParams.files?.[0];
-            if (!file) return;
-            const name = file.name?.toLowerCase?.() || '';
-            if (!name.endsWith('.gtbx')) return;
+            if (!file || !isProjectKitFile(file)) return;
             await importProjectKit(file);
         });
     }
@@ -1398,6 +1421,7 @@ function setupDualScreenMode() {
             dualScreenCoordinator.setFenceBbox(bbox);
             updateFenceButtonState();
             showToast('Import fence placed — all imports will be filtered to this area', 'success');
+            maybeReopenImportAfterFence();
         },
         clearFence: () => {
             _fenceBbox = null;
@@ -1407,7 +1431,6 @@ function setupDualScreenMode() {
             if (dualScreenCoordinator.isActive) {
                 dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
             }
-            showToast('Import fence removed', 'info');
         },
         toggleLayerVisibility: (layerId) => {
             toggleLayerVisibility(layerId);
@@ -1605,7 +1628,6 @@ function _coordSearchAddNew() {
     mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
     refreshUI();
     mapService.clearSearchMarker();
-    showToast('Created new layer with search point', 'success');
 }
 
 function _coordSearchAddToExisting() {
@@ -1684,7 +1706,6 @@ function _addSearchPointToLayer(layer, info) {
     refreshUI();
 
     mapService.clearSearchMarker();
-    showToast(`Point added to "${layer.name}"`, 'success');
 }
 
 function _coordSearchClear() {
@@ -1698,7 +1719,9 @@ export function toggleLogs() {
     const logsPanel = document.getElementById('logs-panel');
     if (!logsPanel) return;
     logsPanel.classList.toggle('hidden');
-    if (!logsPanel.classList.contains('hidden')) renderLogs();
+    const open = !logsPanel.classList.contains('hidden');
+    logger.setPanelOpen(open);
+    if (open) renderLogs();
 }
 
 function renderLogs(filter = {}) {
@@ -1753,7 +1776,6 @@ function applyTransform(name, newFeatures) {
         bus.emit('layers:changed', getLayers());
         refreshUI();
     }
-    showToast(`Applied: ${name}`, 'success');
 }
 
 // Split Column
@@ -1945,7 +1967,6 @@ export async function openFilterBuilder(targetLayerId) {
                         bus.emit('layers:changed', getLayers());
                         mapService.addLayer(layer, getLayers().indexOf(layer));
                         refreshUI();
-                        showToast('Filter removed', 'success');
                     } else {
                         showToast('No snapshot ? use Undo to revert', 'info');
                     }
@@ -2212,7 +2233,6 @@ async function openSimplify() {
                             const { dataset, stats } = simplified;
                             addLayer(dataset);
                             mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                            showToast(`Simplified: ${stats.verticesBefore} ??? ${stats.verticesAfter} vertices`, 'success');
                             refreshUI();
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Simplify'));
@@ -2258,7 +2278,6 @@ async function openClip() {
                             if (!result) return;
                             addLayer(result);
                             mapService.addLayer(result, getLayers().indexOf(result), { fit: true });
-                            showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                             refreshUI();
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Clip'));
@@ -2603,7 +2622,6 @@ async function openBboxClip() {
                             );
                             if (!result) return;
                             addResultLayer(result);
-                            showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'BBoxClip'));
                         }
@@ -2638,7 +2656,6 @@ async function openBezierSpline() {
                         try {
                             const result = await gisTools.bezierSplineFeatures(getWorkingDataset(layer, applyTo), res, sharp);
                             addResultLayer(result);
-                            showToast('Bezier spline applied', 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'BezierSpline'));
                         }
@@ -2677,7 +2694,6 @@ async function openPolygonSmooth() {
                             );
                             if (!result) return;
                             addResultLayer(result);
-                            showToast('Polygons smoothed', 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'PolygonSmooth'));
                         }
@@ -2713,7 +2729,6 @@ async function openLineOffset() {
                         try {
                             const result = await gisTools.lineOffsetFeatures(getWorkingDataset(layer, applyTo), dist, units);
                             addResultLayer(result);
-                            showToast(`Line offset by ${dist} ${units}`, 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'LineOffset'));
                         }
@@ -2751,7 +2766,6 @@ async function openLineSliceAlong() {
                             const fc = { type: 'FeatureCollection', features: [sliced] };
                             const result = createSpatialDataset(`${layer.name}_slice`, fc, { format: 'derived' });
                             addResultLayer(result);
-                            showToast(`Sliced line: ${start}-${stop} ${units}`, 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'LineSliceAlong'));
                         }
@@ -2790,7 +2804,6 @@ async function openLineSlice() {
                             const fc = { type: 'FeatureCollection', features: [sliced] };
                             const result = createSpatialDataset(`${layer.name}_sliced`, fc, { format: 'derived' });
                             addResultLayer(result);
-                            showToast('Line sliced between points', 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'LineSlice'));
                         }
@@ -2817,7 +2830,6 @@ async function openLineSlice() {
                     const fc = { type: 'FeatureCollection', features: [sliced] };
                     const result = createSpatialDataset(`${layer.name}_sliced`, fc, { format: 'derived' });
                     addResultLayer(result);
-                    showToast('Line sliced between points', 'success');
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'LineSlice'));
                 }
@@ -2940,7 +2952,6 @@ async function openCombine() {
                         try {
                             const result = gisTools.combineFeatures(getWorkingDataset(layer, applyTo));
                             addResultLayer(result);
-                            showToast(`Combined into ${result.geojson.features.length} multi-feature(s)`, 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Combine'));
                         }
@@ -2976,7 +2987,6 @@ async function openUnion() {
                         try {
                             const result = await gisTools.unionFeatures(getWorkingDataset(layer));
                             addResultLayer(result);
-                            showToast('Union complete', 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Union'));
                         }
@@ -3015,7 +3025,6 @@ async function openDissolve() {
                             );
                             if (!result) return;
                             addResultLayer(result);
-                            showToast(field ? `Dissolved by field "${field}"` : 'Dissolved all polygons into merged features', 'success');
                             refreshUI();
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Dissolve'));
@@ -3050,7 +3059,6 @@ async function openSector() {
                             const fc = { type: 'FeatureCollection', features: [sector] };
                             const result = createSpatialDataset(`sector_${b1}-${b2}`, fc, { format: 'derived' });
                             addResultLayer(result);
-                            showToast('Sector created', 'success');
                         } catch (e) {
                             showErrorToast(handleError(e, 'GISTools', 'Sector'));
                         }
@@ -3539,9 +3547,24 @@ export function getWidgetContext() {
 // Import Fence
 // ============================
 let _fenceBbox = null; // [west, south, east, north] when fence is active
+let _reopenImportAfterFence = false;
 
 function hasActiveImportFence() {
     return !!_fenceBbox || mapService.hasImportFence();
+}
+
+function scheduleImportReopenAfterFence() {
+    _reopenImportAfterFence = true;
+}
+
+function clearImportReopenAfterFence() {
+    _reopenImportAfterFence = false;
+}
+
+function maybeReopenImportAfterFence() {
+    if (!_reopenImportAfterFence) return;
+    clearImportReopenAfterFence();
+    _openImportFlowModal();
 }
 
 export async function startImportFence() {
@@ -3558,6 +3581,7 @@ export async function startImportFence() {
                         message: 'An import fence is currently active. All imports are filtered to this area.',
                         onPlaceNewFence: () => {
                             close();
+                            scheduleImportReopenAfterFence();
                             dualScreenCoordinator.broadcastDrawCmd({ action: 'startFence' });
                             dualScreenCoordinator.focusMapWindow();
                             showToast('Draw the fence on the Dual Screen map window', 'info');
@@ -3567,7 +3591,6 @@ export async function startImportFence() {
                             updateFenceButtonState();
                             dualScreenCoordinator.broadcastDrawCmd({ action: 'clearFence' });
                             close();
-                            showToast('Import fence removed', 'info');
                         }
                     });
                     watchOverlayUnmount(overlay, () => mounted.unmount?.());
@@ -3575,6 +3598,7 @@ export async function startImportFence() {
             });
             return;
         }
+        scheduleImportReopenAfterFence();
         dualScreenCoordinator.broadcastDrawCmd({ action: 'startFence' });
         dualScreenCoordinator.focusMapWindow();
         showToast('Draw the import fence on the Dual Screen map window', 'info');
@@ -3595,14 +3619,13 @@ export async function startImportFence() {
                     clearDescription: 'Clear fence from map ? imports will no longer be filtered',
                     onPlaceNewFence: async () => {
                         close();
-                        await drawNewFence();
+                        await drawNewFence({ reopenImportAfter: true });
                     },
                     onRemoveFence: () => {
                         mapService.clearImportFence();
                         _fenceBbox = null;
                         updateFenceButtonState();
                         close();
-                        showToast('Import fence removed', 'info');
                     }
                 });
                 watchOverlayUnmount(overlay, () => mounted.unmount?.());
@@ -3611,18 +3634,22 @@ export async function startImportFence() {
         return;
     }
 
-    await drawNewFence();
+    await drawNewFence({ reopenImportAfter: true });
 }
 
-async function drawNewFence() {
+async function drawNewFence({ reopenImportAfter = false } = {}) {
     const bbox = await mapService.startImportFenceDraw();
     if (!bbox) {
+        if (reopenImportAfter) clearImportReopenAfterFence();
         showToast('Fence cancelled', 'info');
         return;
     }
     _fenceBbox = bbox;
     updateFenceButtonState();
     showToast('Import fence placed — all imports will be filtered to this area', 'success');
+    if (reopenImportAfter) {
+        _openImportFlowModal();
+    }
 }
 
 export function updateFenceButtonState() {
@@ -4066,7 +4093,6 @@ function _doCreateDrawLayer() {
     mapService.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
     refreshUI();
     _openDrawToolbarOnMap(dataset.id, dataset.name);
-    showToast('Draw layer created ??? use the toolbar to draw features', 'success');
 }
 
 function openDrawTools(layerId) {
@@ -4217,7 +4243,6 @@ export function openFeatureEditor(layerId, featureIndex) {
                     bus.emit('layers:changed', getLayers());
                     mapService.addLayer(layer, getLayers().indexOf(layer));
                     refreshUI();
-                    showToast('Feature updated', 'success');
                     close();
                 }
             });
@@ -4269,7 +4294,6 @@ export function showDataTable() {
                         bus.emit('layers:changed', getLayers());
                         mapService.addLayer(layer, getLayers().indexOf(layer));
                         refreshUI();
-                        showToast('Data edits saved', 'success');
                     }
                 }
             });
@@ -4334,7 +4358,6 @@ export function renameLayer(layerId, el) {
                 layer.name = newName;
                 refreshUI();
                 refreshUI();
-                showToast(`Layer renamed to "${newName}"`, 'success', { duration: 2000 });
             }
         });
         return;
@@ -4346,7 +4369,6 @@ export function renameLayer(layerId, el) {
         layer.name = newName.trim();
         refreshUI();
         refreshUI();
-        showToast(`Layer renamed to "${layer.name}"`, 'success', { duration: 2000 });
     }
 }
 
@@ -4368,7 +4390,6 @@ export function renameField(fieldName, el) {
                 field.outputName = newName;
                 refreshUI();
                 refreshUI();
-                showToast(`Field renamed to "${newName}"`, 'success', { duration: 2000 });
             }
         });
         return;
@@ -4379,7 +4400,6 @@ export function renameField(fieldName, el) {
         field.outputName = newName.trim();
         refreshUI();
         refreshUI();
-        showToast(`Field renamed to "${field.outputName}"`, 'success', { duration: 2000 });
     }
 }
 
@@ -4477,7 +4497,6 @@ export function addField() {
                 refreshUI();
                 refreshUI();
                 mapService.refreshLayerData(layer);
-                showToast(`Field "${name}" added`, 'success', { duration: 2000 });
                 close();
             });
 
@@ -4648,7 +4667,6 @@ export function setupLogsPanel() {
     }
     document.getElementById('logs-copy')?.addEventListener('click', () => {
         navigator.clipboard?.writeText(logger.toText());
-        showToast('Logs copied', 'success', { duration: 1500 });
     });
     document.getElementById('logs-download')?.addEventListener('click', () => {
         const blob = new Blob([logger.toJSON()], { type: 'application/json' });
@@ -4665,6 +4683,7 @@ export function setupLogsPanel() {
     });
     document.getElementById('logs-close')?.addEventListener('click', () => {
         document.getElementById('logs-panel')?.classList.add('hidden');
+        logger.setPanelOpen(false);
     });
 
     // ========================

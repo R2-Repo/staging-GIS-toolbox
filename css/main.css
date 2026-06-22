@@ -29,6 +29,8 @@
     --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     --header-h: 52px;
+    --panel-left-w: 320px;
+    --header-import-tools-gap: 72px;
     --transition: 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
     --gold: #d4a24e;
     --gold-light: #e8b84a;
@@ -56,20 +58,55 @@ html, body {
     height: var(--header-h);
     background: var(--bg-header);
     color: var(--text-inverse);
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--panel-left-w) 1fr auto;
     align-items: center;
-    padding: 0 16px;
-    gap: 10px;
+    padding: 0 16px 0 0;
+    gap: 0;
     z-index: 100;
     flex-shrink: 0;
     position: relative;
     border-bottom: 1px solid var(--border);
 }
+.header.header--left-collapsed {
+    grid-template-columns: auto 1fr auto;
+}
+.header-left-col {
+    grid-column: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-left: 16px;
+    padding-right: 10px;
+}
 .header-left {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+}
+.header-tools {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-left: 0;
+    flex-wrap: wrap;
+}
+.header-import-slot {
     flex-shrink: 0;
+}
+.header-tool-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: var(--header-import-tools-gap);
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.header--left-collapsed .header-left-col {
+    padding-right: 16px;
 }
 .header-logo {
     display: flex;
@@ -92,19 +129,13 @@ html, body {
     font-weight: 400;
     opacity: 0.7;
 }
-.header-center {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-    justify-content: center;
-    flex-wrap: wrap;
-}
 .header-right {
+    grid-column: 3;
     display: flex;
     gap: 4px;
     align-items: center;
     flex-shrink: 0;
+    padding-left: 12px;
 }
 .header-sep {
     width: 1px;
@@ -259,7 +290,7 @@ html, body {
     z-index: 2;
 }
 .panel-left {
-    width: 320px;
+    width: var(--panel-left-w);
     min-width: 240px;
     border-right: 1px solid var(--border);
     flex-shrink: 0;
@@ -1260,43 +1291,65 @@ textarea { resize: vertical; min-height: 60px; }
     z-index: 2000;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     pointer-events: none;
 }
 .toast {
     background: var(--bg-surface);
-    border-radius: var(--radius);
-    padding: 12px 16px;
-    box-shadow: var(--shadow-lg);
-    border-left: 4px solid var(--primary);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    box-shadow: var(--shadow-md);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--primary);
-    font-size: 13px;
-    max-width: 380px;
+    border-left: 3px solid var(--primary);
+    font-size: 12px;
+    line-height: 1.3;
+    max-width: 260px;
     pointer-events: auto;
     animation: slideIn 0.2s ease;
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: 6px;
+}
+.toast .toast-content {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+.toast .toast-content > div:first-child {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 .toast.toast-error { border-left-color: var(--error); }
-.toast.toast-warning { border-left-color: var(--warning); }
+.toast.toast-warning,
+.toast.toast-warn { border-left-color: var(--warning); }
 .toast.toast-success { border-left-color: var(--success); }
-.toast .toast-close { cursor: pointer; color: var(--text-light); margin-left: auto; }
-.toast-details {
+.toast .toast-close {
+    cursor: pointer;
+    color: var(--text-light);
+    margin-left: auto;
+    flex-shrink: 0;
     font-size: 11px;
+    line-height: 1;
+    padding: 1px 2px;
+    opacity: 0.7;
+}
+.toast .toast-close:hover { opacity: 1; }
+.toast-details {
+    font-size: 10px;
     color: var(--text-muted);
-    margin-top: 4px;
+    margin-top: 3px;
     cursor: pointer;
 }
 .toast-details-body {
     font-family: var(--mono);
     font-size: 10px;
     background: rgba(0,0,0,0.3);
-    padding: 6px;
+    padding: 4px 6px;
     border-radius: var(--radius-sm);
-    margin-top: 4px;
-    max-height: 100px;
+    margin-top: 3px;
+    max-height: 80px;
     overflow-y: auto;
     word-break: break-all;
 }
@@ -1472,6 +1525,75 @@ textarea { resize: vertical; min-height: 60px; }
     background: rgba(10,132,255,0.06);
     color: var(--primary-light);
 }
+
+/* ————— IMPORT OPTION CARDS ————— */
+.import-option-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.import-option-card {
+    position: relative;
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color var(--transition), background var(--transition);
+    color: var(--text);
+}
+.import-option-card:hover,
+.import-option-card.import-option-card--dragover {
+    border-color: var(--primary);
+    background: rgba(219,172,63,0.06);
+}
+.import-option-card--active {
+    border-color: var(--primary);
+    background: rgba(219,172,63,0.08);
+}
+.import-option-card__icon {
+    font-size: 28px;
+    line-height: 1;
+}
+.import-option-card__title {
+    font-size: 13px;
+    font-weight: 600;
+}
+.import-option-card__desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.3;
+    padding: 0 4px;
+}
+.import-option-card__badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--primary);
+    background: rgba(219,172,63,0.15);
+    border: 1px solid rgba(219,172,63,0.35);
+    border-radius: 10px;
+    padding: 2px 6px;
+}
+.import-option-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    margin: 0;
+}
+
 .error-box {
     background: rgba(255,69,58,0.08);
     border: 1px solid rgba(255,69,58,0.2);
@@ -2842,4 +2964,9 @@ textarea { resize: vertical; min-height: 60px; }
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+.export-section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0 10px;
 }

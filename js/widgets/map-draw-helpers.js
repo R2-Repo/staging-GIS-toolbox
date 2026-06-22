@@ -7,7 +7,6 @@ export function createAreaDrawHandlers(ctx) {
 
     async function draw(mode) {
         if (mode === 'rectangle') {
-            showToast('Draw a rectangle on the map', 'info');
             const bbox = await mapService.startRectangleDraw('Click and drag to draw your search area');
             if (!bbox) return null;
             const [west, south, east, north] = bbox;
@@ -17,7 +16,6 @@ export function createAreaDrawHandlers(ctx) {
         }
 
         if (mode === 'polygon') {
-            showToast('Click to place points, double-click or Enter to finish', 'info');
             const geometry = await mapService.startSketchPolygon({
                 bannerText: 'Click to add points. Double-click or Enter to finish the area.',
                 onInsufficientVertices: () => showToast('Need at least 3 points to make an area', 'warning')
@@ -29,7 +27,6 @@ export function createAreaDrawHandlers(ctx) {
         }
 
         if (mode === 'circle') {
-            showToast('Click center, then click to set radius', 'info');
             const geometry = await mapService.startSketchCirclePolygon({
                 bannerText: 'Click center, then click for radius. Esc cancels.',
                 onRadiusTooSmall: () => showToast('Radius too small', 'warning')
@@ -87,7 +84,6 @@ export function createCenterlineDrawHandlers(ctx) {
     const { mapService, showToast, turf } = ctx;
 
     async function drawCenterline() {
-        showToast('Click to place points, double-click or Enter to finish', 'info');
         const geometry = await mapService.startSketchPolyline({
             bannerText: 'Click to add points. Double-click or Enter to finish the centerline.',
             onInsufficientVertices: () => showToast('Need at least 2 points for a centerline', 'warning')

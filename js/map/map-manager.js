@@ -1796,7 +1796,7 @@ class MapManager {
             this._orbitAnimId = requestAnimationFrame(frame);
         });
 
-        logger.info('Map', `Camera orbit started at ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`);
+        logger.debug('Map', `Camera orbit started at ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`);
         bus.emit('map:orbitStarted', center);
     }
 
@@ -1812,7 +1812,7 @@ class MapManager {
         }
         if (this._orbitCenter) {
             this._orbitCenter = null;
-            logger.info('Map', 'Camera orbit stopped');
+            logger.debug('Map', 'Camera orbit stopped');
             bus.emit('map:orbitStopped');
         }
     }
@@ -3114,7 +3114,7 @@ class MapManager {
 
         const count = sel.size;
         bus.emit('selection:changed', { layerId, count, totalCount: count });
-        if (count > 0) logger.info('Map', `Box selected ${count} feature(s) on ${layerId}`);
+        if (count > 0) logger.debug('Map', `Box selected ${count} feature(s) on ${layerId}`);
     }
 
     _renderSelectionHighlights(layerId) {

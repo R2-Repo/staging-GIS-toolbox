@@ -1,15 +1,61 @@
 /**
- * Toolbox Kit — branded portable project export/import (.gtbx)
+ * Toolbox Kit — branded portable project export/import (.gis-toolbox)
  */
 import { serializeLayerForPersistence } from './session-store.js';
 import { AppError, ErrorCategory } from './error-handler.js';
 
 export const PROJECT_KIT_FORMAT = 'gis-toolbox-kit';
 export const PROJECT_KIT_FORMAT_VERSION = 1;
-export const PROJECT_KIT_EXTENSION = '.gtbx';
+export const PROJECT_KIT_EXTENSION = '.gis-toolbox';
+export const PROJECT_KIT_LEGACY_EXTENSION = '.gtbx';
 export const PROJECT_KIT_DISPLAY_NAME = 'Toolbox Kit';
 export const PROJECT_KIT_SECTIONS = ['layers', 'map', 'workflow', 'preferences'];
 export const WORKFLOW_NODE_CACHE_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * @param {File|{ name?: string }} file
+ */
+export function isProjectKitFile(file) {
+    const name = (file?.name || '').toLowerCase();
+    return name.endsWith(PROJECT_KIT_EXTENSION) || name.endsWith(PROJECT_KIT_LEGACY_EXTENSION);
+}
+
+/**
+ * @param {Date} [date]
+ * @returns {string} e.g. 6-21-26
+ */
+export function formatProjectKitDate(date = new Date()) {
+    return `${date.getMonth() + 1}-${date.getDate()}-${String(date.getFullYear()).slice(-2)}`;
+}
+
+/**
+ * @param {string} name
+ */
+export function sanitizeProjectKitBaseName(name) {
+    return String(name || 'toolbox-project')
+        .trim()
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || 'toolbox-project';
+}
+
+/**
+ * @param {string} projectName
+ * @param {Date} [date]
+ * @returns {string} e.g. Highway-88(6-21-26).gis-toolbox
+ */
+export function buildProjectKitDownloadName(projectName, date = new Date()) {
+    let base = sanitizeProjectKitBaseName(projectName);
+    base = base.replace(/\.(gtbx|gis-toolbox)$/i, '');
+    base = base.replace(/\(\d{1,2}-\d{1,2}-\d{2}\)$/i, '');
+    return `${base}(${formatProjectKitDate(date)})${PROJECT_KIT_EXTENSION}`;
+}
+
+/** @deprecated use buildProjectKitDownloadName */
+export function sanitizeProjectKitFilename(name) {
+    return buildProjectKitDownloadName(name);
+}
 
 /**
  * @param {object} manifest
@@ -37,19 +83,6 @@ export function resolveLayerIdConflict(id, existingIds) {
     let n = 2;
     while (existingIds.has(`${id}-${n}`)) n += 1;
     return `${id}-${n}`;
-}
-
-/**
- * @param {string} name
- */
-export function sanitizeProjectKitFilename(name) {
-    const base = String(name || 'toolbox-kit')
-        .trim()
-        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '') || 'toolbox-kit';
-    return base.endsWith(PROJECT_KIT_EXTENSION) ? base : `${base}${PROJECT_KIT_EXTENSION}`;
 }
 
 /**
@@ -327,8 +360,8 @@ async function parseLayerSection(zip) {
  * @param {Blob} blob
  * @param {string} filename
  */
-export function downloadProjectKit(blob, filename) {
-    const safeName = sanitizeProjectKitFilename(filename);
+export function downloadProjectKit(blob, projectName) {
+    const safeName = buildProjectKitDownloadName(projectName);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -339,15 +372,18 @@ export function downloadProjectKit(blob, filename) {
 
 export function summarizeProjectKit(snapshot) {
     const sections = snapshot?.manifest?.sections || [];
+    const workflowConfig = snapshot?.workflow?.pipeline;
+    const workflowInner = workflowConfig?.pipeline ?? workflowConfig;
+    const workflowNodeCount = workflowInner?.nodes?.length ?? 0;
     return {
         projectName: snapshot?.manifest?.projectName || null,
         exportedAt: snapshot?.manifest?.exportedAt || null,
         layerCount: snapshot?.layers?.index?.length ?? snapshot?.manifest?.layerCount ?? 0,
         sections,
         hasMap: !!snapshot?.map,
-        hasWorkflow: !!snapshot?.workflow?.pipeline,
+        hasWorkflow: workflowNodeCount > 0,
         hasPreferences: !!snapshot?.preferences,
-        workflowNodeCount: snapshot?.workflow?.pipeline?.pipeline?.nodes?.length ?? 0
+        workflowNodeCount
     };
 }
 
@@ -355,8 +391,13 @@ export default {
     PROJECT_KIT_FORMAT,
     PROJECT_KIT_FORMAT_VERSION,
     PROJECT_KIT_EXTENSION,
+    PROJECT_KIT_LEGACY_EXTENSION,
     PROJECT_KIT_DISPLAY_NAME,
     PROJECT_KIT_SECTIONS,
+    isProjectKitFile,
+    formatProjectKitDate,
+    sanitizeProjectKitBaseName,
+    buildProjectKitDownloadName,
     validateProjectKitManifest,
     resolveLayerIdConflict,
     sanitizeProjectKitFilename,

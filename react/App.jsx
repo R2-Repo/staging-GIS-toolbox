@@ -13,10 +13,6 @@ import {
     setupLogsPanel,
     getWorkflowOverlay,
     openImportFlow,
-    startImportFence,
-    openPhotoMapper,
-    openArcGISImporter,
-    createDrawLayer,
     handleUndo,
     handleRedo,
     handleMergeLayers,
@@ -44,11 +40,9 @@ import {
     deleteSelectedFeatures,
     clearSelection,
     getRightPanelSnapshot,
-    getProjectKitPanelSnapshot,
     handleLayerStyleChange,
     handleLayerScaleRangeChange,
     exportProjectKit,
-    importProjectKit,
     buildMapContextMenuItems,
     setPanelCollapsed
 } from '../js/tools/tool-handlers.js';
@@ -142,7 +136,6 @@ function AppShell() {
     }), []);
 
     const rightSnapshot = useMemo(() => getRightPanelSnapshot(), [refreshTick, activeLayer?.id]);
-    const kitSnapshot = useMemo(() => getProjectKitPanelSnapshot(), [refreshTick, layers.length]);
     const fields = activeLayer?.schema?.fields || [];
 
     const layersForPanel = useMemo(() => {
@@ -174,13 +167,9 @@ function AppShell() {
     return (
         <>
             <MobileGate />
-            <header className="header">
+            <header className={`header${leftPanel.collapsed ? ' header--left-collapsed' : ''}`}>
                 <HeaderBar
                     onImport={openImportFlow}
-                    onFence={startImportFence}
-                    onPhotoMapper={openPhotoMapper}
-                    onArcGIS={openArcGISImporter}
-                    onDrawLayer={createDrawLayer}
                     onUndo={handleUndo}
                     onRedo={handleRedo}
                     onMergeLayers={handleMergeLayers}
@@ -231,6 +220,7 @@ function AppShell() {
                         <div id="dataprep-tools">
                             <DataPrepToolsPanel
                                 activeLayer={activeLayer}
+                                hasLayers={layers.length > 0}
                                 gisTools={(
                                     <GisToolsPanel
                                         getActiveLayer={getActiveLayer}
@@ -263,7 +253,7 @@ function AppShell() {
                                     <path d="M12 16v-4m0-4h.01M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7l3-7z" />
                                 </svg>
                                 <p style={{ marginTop: 12, fontSize: 18, fontWeight: 600 }}>Drop files here to import</p>
-                                <p className="text-sm text-muted">GeoJSON, CSV, Excel, KML, KMZ, Shapefile (ZIP)</p>
+                                <p className="text-sm text-muted">GeoJSON, CSV, Excel, KML, KMZ, Shapefile (ZIP), .gis-toolbox</p>
                             </div>
                         </div>
                     </div>
@@ -286,11 +276,9 @@ function AppShell() {
                         <div className="panel-body" id="output-panel-content">
                             <RightPanel
                                 snapshot={rightSnapshot}
-                                kitSnapshot={kitSnapshot}
                                 onToggleAgol={onToggleAgol}
                                 onExport={doExport}
                                 onExportProjectKit={exportProjectKit}
-                                onImportProjectKit={importProjectKit}
                                 onFixAgol={fixAGOL}
                                 onShowDataTable={showDataTable}
                                 onStyleChange={handleLayerStyleChange}

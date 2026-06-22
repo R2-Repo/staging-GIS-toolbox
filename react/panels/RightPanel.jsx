@@ -4,23 +4,47 @@ import { LabelsSection } from './LabelsSection.jsx';
 import { VisibilityRangeSection } from './VisibilityRangeSection.jsx';
 import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
-function ToolboxKitSection({ snapshot, onExportProjectKit, onImportProjectKit }) {
-    const layerCount = snapshot?.layerCount ?? 0;
+const TOOLBOX_EXPORT_TITLE = 'Save entire workspace as a .gis-toolbox file — all layers, map settings, pipeline, and preferences';
+
+function ExportSection({
+    layer,
+    formats,
+    agolMode,
+    onToggleAgol,
+    onExport,
+    onExportProjectKit
+}) {
     return (
-        <CollapsibleSection title="Toolbox Kit" defaultOpen={true}>
-            <p className="text-sm text-muted mb-8">
-                Export or import a portable <strong>.gtbx</strong> project file — layers, map, pipeline, and preferences.
-            </p>
-            <div className="text-xs text-muted mb-8">
-                {layerCount} layer{layerCount !== 1 ? 's' : ''} in workspace
-                {snapshot?.hasWorkflow ? ' · pipeline saved' : ''}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => onExportProjectKit?.()}>
-                    Export Kit…
-                </button>
-                <button type="button" className="btn btn-sm btn-secondary" onClick={() => onImportProjectKit?.()}>
-                    Import Kit…
+        <CollapsibleSection title="Export" defaultOpen={false}>
+            {layer ? (
+                <>
+                    <label className="toggle mb-8">
+                        <input type="checkbox" checked={agolMode} onChange={onToggleAgol} />
+                        <span className="toggle-track"></span>
+                        <span>AGOL Compatible</span>
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {formats.map((format) => (
+                            <button
+                                key={format.key}
+                                className="btn btn-sm btn-primary"
+                                onClick={() => onExport(format.key)}
+                            >
+                                {format.label}
+                            </button>
+                        ))}
+                    </div>
+                    <hr className="export-section-divider" />
+                </>
+            ) : null}
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    title={TOOLBOX_EXPORT_TITLE}
+                    onClick={() => onExportProjectKit?.()}
+                >
+                    Toolbox Export
                 </button>
             </div>
         </CollapsibleSection>
@@ -34,11 +58,9 @@ function renderAgolIssue(issue) {
 
 export function RightPanel({
     snapshot,
-    kitSnapshot,
     onToggleAgol,
     onExport,
     onExportProjectKit,
-    onImportProjectKit,
     onFixAgol,
     onShowDataTable,
     onStyleChange,
@@ -56,24 +78,12 @@ export function RightPanel({
 
     if (!layer) {
         return (
-            <>
-                <ToolboxKitSection
-                    snapshot={kitSnapshot}
-                    onExportProjectKit={onExportProjectKit}
-                    onImportProjectKit={onImportProjectKit}
-                />
-                <div className="empty-state"><p>No layer selected</p></div>
-            </>
+            <div className="empty-state"><p>No layer selected</p></div>
         );
     }
 
     return (
         <>
-            <ToolboxKitSection
-                snapshot={kitSnapshot}
-                onExportProjectKit={onExportProjectKit}
-                onImportProjectKit={onImportProjectKit}
-            />
             <CollapsibleSection title={`Output Schema (${selectedFields.length} fields)`} defaultOpen={false}>
                 {selectedFields.map((field) => (
                     <div className="field-item" key={field.name}>
@@ -84,24 +94,14 @@ export function RightPanel({
                 {selectedFields.length === 0 ? <div className="text-muted text-sm">No fields selected</div> : null}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Export" defaultOpen={false}>
-                <label className="toggle mb-8">
-                    <input type="checkbox" checked={agolMode} onChange={onToggleAgol} />
-                    <span className="toggle-track"></span>
-                    <span>AGOL Compatible</span>
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {formats.map((format) => (
-                        <button
-                            key={format.key}
-                            className="btn btn-sm btn-primary"
-                            onClick={() => onExport(format.key)}
-                        >
-                            {format.label}
-                        </button>
-                    ))}
-                </div>
-            </CollapsibleSection>
+            <ExportSection
+                layer={layer}
+                formats={formats}
+                agolMode={agolMode}
+                onToggleAgol={onToggleAgol}
+                onExport={onExport}
+                onExportProjectKit={onExportProjectKit}
+            />
 
             {isSpatialLayer(layer) ? (
                 <>

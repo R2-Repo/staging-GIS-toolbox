@@ -1,18 +1,10 @@
 import { useState } from 'react';
 
-const ICONS = {
-    info: 'ℹ️',
-    success: '✅',
-    warning: '⚠️',
-    error: '❌'
-};
-
 function ToastItem({ toast, onDismiss }) {
     const [showDetails, setShowDetails] = useState(false);
 
     return (
         <div className={`toast toast-${toast.type}`}>
-            <span>{ICONS[toast.type] || ''}</span>
             <div className="toast-content">
                 <div dangerouslySetInnerHTML={{ __html: String(toast.message || '') }} />
                 {toast.details ? (
@@ -33,6 +25,7 @@ function ToastItem({ toast, onDismiss }) {
             <span
                 className="toast-close"
                 onClick={() => onDismiss(toast.id)}
+                aria-label="Dismiss"
             >
                 ✕
             </span>

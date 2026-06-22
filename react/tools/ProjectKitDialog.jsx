@@ -33,7 +33,7 @@ function SectionCheckboxes({ sections, onChange, availableSections = PROJECT_KIT
 }
 
 export function ExportProjectKitDialog({
-    defaultName = 'toolbox-kit',
+    defaultName = 'toolbox-project',
     layerCount = 0,
     onConfirm,
     onCancel
@@ -42,20 +42,26 @@ export function ExportProjectKitDialog({
     const [sections, setSections] = useState([...PROJECT_KIT_SECTIONS]);
 
     const canExport = sections.length > 0;
+    const dateHint = useMemo(() => {
+        const now = new Date();
+        const d = `${now.getMonth() + 1}-${now.getDate()}-${String(now.getFullYear()).slice(-2)}`;
+        return `${projectName.trim() || 'toolbox-project'}(${d}).gis-toolbox`;
+    }, [projectName]);
 
     return (
         <div className="project-kit-dialog">
             <p className="text-sm text-muted mb-8">
-                Save a portable <strong>Toolbox Kit</strong> (<code>.gtbx</code>) with the parts of your workspace you choose.
+                Save your workspace as a <strong>.gis-toolbox</strong> project file. Choose what to include.
             </p>
             <label className="field-label" htmlFor="project-kit-name">Project name</label>
             <input
                 id="project-kit-name"
-                className="input w-full mb-12"
+                className="input w-full mb-8"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="e.g. Highway-88-Stationing"
             />
+            <div className="text-xs text-muted mb-12">File: {dateHint}</div>
             <div className="text-sm text-muted mb-8">{layerCount} layer{layerCount !== 1 ? 's' : ''} in workspace</div>
             <SectionCheckboxes sections={sections} onChange={setSections} />
             <div className="modal-actions mt-16">
@@ -64,9 +70,9 @@ export function ExportProjectKitDialog({
                     type="button"
                     className="btn btn-primary"
                     disabled={!canExport}
-                    onClick={() => onConfirm?.({ projectName: projectName.trim() || 'toolbox-kit', sections })}
+                    onClick={() => onConfirm?.({ projectName: projectName.trim() || 'toolbox-project', sections })}
                 >
-                    Export Kit
+                    Export
                 </button>
             </div>
         </div>
@@ -95,7 +101,7 @@ export function ImportProjectKitDialog({
 
     return (
         <div className="project-kit-dialog">
-            <p className="text-sm text-muted mb-8">Restore from this Toolbox Kit file:</p>
+            <p className="text-sm text-muted mb-8">Restore from this <strong>.gis-toolbox</strong> project file:</p>
             <ul className="text-sm mb-12 project-kit-summary">
                 {detailLines.map((line) => <li key={line}>{line}</li>)}
             </ul>
@@ -119,7 +125,7 @@ export function ImportProjectKitDialog({
                     disabled={!sections.length}
                     onClick={() => onConfirm?.({ sections, mode })}
                 >
-                    Import Kit
+                    Import
                 </button>
             </div>
         </div>

@@ -226,11 +226,11 @@ export function FieldListPanel({
     );
 }
 
-export function DataPrepToolsPanel({ activeLayer = null, gisTools = null }) {
+export function DataPrepToolsPanel({ activeLayer = null, gisTools = null, hasLayers = false }) {
     return (
         <>
-            <LayerDataToolsPanel activeLayer={activeLayer} />
-            <CollapsibleSection title="GIS Tools">
+            <LayerDataToolsPanel activeLayer={activeLayer} hasLayers={hasLayers} />
+            <CollapsibleSection title="GIS Tools" defaultOpen={false} expandWhen={hasLayers}>
                 {gisTools}
             </CollapsibleSection>
         </>

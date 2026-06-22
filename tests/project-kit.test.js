@@ -6,9 +6,12 @@ import JSZip from 'jszip';
 import {
     PROJECT_KIT_FORMAT,
     PROJECT_KIT_FORMAT_VERSION,
+    PROJECT_KIT_EXTENSION,
     validateProjectKitManifest,
     resolveLayerIdConflict,
-    sanitizeProjectKitFilename,
+    buildProjectKitDownloadName,
+    formatProjectKitDate,
+    isProjectKitFile,
     buildProjectKitSnapshot,
     packProjectKit,
     parseProjectKit,
@@ -49,9 +52,17 @@ describe('project-kit format', () => {
         expect(validateProjectKitManifest({ format: PROJECT_KIT_FORMAT, formatVersion: 99 }).ok).toBe(false);
     });
 
-    it('sanitizes filenames with .gtbx extension', () => {
-        expect(sanitizeProjectKitFilename('Highway 88')).toBe('Highway-88.gtbx');
-        expect(sanitizeProjectKitFilename('already.gtbx')).toBe('already.gtbx');
+    it('builds dated .gis-toolbox download names', () => {
+        const date = new Date(2026, 5, 21);
+        expect(formatProjectKitDate(date)).toBe('6-21-26');
+        expect(buildProjectKitDownloadName('My Project', date)).toBe(`My-Project(6-21-26)${PROJECT_KIT_EXTENSION}`);
+        expect(buildProjectKitDownloadName('Highway 88', date)).toBe(`Highway-88(6-21-26)${PROJECT_KIT_EXTENSION}`);
+    });
+
+    it('detects project kit files by extension', () => {
+        expect(isProjectKitFile({ name: 'demo.gis-toolbox' })).toBe(true);
+        expect(isProjectKitFile({ name: 'legacy.gtbx' })).toBe(true);
+        expect(isProjectKitFile({ name: 'data.csv' })).toBe(false);
     });
 
     it('resolves merge id conflicts with numeric suffix', () => {

@@ -3,36 +3,45 @@
 ## Latest
 
 - **Date**: 2026-06-21
-- **Status**: **Toolbox Kit — custom project export/import (`.gtbx`)**
+- **Status**: **Import dialog card-grid redesign**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- New **Toolbox Kit** portable project format (`.gtbx` ZIP) with selective sections: layers & styles, map appearance, pipeline, preferences
-- [`js/core/project-kit.js`](js/core/project-kit.js) — manifest schema, pack/parse, download helper
-- [`js/core/layer-restore.js`](js/core/layer-restore.js) — shared layer reconstruction; workspace bundle import; merge ID suffixing
-- [`js/workspace/workspace-store.js`](js/workspace/workspace-store.js) — `exportWorkspaceLayerBundle` / `importWorkspaceLayerBundle`
-- [`js/core/session-store.js`](js/core/session-store.js) — exported `serializeLayerForPersistence`
-- Session restore now handles **workspace-backed layers** (refs in session IDB + data in workspace IDB)
-- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — `exportProjectKit`, `importProjectKit`, launchQueue `.gtbx` handler
-- [`react/tools/ProjectKitDialog.jsx`](react/tools/ProjectKitDialog.jsx), [`mountProjectKitDialog.jsx`](react/tools/mountProjectKitDialog.jsx)
-- [`react/panels/RightPanel.jsx`](react/panels/RightPanel.jsx) — Toolbox Kit section (always visible)
-- PWA `file_handlers` for `.gtbx` in [`manifest.json`](manifest.json) and [`vite.config.js`](vite.config.js)
-- [`tests/project-kit.test.js`](tests/project-kit.test.js)
+- [`react/tools/ImportFlowDialog.jsx`](react/tools/ImportFlowDialog.jsx) — card-grid chooser (Local Files, ArcGIS REST, Photo Mapper, Toolbox Kit, **Draw Layer**, Import Fence); removed footer Close; ← Back after file pick; drag-drop on Local Files / Toolbox Kit cards
+- [`react/header/HeaderBar.jsx`](react/header/HeaderBar.jsx) — removed header Draw button (now an import card)
+- [`react/tools/ImportOptionCard.jsx`](react/tools/ImportOptionCard.jsx) — reusable square import option card
+- [`css/main.css`](css/main.css) — `.import-option-grid`, `.import-option-card`, active badge styles
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — modal title **Import**, width 680px; `hasActiveFence` prop; `onOpenProjectKit` + `_pickProjectKitFile()`; **import modal reopens after fence draw** (primary + dual-screen)
 
 ### Verification
 
-- `npm test` — 80 files, 519 tests green
-- `npm run build` — green
-- **Browser** (manual): Export Kit from right panel → clear site data → Import Kit → verify layers, styles, basemap, pipeline, palette favorites
+- `npm test` — 535 passed
+- **Browser** (`npm run dev`): Import modal shows 5-card grid; after drawing import fence, Import modal reopens with Active badge on fence card
 
 ### Next
 
-- Browser smoke: large workspace layer round-trip via `.gtbx`
-- Optional: show estimated `.gtbx` size in export dialog before download
+- Investigate layer restore errors after kit import (user reported separately)
 
 ---
 
 ## Previous (2026-06-21)
 
-- **Status**: **Map popup scroll — open at top of attributes**
+- **Status**: **Logging cleanup and coverage**
+
+- [`js/core/logger.js`](js/core/logger.js) — `setPanelOpen()`; DEBUG/INFO only mirror to console when logs panel is open; WARN/ERROR always console
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — sync panel open state on toggle/close
+- [`js/map/draw-manager.js`](js/map/draw-manager.js), [`js/photo/photo-mapper.js`](js/photo/photo-mapper.js), [`js/map/map-manager.js`](js/map/map-manager.js) — routine UI actions downgraded to `DEBUG`
+- [`js/tools/gis-tools.js`](js/tools/gis-tools.js) — per-feature loop warnings replaced with single failure summaries
+- [`js/workflow/workflow-engine.js`](js/workflow/workflow-engine.js) — pipeline/node start, timing, and failure logging
+- [`js/export/exporter.js`](js/export/exporter.js) — log export start (failures still via `TaskRunner`/`handleError`)
+- [`js/widgets/registry.js`](js/widgets/registry.js) — log widget open and unknown widget type
+- [`tests/logger.test.js`](tests/logger.test.js), [`tests/workflow-logging.test.js`](tests/workflow-logging.test.js) — new/expanded coverage
+
+## Previous (2026-06-21)
+
+- **Status**: **Toast notification simplification**
+
+- [`js/ui/toast.js`](js/ui/toast.js) — dedupe identical toasts within 2s; shorter default durations
+- [`react/ui/ToastHost.jsx`](react/ui/ToastHost.jsx) + [`css/main.css`](css/main.css) — compact toast UI
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — removed ~35 noisy success/info toasts

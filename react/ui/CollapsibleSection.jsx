@@ -1,14 +1,23 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function CollapsibleSection({
     title,
     children,
     defaultOpen = true,
+    expandWhen = false,
     className = '',
     bodyClassName = '',
     bodyId = null
 }) {
     const [collapsed, setCollapsed] = useState(!defaultOpen);
+    const prevExpandWhen = useRef(expandWhen);
+
+    useEffect(() => {
+        if (expandWhen && !prevExpandWhen.current) {
+            setCollapsed(false);
+        }
+        prevExpandWhen.current = expandWhen;
+    }, [expandWhen]);
 
     const toggle = useCallback(() => {
         setCollapsed((prev) => !prev);

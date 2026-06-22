@@ -2,30 +2,86 @@
 
 ## Latest
 
-- **Date**: 2026-06-21
-- **Status**: **Import dialog card-grid redesign**
+- **Date**: 2026-06-22
+- **Status**: **CRS Manager widget hidden**
 - **Branch**: working tree (uncommitted)
 
 ### What changed
 
-- [`react/tools/ImportFlowDialog.jsx`](react/tools/ImportFlowDialog.jsx) — card-grid chooser (Local Files, ArcGIS REST, Photo Mapper, Toolbox Kit, **Draw Layer**, Import Fence); removed footer Close; ← Back after file pick; drag-drop on Local Files / Toolbox Kit cards
-- [`react/header/HeaderBar.jsx`](react/header/HeaderBar.jsx) — removed header Draw button (now an import card)
-- [`react/tools/ImportOptionCard.jsx`](react/tools/ImportOptionCard.jsx) — reusable square import option card
-- [`css/main.css`](css/main.css) — `.import-option-grid`, `.import-option-card`, active badge styles
-- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — modal title **Import**, width 680px; `hasActiveFence` prop; `onOpenProjectKit` + `_pickProjectKitFile()`; **import modal reopens after fence draw** (primary + dual-screen)
+- [`js/widgets/registry.js`](js/widgets/registry.js) — `GIS_WIDGETS_HIDDEN` for CRS Manager; panel and `APP_ACTIONS` use visible list only; `openWidget('crs-manager')` still works via `ALL_GIS_WIDGETS`
+- [`docs/CRS_MANAGER.md`](docs/CRS_MANAGER.md) — why hidden, alternatives (Reproject tool, export CRS), re-enable steps
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/WIDGET_AUTHORING.md`](docs/WIDGET_AUTHORING.md), [`AGENTS.md`](AGENTS.md) — cross-links and hidden-widget note
+- [`js/widgets/crs-manager/controller.js`](js/widgets/crs-manager/controller.js) — removed debug instrumentation
+- [`js/map/map-manager.js`](js/map/map-manager.js) — removed debug instrumentation
+- [`tests/widget-registry.test.js`](tests/widget-registry.test.js) — asserts CRS Manager hidden from UI/actions
 
 ### Verification
 
-- `npm test` — 535 passed
-- **Browser** (`npm run dev`): Import modal shows 5-card grid; after drawing import fence, Import modal reopens with Active badge on fence card
+- `npm test` — run after change (widget-registry + crs-manager-engine + crs-layer-crs)
+- **Browser**: GIS Widgets panel should no longer show CRS Manager; Reproject tool and export CRS unchanged
 
 ### Next
 
+- Manual browser smoke on Proximity Join wizard if not yet checked in preview
 - Investigate layer restore errors after kit import (user reported separately)
 
 ---
 
-## Previous (2026-06-21)
+## Previous (2026-06-22)
+
+- **Status**: **Data Preview layer info**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- [`js/core/layer-info.js`](js/core/layer-info.js) — `getLayerInfoSummary(layer)` for read-only info rows (type, records, fields, geometry, CRS, source, size, added, storage)
+- [`react/panels/DataPreviewSection.jsx`](react/panels/DataPreviewSection.jsx) — info grid + Show Data Table button inside Data Preview section
+- [`react/panels/RightPanel.jsx`](react/panels/RightPanel.jsx) — uses `DataPreviewSection`
+- [`css/main.css`](css/main.css) — `.layer-info-*` styles
+- [`js/import/importer.js`](js/import/importer.js) — stamps `source.fileSize` on import
+- [`tests/layer-info.test.js`](tests/layer-info.test.js) — unit tests
+
+### Verification
+
+- `npm test` — 548 passed
+- **Browser** (`npm run dev -- --port 5174`): Data Preview shows layer info for spatial and table layers; Show Data Table button below divider
+
+### Next
+
+- Manual browser smoke on Proximity Join wizard if not yet checked in preview
+- Investigate layer restore errors after kit import (user reported separately)
+
+---
+
+## Previous (2026-06-22)
+
+- **Status**: **Proximity Join UI simplification**
+- **Branch**: working tree (uncommitted)
+
+### What changed
+
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — `setupAppWiring()` is now idempotent (fixes duplicate widget modals on one click from Strict Mode / HMR re-init)
+- [`tests/proximity-join-engine.test.js`](tests/proximity-join-engine.test.js) — distance-only validation, preview, and run cases
+- [`react/widgets/ProximityJoinDialog.jsx`](react/widgets/ProximityJoinDialog.jsx) — 3-step wizard (Choose layers → What to add → Review & run); field checklist; Advanced collapse; preview on step 3 only; Run again on results
+- [`js/widgets/proximity-join/controller.js`](js/widgets/proximity-join/controller.js) — live selection subscription, layer focus, widened modal; passes new validation flags
+
+### Verification
+
+- `npm test` — all passed (including 7 proximity-join-engine tests)
+- **Browser** (`npm run preview`): quick path (layers → distance only → run); full path with copied fields; Advanced max radius; selection-only blocked when nothing selected
+
+### Next
+
+- Manual browser smoke on Proximity Join wizard if not yet checked in preview
+- Investigate layer restore errors after kit import (user reported separately)
+
+---
+
+## Previous (2026-06-22)
+
+- **Status**: **Right panel section reorder**
+
+- **Status**: **Import dialog card-grid redesign**
 
 - **Status**: **Logging cleanup and coverage**
 

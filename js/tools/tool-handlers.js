@@ -90,6 +90,7 @@ import { createWorkflowController } from '../workflow/workflow-controller.js';
 // Initialize app
 // ============================
 let _importInputEl = null;
+let _appWiringInstalled = false;
 let _workflowOverlay = null;
 export function getWorkflowOverlay() { return _workflowOverlay; }
 
@@ -1184,6 +1185,9 @@ function closestFromEvent(event, selector) {
 // Setup all event listeners
 // ============================
 export function setupAppWiring() {
+    if (_appWiringInstalled) return;
+    _appWiringInstalled = true;
+
     // Import button ??? use a persistent hidden input (iOS-safe)
     _importInputEl = document.createElement('input');
     _importInputEl.type = 'file';

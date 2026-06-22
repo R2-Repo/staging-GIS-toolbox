@@ -8,6 +8,10 @@ import logger from '../core/logger.js';
 
 /** @typedef {import('./widget-types.js').WidgetContext} WidgetContext */
 
+/**
+ * Widgets shown in the GIS Widgets panel (`react/panels/WidgetPanel.jsx`).
+ * To re-enable a hidden widget, move its entry from `GIS_WIDGETS_HIDDEN` into this array.
+ */
 export const GIS_WIDGETS = [
     {
         type: 'spatial-analyzer',
@@ -48,19 +52,29 @@ export const GIS_WIDGETS = [
         icon: '📐',
         tip: 'Generate 100-ft project station segments along a UDOT route centerline.',
         open: openProjectStationing
-    },
+    }
+];
+
+/**
+ * Implemented but not shown in the UI. See docs/CRS_MANAGER.md.
+ * @type {typeof GIS_WIDGETS}
+ */
+export const GIS_WIDGETS_HIDDEN = [
     {
         type: 'crs-manager',
         action: 'openCrsManager',
         label: 'CRS Manager',
         icon: '🌐',
-        tip: 'Audit layer coordinate systems, batch reproject, and manage CRS favorites.',
+        tip: 'Audit layer coordinate systems, batch reproject to WGS 84, register custom WKT.',
         open: openCrsManager
     }
 ];
 
+/** All registered widgets (visible + hidden). */
+export const ALL_GIS_WIDGETS = [...GIS_WIDGETS, ...GIS_WIDGETS_HIDDEN];
+
 /**
- * Build APP_ACTIONS entries for all registered widgets.
+ * Build APP_ACTIONS entries for visible widgets only.
  * @param {() => WidgetContext} getCtx
  * @returns {Record<string, () => void>}
  */
@@ -80,7 +94,7 @@ export function buildWidgetActions(getCtx) {
  * @param {WidgetContext} ctx
  */
 export function openWidget(type, ctx) {
-    const widget = GIS_WIDGETS.find((entry) => entry.type === type);
+    const widget = ALL_GIS_WIDGETS.find((entry) => entry.type === type);
     if (!widget) {
         logger.warn('Widget', 'Unknown widget type', { type });
         return;

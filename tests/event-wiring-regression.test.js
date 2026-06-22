@@ -40,6 +40,12 @@ describe('event wiring regression guards', () => {
         expect(handlersSource).not.toMatch(/panel-section-header/);
     });
 
+    it('guards setupAppWiring against duplicate listener installation', () => {
+        expect(handlersSource).toMatch(/let _appWiringInstalled = false;/);
+        expect(handlersSource).toMatch(/if \(_appWiringInstalled\) return;/);
+        expect(handlersSource).toMatch(/_appWiringInstalled = true;/);
+    });
+
     it('uses React CollapsibleSection for panel section collapse', () => {
         expect(appSource).toContain('CollapsibleSection');
         expect(appSource).not.toMatch(/onSectionHeaderClick/);

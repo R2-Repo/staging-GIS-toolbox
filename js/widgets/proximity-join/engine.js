@@ -44,27 +44,33 @@ export function validateProximityJoinConfig({
     targetLayer,
     fieldMappings = [],
     maxRadius = '',
+    writeDistance = true,
     writeMatchId = false,
+    writeMatchLayer = false,
     matchIdField = ''
 }) {
     const errors = [];
 
-    if (!sourceLayer) errors.push('No source layer selected.');
-    if (!targetLayer) errors.push('No target layer selected.');
+    if (!sourceLayer) errors.push('Choose the layer to update.');
+    if (!targetLayer) errors.push('Choose the nearest-match layer.');
     if (sourceLayer && targetLayer && sourceLayer.id === targetLayer.id) {
-        errors.push('Source and target must be different layers.');
+        errors.push('The layer to update and nearest-match layer must be different.');
     }
 
     if ((sourceLayer?.geojson?.features?.length || 0) === 0) {
-        errors.push('Source layer has no features.');
+        errors.push('The layer to update has no features.');
     }
     if ((targetLayer?.geojson?.features?.length || 0) === 0) {
-        errors.push('Target layer has no features.');
+        errors.push('The nearest-match layer has no features.');
     }
 
     const validMappings = normalizeMappings(fieldMappings);
-    if (validMappings.length === 0) {
-        errors.push('Add at least one field mapping (target field -> new field name).');
+    const hasOutput = validMappings.length > 0
+        || writeDistance
+        || writeMatchLayer
+        || (writeMatchId && matchIdField);
+    if (!hasOutput) {
+        errors.push('Choose at least one thing to add (distance, a copied field, or match info).');
     }
 
     const names = validMappings.map((mapping) => mapping.newFieldName);
@@ -76,12 +82,12 @@ export function validateProximityJoinConfig({
     if (maxRadius !== '' && maxRadius != null) {
         const parsed = parseFloat(maxRadius);
         if (!Number.isFinite(parsed) || parsed <= 0) {
-            errors.push('Max radius must be a positive number or empty for unlimited.');
+            errors.push('Max search radius must be a positive number or left empty for unlimited.');
         }
     }
 
     if (writeMatchId && !matchIdField) {
-        errors.push('Choose an ID field when "matched_target_id" is enabled.');
+        errors.push('Choose an ID field when adding matched target ID.');
     }
 
     return { errors, validMappings };

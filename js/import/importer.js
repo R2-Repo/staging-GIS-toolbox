@@ -253,6 +253,18 @@ export async function importFileCore(file, task, options = {}) {
 
     _enforceFeatureCap(result, file.name);
 
+    if (file.size > 0) {
+        const stampFileSize = (dataset) => {
+            if (!dataset?.source) return;
+            dataset.source.fileSize = file.size;
+        };
+        if (Array.isArray(result)) {
+            result.forEach(stampFileSize);
+        } else if (result) {
+            stampFileSize(result);
+        }
+    }
+
     if (Array.isArray(result)) {
         logger.info('Importer', 'Import complete (multi-layer)', {
             file: file.name, format, layers: result.length,

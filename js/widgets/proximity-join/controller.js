@@ -1,3 +1,4 @@
+import bus from '../../core/event-bus.js';
 import { openReactIsland } from '../../ui/open-react-island.js';
 import { getSpatialLayerOptions } from '../widget-context.js';
 import {
@@ -11,7 +12,7 @@ import {
 export async function openProximityJoin(ctx) {
     await openReactIsland({
         title: 'Proximity Join',
-        width: '480px',
+        width: '520px',
         mountPath: '../../../react/widgets/mountProximityJoinDialog.jsx',
         mountExport: 'mountProximityJoinDialog',
         getProps: (close) => ({
@@ -21,6 +22,19 @@ export async function openProximityJoin(ctx) {
                 label: `${entry.label} (${entry.abbr})`
             })),
             onCancel: close,
+            onLayerFocus: (layerId) => {
+                if (!layerId) return;
+                ctx.setActiveLayer?.(layerId);
+                ctx.mapService.setActiveLayerId?.(layerId);
+                ctx.refreshUI();
+            },
+            onSubscribeSelection: (layerId, callback) => {
+                const refresh = () => callback(ctx.mapService.getSelectionCount(layerId) || 0);
+                refresh();
+                const handler = () => refresh();
+                bus.on('selection:changed', handler);
+                return () => bus.off('selection:changed', handler);
+            },
             onPreview: async (config) => {
                 const sourceLayer = ctx.getLayers().find((layer) => layer.id === config.sourceLayerId);
                 const targetLayer = ctx.getLayers().find((layer) => layer.id === config.targetLayerId);
@@ -29,7 +43,9 @@ export async function openProximityJoin(ctx) {
                     targetLayer,
                     fieldMappings: config.fieldMappings,
                     maxRadius: config.maxRadius,
+                    writeDistance: config.writeDistance,
                     writeMatchId: config.writeMatchId,
+                    writeMatchLayer: config.writeMatchLayer,
                     matchIdField: config.matchIdField
                 });
                 if (validation.errors.length > 0) {
@@ -59,7 +75,9 @@ export async function openProximityJoin(ctx) {
                     targetLayer,
                     fieldMappings: config.fieldMappings,
                     maxRadius: config.maxRadius,
+                    writeDistance: config.writeDistance,
                     writeMatchId: config.writeMatchId,
+                    writeMatchLayer: config.writeMatchLayer,
                     matchIdField: config.matchIdField
                 });
                 if (validation.errors.length > 0) {
@@ -72,8 +90,8 @@ export async function openProximityJoin(ctx) {
 
                 if (featureIndices.length === 0) {
                     throw new Error(config.selectionOnly
-                        ? 'No selected source features found.'
-                        : 'Source layer has no features.');
+                        ? 'No selected features found on the layer to update.'
+                        : 'The layer to update has no features.');
                 }
 
                 const result = await runProximityJoin({

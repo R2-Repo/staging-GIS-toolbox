@@ -2,6 +2,7 @@ import { isSpatialLayer } from '../../js/core/data-model.js';
 import { SmartStylePanel } from './SmartStylePanel.jsx';
 import { LabelsSection } from './LabelsSection.jsx';
 import { VisibilityRangeSection } from './VisibilityRangeSection.jsx';
+import { DataPreviewSection } from './DataPreviewSection.jsx';
 import { CollapsibleSection } from '../ui/CollapsibleSection.jsx';
 
 const TOOLBOX_EXPORT_TITLE = 'Save entire workspace as a .gis-toolbox file — all layers, map settings, pipeline, and preferences';
@@ -139,12 +140,6 @@ export function RightPanel({
                 </CollapsibleSection>
             ) : null}
 
-            <CollapsibleSection title="Data Preview" defaultOpen={false}>
-                <button className="btn btn-sm btn-secondary w-full" onClick={onShowDataTable}>
-                    Show Data Table
-                </button>
-            </CollapsibleSection>
-
             {isSpatialLayer(layer) ? (
                 <VisibilityRangeSection
                     layer={layer}
@@ -153,6 +148,8 @@ export function RightPanel({
                     onChange={onScaleRangeChange}
                 />
             ) : null}
+
+            <DataPreviewSection layer={layer} onShowDataTable={onShowDataTable} />
         </>
     );
 }

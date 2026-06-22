@@ -126,6 +126,10 @@ import { openMyWidget } from './my-widget/controller.js';
 
 That's it — `WidgetPanel` and `APP_ACTIONS` update automatically from the registry entry.
 
+### Hidden widgets
+
+Some widgets stay in the repo but are omitted from `GIS_WIDGETS` (panel + `APP_ACTIONS`). They live in `GIS_WIDGETS_HIDDEN` in `js/widgets/registry.js`. Example: **CRS Manager** — see [CRS_MANAGER.md](CRS_MANAGER.md). To re-enable, move the entry from `GIS_WIDGETS_HIDDEN` into `GIS_WIDGETS`.
+
 ### 7. Re-export shim (optional, for old import paths)
 
 If anything still imports from `react/tools/`, add:

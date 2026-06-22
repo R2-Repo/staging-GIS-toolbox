@@ -22,6 +22,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Current architecture** — React UI + `js/` domain |
 | [docs/WIDGET_AUTHORING.md](docs/WIDGET_AUTHORING.md) | Widget authoring checklist |
+| [docs/CRS_MANAGER.md](docs/CRS_MANAGER.md) | CRS Manager widget (hidden from UI; alternatives documented) |
 | [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | Migration completion summary (historical) |
 | [docs/REACT_REFACTOR_PLAN.md](docs/REACT_REFACTOR_PLAN.md) | Original migration plan (historical) |
 

@@ -302,8 +302,8 @@ html, body {
     background: var(--bg);
 }
 .panel-right {
-    width: 300px;
-    min-width: 220px;
+    width: var(--panel-left-w);
+    min-width: 240px;
     border-left: 1px solid var(--border);
     flex-shrink: 0;
 }
@@ -744,6 +744,18 @@ textarea { resize: vertical; min-height: 60px; }
     color: var(--text-light);
 }
 .field-actions { display: flex; gap: 2px; }
+
+/* ========== Layer Info (Data Preview) ========== */
+.layer-info-grid { display: grid; gap: 6px; margin-bottom: 10px; font-size: 12px; }
+.layer-info-row { display: flex; justify-content: space-between; gap: 8px; }
+.layer-info-label { color: var(--text-light); flex-shrink: 0; }
+.layer-info-value { text-align: right; word-break: break-word; }
+.layer-info-warning { margin-top: 2px; text-align: right; }
+.layer-info-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0 0 10px;
+}
 
 /* ========== Layer List ========== */
 .layer-item {

@@ -134,8 +134,9 @@ Full authoring guide: [WIDGET_AUTHORING.md](WIDGET_AUTHORING.md).
 - **Domain module:** `js/crs/` — EPSG registry, detection, geometry reprojection (proj4), layer helpers
 - **Canonical display CRS:** EPSG:4326 for map + Turf; non-geographic layers flagged until user reprojects
 - **Import policy:** warn-only — set truthful `schema.crs`, show warnings; no auto-reproject on ingest
-- **Shared UI:** `react/widgets/shared/CrsPicker.jsx` — used by import confirm, export, Reproject tool, pipeline inspector, CRS Manager widget
+- **Shared UI:** `react/widgets/shared/CrsPicker.jsx` — used by import confirm, export, Reproject tool, pipeline inspector
 - **Notation vs projection:** DD/DMS/UTM stays in `js/tools/coordinates.js`; CRS stays in `js/crs/`
+- **CRS Manager widget:** implemented under `js/widgets/crs-manager/` but **hidden from the GIS Widgets panel** (2026-06-22). Use Reproject tool or export CRS instead. See [CRS_MANAGER.md](CRS_MANAGER.md).
 
 ---
 

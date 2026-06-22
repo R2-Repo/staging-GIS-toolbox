@@ -32,6 +32,7 @@ describe('header pipeline button layout', () => {
     it('aligns import with the left panel width via shared CSS variable', () => {
         expect(mainCss).toContain('--panel-left-w');
         expect(mainCss).toMatch(/grid-template-columns:\s*var\(--panel-left-w\)/);
+        expect(mainCss).toMatch(/\.panel-right\s*\{[^}]*width:\s*var\(--panel-left-w\)/);
         expect(mainCss).toContain('--header-import-tools-gap');
     });
 });

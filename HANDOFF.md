@@ -2,7 +2,52 @@
 
 ## Latest
 
-- **Date**: 2026-06-22
+- **Date**: 2026-06-23
+- **Status**: **Deployment pipeline prepared (push pending auth)**
+- **Branch**: `main` (3 commits ahead of origin)
+
+### What changed
+
+- [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) — GitHub Pages deploy on push to `main` (`npm ci` → `npm run build` → `dist/`)
+- [`.node-version`](.node-version) — Node 20 for Cloudflare Pages
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — staging + production cutover guide
+- [`scripts/sync-to-production-repo.ps1`](scripts/sync-to-production-repo.ps1) — copies React app into `gis-toolbox` for Cloudflare preview
+
+### Production repo (local, not pushed)
+
+Cloned `R2-Repo/gis-toolbox` → tagged **`vanilla-pre-react`**, branch **`react-migration`** with full React codebase. `npm test` (559) and `npm run build` pass on that branch.
+
+### Verification
+
+- `npm test` — 559 passed (staging)
+- `npm run build` — OK
+- `npm run smoke:preview` — 22/23 passed (workflow editor click timing flake; HTTP + map + PWA + map-window OK)
+- Browser: app shell, map canvas, dual-screen map window load on preview
+
+### Manual steps required (git push blocked on auth in agent)
+
+**Staging GitHub Pages**
+
+1. `git push origin main` (from this repo — 3 commits)
+2. GitHub → **staging-GIS-toolbox** → Settings → Pages → Source: **GitHub Actions**
+3. Approve **`github-pages`** environment on first workflow run if prompted
+4. Staging URL: https://r2-repo.github.io/staging-GIS-toolbox/
+
+**Production Cloudflare preview**
+
+1. From `gis-toolbox` clone: `git push origin vanilla-pre-react` and `git push -u origin react-migration`
+2. Cloudflare Pages → build `npm ci && npm run build`, output `dist`, Node **20**
+3. Preview deploy `react-migration`, then merge to `main` when ready
+
+### Next
+
+- Push both repos and confirm GitHub Actions + Cloudflare preview URLs
+- Full browser QA on live staging before merging `react-migration` → `main`
+
+---
+
+## Previous (2026-06-22)
+
 - **Status**: **CRS Manager widget hidden**
 - **Branch**: working tree (uncommitted)
 

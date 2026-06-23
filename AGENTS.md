@@ -21,6 +21,7 @@ This repository is **GIS-Toolbox.com**: a client-side GIS and data-prep web app 
 | `tests/` | Vitest specs (`*.test.js`) |
 | [HANDOFF.md](HANDOFF.md) | Session handoff for the next agent |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Current architecture** — React UI + `js/` domain |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **Staging (GitHub Pages) + production (Cloudflare) deploy** |
 | [docs/WIDGET_AUTHORING.md](docs/WIDGET_AUTHORING.md) | Widget authoring checklist |
 | [docs/CRS_MANAGER.md](docs/CRS_MANAGER.md) | CRS Manager widget (hidden from UI; alternatives documented) |
 | [docs/REACT_FINISH_PLAN.md](docs/REACT_FINISH_PLAN.md) | Migration completion summary (historical) |

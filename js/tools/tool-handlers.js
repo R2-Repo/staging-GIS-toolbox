@@ -1454,7 +1454,9 @@ function setupDualScreenMode() {
                 } catch (_) { /* ignore */ }
             }
         },
-        setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); }
+        setActiveLayer: (id) => { setActiveLayer(id); refreshUI(); },
+        onCoordSearchAddNew: _coordSearchAddNew,
+        onCoordSearchAddToExisting: _coordSearchAddToExisting
     });
 
     document.getElementById('map-container')?.addEventListener('click', (e) => {
@@ -1611,8 +1613,8 @@ export async function removeLayerWithConfirm(id) {
 // ============================
 // Coordinate Search ??? add point from search marker
 // ============================
-function _coordSearchAddNew() {
-    const info = mapService.getSearchLatLng();
+function _coordSearchAddNew(searchInfo) {
+    const info = searchInfo || mapService.getSearchLatLng();
     if (!info) return showToast('No search marker active', 'warning');
 
     const feature = {
@@ -1631,11 +1633,11 @@ function _coordSearchAddNew() {
     setActiveLayer(ds.id);
     mapService.addLayer(ds, getLayers().indexOf(ds), { fit: false });
     refreshUI();
-    mapService.clearSearchMarker();
+    _clearCoordSearchMarker();
 }
 
-function _coordSearchAddToExisting() {
-    const info = mapService.getSearchLatLng();
+function _coordSearchAddToExisting(searchInfo) {
+    const info = searchInfo || mapService.getSearchLatLng();
     if (!info) return showToast('No search marker active', 'warning');
 
     const layers = getLayers().filter(l => l.type === 'spatial');
@@ -1709,11 +1711,18 @@ function _addSearchPointToLayer(layer, info) {
     mapService.addLayer(layer, getLayers().indexOf(layer));
     refreshUI();
 
-    mapService.clearSearchMarker();
+    _clearCoordSearchMarker();
 }
 
 function _coordSearchClear() {
+    _clearCoordSearchMarker();
+}
+
+function _clearCoordSearchMarker() {
     mapService.clearSearchMarker();
+    if (dualScreenCoordinator.isActive) {
+        dualScreenCoordinator.broadcastDrawCmd({ action: 'clearSearchMarker' });
+    }
 }
 
 // ============================

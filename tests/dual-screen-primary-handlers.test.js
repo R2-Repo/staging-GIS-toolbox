@@ -41,7 +41,9 @@ describe('dual-screen primary handlers', () => {
             clearFence: vi.fn(),
             toggleLayerVisibility: vi.fn(),
             zoomToLayer: vi.fn(),
-            setActiveLayer: vi.fn()
+            setActiveLayer: vi.fn(),
+            onCoordSearchAddNew: vi.fn(),
+            onCoordSearchAddToExisting: vi.fn()
         };
 
         installDualScreenPrimaryHandlers(deps);
@@ -53,6 +55,8 @@ describe('dual-screen primary handlers', () => {
         handlers.onDrawEvent({ event: 'featureEdited', layerId: 'a', featureIndex: 2 });
         handlers.onDrawEvent({ event: 'featureDeleted', layerId: 'a', featureIndex: 3 });
         handlers.onPopupAction({ action: 'editFeature', layerId: 'b', featureIndex: 4 });
+        handlers.onPopupAction({ action: 'coordSearchAddNew', searchInfo: { lat: 1, lng: 2 } });
+        handlers.onPopupAction({ action: 'coordSearchAddExisting', searchInfo: { lat: 3, lng: 4 } });
         handlers.onFenceSet({ bbox: [0, 0, 1, 1] });
         handlers.onFenceClear();
         handlers.onCtxCmd({ action: 'toggleVisibility', layerId: 'l1' });
@@ -63,6 +67,8 @@ describe('dual-screen primary handlers', () => {
         expect(deps.onDrawFeatureEdited).toHaveBeenCalledWith('a', 2);
         expect(deps.onDrawFeatureDeleted).toHaveBeenCalledWith('a', 3);
         expect(deps.openFeatureEditor).toHaveBeenCalledWith('b', 4);
+        expect(deps.onCoordSearchAddNew).toHaveBeenCalledWith({ lat: 1, lng: 2 });
+        expect(deps.onCoordSearchAddToExisting).toHaveBeenCalledWith({ lat: 3, lng: 4 });
         expect(coordinatorMock.setFenceBbox).toHaveBeenCalledWith([0, 0, 1, 1]);
         expect(deps.setFenceBbox).toHaveBeenCalledWith([0, 0, 1, 1]);
         expect(coordinatorMock.setFenceBbox).toHaveBeenCalledWith(null);

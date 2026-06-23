@@ -35,6 +35,14 @@ function handleDrawEvent(payload, deps) {
 function handlePopupAction(payload, deps) {
     if (payload?.action === 'editFeature' && payload.layerId != null && payload.featureIndex != null) {
         deps.openFeatureEditor(payload.layerId, payload.featureIndex);
+        return;
+    }
+    if (payload?.action === 'coordSearchAddNew' && payload.searchInfo) {
+        deps.onCoordSearchAddNew?.(payload.searchInfo);
+        return;
+    }
+    if (payload?.action === 'coordSearchAddExisting' && payload.searchInfo) {
+        deps.onCoordSearchAddToExisting?.(payload.searchInfo);
     }
 }
 

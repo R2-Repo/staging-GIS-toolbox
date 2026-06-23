@@ -16,6 +16,8 @@ const ROLE = 'secondary';
 export function initSecondaryClient({ post, getChannel }) {
     setupDrawRelay(post);
     setupPopupBridge(post);
+    setupCoordSearchBridge(post);
+    setupCoordSearchBridge(post);
     setupFileDrop(post);
     setupContextMenu(post);
     setupDrawCmdHandler();
@@ -53,6 +55,22 @@ function setupPopupBridge(post) {
             layerId: hit.layerId,
             featureIndex: hit.featureIndex
         });
+    });
+}
+
+function setupCoordSearchBridge(post) {
+    bus.on('coord-search:add-new', () => {
+        const searchInfo = mapService.getSearchLatLng();
+        if (!searchInfo) return;
+        post(MessageType.POPUP_ACTION, { action: 'coordSearchAddNew', searchInfo });
+    });
+    bus.on('coord-search:add-existing', () => {
+        const searchInfo = mapService.getSearchLatLng();
+        if (!searchInfo) return;
+        post(MessageType.POPUP_ACTION, { action: 'coordSearchAddExisting', searchInfo });
+    });
+    bus.on('coord-search:clear', () => {
+        mapService.clearSearchMarker();
     });
 }
 
@@ -256,6 +274,10 @@ export function handleDrawCmdMessage(payload, post) {
     }
     if (payload?.action === 'applyFence' && payload.bbox) {
         mapService.setImportFenceFromBbox(payload.bbox);
+        return;
+    }
+    if (payload?.action === 'clearSearchMarker') {
+        mapService.clearSearchMarker();
         return;
     }
     handleDrawCmd(payload);

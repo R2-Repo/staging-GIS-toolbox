@@ -6,7 +6,8 @@ const { busMock, mapServiceMock, drawManagerMock } = vi.hoisted(() => ({
     },
     mapServiceMock: {
         clearImportFence: vi.fn(),
-        setImportFenceFromBbox: vi.fn()
+        setImportFenceFromBbox: vi.fn(),
+        clearSearchMarker: vi.fn()
     },
     drawManagerMock: {
         showToolbar: vi.fn(),
@@ -38,6 +39,7 @@ describe('dual-screen secondary client helpers', () => {
         busMock.on.mockClear();
         mapServiceMock.clearImportFence.mockReset();
         mapServiceMock.setImportFenceFromBbox.mockReset();
+        mapServiceMock.clearSearchMarker.mockReset();
         drawManagerMock.showToolbar.mockReset();
         drawManagerMock.hideToolbar.mockReset();
     });
@@ -56,6 +58,11 @@ describe('dual-screen secondary client helpers', () => {
 
         handleDrawCmd({ action: 'hideToolbar' });
         expect(drawManagerMock.hideToolbar).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears coordinate search marker on draw command', () => {
+        handleDrawCmdMessage({ action: 'clearSearchMarker' }, vi.fn());
+        expect(mapServiceMock.clearSearchMarker).toHaveBeenCalledTimes(1);
     });
 
     it('builds viewport payload from a map instance', () => {

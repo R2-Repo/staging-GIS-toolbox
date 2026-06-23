@@ -3325,7 +3325,7 @@ class MapManager {
         return `
             <div class="coord-popup-content">
                 <div style="font-weight:600;margin-bottom:4px;">📍 ${format} Coordinate</div>
-                <div style="font-size:12px;color:#666;margin-bottom:8px;font-family:monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-family:monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
                 <div style="display:flex;flex-direction:column;gap:4px;">
                     <button class="coord-popup-btn coord-add-new" data-coord-search-action="add-new">＋ Add as New Layer</button>
                     <button class="coord-popup-btn coord-add-existing" data-coord-search-action="add-existing">↳ Add to Existing Layer</button>

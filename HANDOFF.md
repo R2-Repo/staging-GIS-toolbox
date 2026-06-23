@@ -3,6 +3,32 @@
 ## Latest
 
 - **Date**: 2026-06-23
+- **Status**: **Dual-screen map popup styling + coord-search bridge**
+- **Branch**: `main`
+
+### What changed
+
+- [`css/map-window.css`](css/map-window.css) — dark MapLibre popup theme (matches main app), CSS variables for popup inline styles, coord-search + measure control styling
+- [`js/dual-screen/secondary-client.js`](js/dual-screen/secondary-client.js) — relay coord-search popup actions to primary; handle `clearSearchMarker` draw cmd
+- [`js/dual-screen/primary-handlers.js`](js/dual-screen/primary-handlers.js) — route coord-search popup actions to app handlers
+- [`js/tools/tool-handlers.js`](js/tools/tool-handlers.js) — coord-search handlers accept search info from secondary; clear marker on both windows when dual-screen active
+- [`js/map/map-manager.js`](js/map/map-manager.js) — coord search popup subtitle uses `--text-muted`
+- Tests updated in `dual-screen-primary-handlers.test.js`, `dual-screen-secondary-client.test.js`
+
+### Verification
+
+- `npm test` — 560 passed
+- Manual: open Dual Screen, click a feature → popup should be dark with nav/edit; coord search popup buttons should work and dismiss marker on both windows
+
+### Next
+
+- Browser verify dual-screen popups in dev/preview if not already checked
+
+---
+
+## Previous
+
+- **Date**: 2026-06-23
 - **Status**: **Deployment pipeline prepared (push pending auth)**
 - **Branch**: `main` (3 commits ahead of origin)
 

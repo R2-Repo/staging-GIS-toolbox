@@ -45,8 +45,8 @@ Previously the site was static HTML/JS from repo root (no build). After the Reac
 
 ### Production cutover checklist
 
-1. Tag vanilla production for rollback: `git tag vanilla-pre-react && git push origin vanilla-pre-react`
-2. Replace `gis-toolbox` `main` with this React codebase (keep repo name so Cloudflare Git connection stays).
+1. Run [`scripts/sync-to-production-repo.ps1`](../scripts/sync-to-production-repo.ps1) against a local `gis-toolbox` clone (tags `vanilla-pre-react`, creates `react-migration` branch).
+2. Push tag and branch: `git push origin vanilla-pre-react` and `git push -u origin react-migration`
 3. Update Cloudflare Pages project build settings (table above).
 4. Deploy on a preview branch first (`*.pages.dev`), then merge to `main`.
 5. Verify custom domain, HTTPS, PWA/service worker, map, import, dual-screen (`map-window.html`).

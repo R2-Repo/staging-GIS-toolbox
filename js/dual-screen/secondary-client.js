@@ -5,8 +5,15 @@ import bus from '../core/event-bus.js';
 import mapService from '../map/map-service.js';
 import drawManager from '../map/draw-manager.js';
 import { MessageType, createMessage, buildViewportPayload } from './protocol.js';
+import {
+    buildSelectionPayload,
+    applySelectionPayload,
+    shouldApplySelection
+} from './selection-sync.js';
 
 const ROLE = 'secondary';
+let _selectionSyncInbound = false;
+let _selectionUnsub = null;
 
 /**
  * @param {object} opts
@@ -17,7 +24,7 @@ export function initSecondaryClient({ post, getChannel }) {
     setupDrawRelay(post);
     setupPopupBridge(post);
     setupCoordSearchBridge(post);
-    setupCoordSearchBridge(post);
+    setupSelectionBridge(post);
     setupFileDrop(post);
     setupContextMenu(post);
     setupDrawCmdHandler();
@@ -25,7 +32,7 @@ export function initSecondaryClient({ post, getChannel }) {
     setupToastHandler();
     enhanceViewportBroadcast(post);
 
-    return { teardown: () => teardownDrawRelay() };
+    return { teardown: () => { teardownDrawRelay(); teardownSelectionBridge(); } };
 }
 
 let _drawUnsubs = [];
@@ -71,6 +78,26 @@ function setupCoordSearchBridge(post) {
     });
     bus.on('coord-search:clear', () => {
         mapService.clearSearchMarker();
+    });
+}
+
+function setupSelectionBridge(post) {
+    teardownSelectionBridge();
+    _selectionUnsub = bus.on('selection:changed', (detail) => {
+        if (_selectionSyncInbound) return;
+        post(MessageType.SELECTION, buildSelectionPayload('secondary', mapService, detail));
+    });
+}
+
+function teardownSelectionBridge() {
+    _selectionUnsub?.();
+    _selectionUnsub = null;
+}
+
+export function applyRemoteSelection(payload) {
+    if (!shouldApplySelection({ payload }, 'secondary')) return;
+    applySelectionPayload(mapService, payload, {
+        setInbound: (v) => { _selectionSyncInbound = v; }
     });
 }
 

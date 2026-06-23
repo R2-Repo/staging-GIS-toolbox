@@ -13,7 +13,8 @@ import {
     initSecondaryClient,
     applyMapToast,
     handleDrawCmdMessage,
-    broadcastViewportFromMap
+    broadcastViewportFromMap,
+    applyRemoteSelection
 } from './dual-screen/secondary-client.js';
 
 const ROLE = 'secondary';
@@ -65,6 +66,10 @@ function applySnapshot(payload) {
     if (is3d) mapService.enable3D();
     else mapService.disable3D();
     syncDimensionToggle(!!is3d);
+
+    if (payload.activeLayerId) {
+        mapService.setActiveLayerId(payload.activeLayerId);
+    }
 
     const map = mapService.getMap();
     if (viewport && map) {
@@ -179,6 +184,9 @@ function handleMessage(msg) {
             break;
         case MessageType.TOAST:
             applyMapToast(msg.payload);
+            break;
+        case MessageType.SELECTION:
+            applyRemoteSelection(msg.payload);
             break;
         case MessageType.BYE:
             window.close();

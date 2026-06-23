@@ -142,6 +142,15 @@ export function createMapService({ mapAdapter = mapManager } = {}) {
         setActiveLayerId(layerId) {
             return mapAdapter.setActiveLayerId?.(layerId);
         },
+        getActiveLayerId() {
+            return mapAdapter._activeLayerId ?? null;
+        },
+        getTotalSelectionCount() {
+            return mapAdapter.getTotalSelectionCount?.() ?? 0;
+        },
+        selectFeatures(layerId, indices) {
+            return mapAdapter.selectFeatures?.(layerId, indices);
+        },
         blockSelection() {
             return mapAdapter.blockSelection?.();
         },

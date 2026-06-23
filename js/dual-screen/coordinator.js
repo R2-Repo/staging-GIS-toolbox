@@ -1,7 +1,7 @@
 /**
  * Dual Screen Mode — primary-window lifecycle & sync orchestration
  */
-import { getLayers } from '../core/state.js';
+import { getLayers, getActiveLayer } from '../core/state.js';
 import mapService from '../map/map-service.js';
 import { DualScreenChannel } from './channel.js';
 import {
@@ -12,6 +12,11 @@ import {
 } from './protocol.js';
 import { setDualScreenActiveHint } from './storage-hint.js';
 import { scheduleMapResizeAfterLayout } from './layout.js';
+import {
+    applySelectionPayload,
+    installPrimarySelectionSync,
+    shouldApplySelection
+} from './selection-sync.js';
 import {
     isSecondaryMapWindowOpen,
     openSecondaryMapWindow
@@ -39,6 +44,9 @@ class DualScreenCoordinator {
         this._activateTimeout = null;
         /** @type {((ok: boolean) => void) | null} */
         this._activateResolve = null;
+        this._selectionSyncInbound = false;
+        /** @type {(() => void) | null} */
+        this._selectionSyncTeardown = null;
     }
 
     setFenceBbox(bbox) {
@@ -137,6 +145,12 @@ class DualScreenCoordinator {
         }
 
         this._startPoll();
+        this._selectionSyncTeardown = installPrimarySelectionSync(
+            mapService,
+            (payload) => this.broadcastSelection(payload),
+            () => this.isActive,
+            () => this._selectionSyncInbound
+        );
         this._notify();
     }
 
@@ -153,6 +167,8 @@ class DualScreenCoordinator {
         this._deactivating = true;
         try {
             this._stopPoll();
+            this._selectionSyncTeardown?.();
+            this._selectionSyncTeardown = null;
 
             if (!options.fromSecondaryBye) {
                 if (this._channel) {
@@ -305,6 +321,11 @@ class DualScreenCoordinator {
             case MessageType.CTX_CMD:
                 this._handlers.onCtxCmd?.(msg.payload);
                 break;
+            case MessageType.SELECTION:
+                if (shouldApplySelection(msg, 'primary')) {
+                    this._applyRemoteSelection(msg.payload);
+                }
+                break;
             case MessageType.BYE:
                 this.deactivate({ fromSecondaryBye: true });
                 break;
@@ -321,7 +342,8 @@ class DualScreenCoordinator {
             viewport: this._lastViewport,
             basemap: mapService.getCurrentBasemap() || 'voyager',
             is3d: mapService.is3DEnabled(),
-            layerStyles: mapService.getLayerStyles()
+            layerStyles: mapService.getLayerStyles(),
+            activeLayerId: getActiveLayer()?.id ?? null
         });
         this._channel.post(createMessage('primary', MessageType.SNAPSHOT, payload));
     }
@@ -373,6 +395,17 @@ class DualScreenCoordinator {
     broadcastToast(message, type = 'info') {
         if (!this._channel) return;
         this._channel.post(createMessage('primary', MessageType.TOAST, { message, type }));
+    }
+
+    broadcastSelection(payload) {
+        if (!this._channel) return;
+        this._channel.post(createMessage('primary', MessageType.SELECTION, payload));
+    }
+
+    _applyRemoteSelection(payload) {
+        applySelectionPayload(mapService, payload, {
+            setInbound: (v) => { this._selectionSyncInbound = v; }
+        });
     }
 
     getBounds() {

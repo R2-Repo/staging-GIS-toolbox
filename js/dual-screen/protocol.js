@@ -79,7 +79,7 @@ export function serializeLayerForSync(layer, index) {
     };
 }
 
-export function buildSnapshotPayload({ layers, viewport, basemap, is3d, layerStyles }) {
+export function buildSnapshotPayload({ layers, viewport, basemap, is3d, layerStyles, activeLayerId }) {
     return {
         layers: layers.map((l, i) => {
             const entry = serializeLayerForSync(l, i);
@@ -89,7 +89,8 @@ export function buildSnapshotPayload({ layers, viewport, basemap, is3d, layerSty
         }),
         viewport: viewport || null,
         basemap: basemap || 'voyager',
-        is3d: !!is3d
+        is3d: !!is3d,
+        activeLayerId: activeLayerId ?? null
     };
 }
 

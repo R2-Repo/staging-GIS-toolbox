@@ -3,6 +3,34 @@
 ## Latest
 
 - **Date**: 2026-06-23
+- **Status**: **Dual-screen selection sync**
+- **Branch**: `main`
+
+### What changed
+
+- [`js/dual-screen/selection-sync.js`](js/dual-screen/selection-sync.js) — new helper: build/apply selection payloads, primary relay installer
+- [`js/dual-screen/coordinator.js`](js/dual-screen/coordinator.js) — `SELECTION` message handling + primary→secondary broadcast on panel changes
+- [`js/dual-screen/secondary-client.js`](js/dual-screen/secondary-client.js) — relay map clicks/box-select to primary; apply remote selection
+- [`js/map-window.js`](js/map-window.js) — apply `SELECTION` messages + `activeLayerId` from snapshot
+- [`js/map/map-manager.js`](js/map/map-manager.js) — skip selection render when map absent; clear selection on empty click even without active layer
+- [`js/map/map-service.js`](js/map/map-service.js) — expose `getActiveLayerId`, `getTotalSelectionCount`, `selectFeatures`
+- [`js/dual-screen/protocol.js`](js/dual-screen/protocol.js) — snapshot includes `activeLayerId`
+- Tests: `tests/dual-screen-selection-sync.test.js`
+
+### Verification
+
+- `npm test` — 565 passed
+- Manual dual screen: click feature → selection bar updates on primary; click empty map / Clear → deselects on map window; Select All/Invert on primary syncs to map window
+
+### Next
+
+- Browser verify selection + shift-click toggle in dual screen
+
+---
+
+## Previous
+
+- **Date**: 2026-06-23
 - **Status**: **Dual-screen map popup styling + coord-search bridge**
 - **Branch**: `main`
 

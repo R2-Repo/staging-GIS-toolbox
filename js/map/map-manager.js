@@ -270,7 +270,7 @@ class MapManager {
             }
         });
 
-        // Click on empty map — clear highlight, popup, and active-layer selection
+        // Click on empty map — clear highlight, popup, and selection
         this.map.on('click', (e) => {
             if (e._drawHandled) return;
             const hitLayers = this._getInteractiveLayerIds();
@@ -278,8 +278,12 @@ class MapManager {
             if (features.length === 0) {
                 this.clearHighlight();
                 this._closePopup();
-                if (this._canSelect() && this._activeLayerId) {
-                    this.clearSelection(this._activeLayerId);
+                if (this._canSelect()) {
+                    if (this._activeLayerId) {
+                        this.clearSelection(this._activeLayerId);
+                    } else if (this.getTotalSelectionCount() > 0) {
+                        this.clearSelection();
+                    }
                 }
             }
         });
@@ -3118,6 +3122,7 @@ class MapManager {
     }
 
     _renderSelectionHighlights(layerId) {
+        if (!this.map) return;
         const selSrcId = `selection-${layerId}`;
         for (const lid of [`${selSrcId}-fill`, `${selSrcId}-outline`, `${selSrcId}-line`, `${selSrcId}-circle`]) {
             if (this.map.getLayer(lid)) this.map.removeLayer(lid);

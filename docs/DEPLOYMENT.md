@@ -16,6 +16,8 @@ On push to `main`:
 1. Repo **Settings → Pages → Build and deployment → Source:** **GitHub Actions**
 2. On first workflow run, approve the **`github-pages`** environment if prompted (Settings → Environments).
 
+Static assets (`icons/`, `Side_Background.webp`) live under [`public/`](../public/) so Vite copies them into `dist/` for GitHub Pages.
+
 Local smoke before push:
 
 ```bash

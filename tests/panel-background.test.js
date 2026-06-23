@@ -7,11 +7,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mainCss = readFileSync(join(root, 'css/main.css'), 'utf8');
 
 describe('panel side background', () => {
-    it('Side_Background.webp exists at repo root', () => {
-        expect(existsSync(join(root, 'Side_Background.webp'))).toBe(true);
+    it('Side_Background.webp exists in public/', () => {
+        expect(existsSync(join(root, 'public/Side_Background.webp'))).toBe(true);
     });
 
     it('main.css references Side_Background.webp on panel pseudo-elements', () => {
-        expect(mainCss).toMatch(/\.panel-left::after,\s*\n\.panel-right::after\s*\{[^}]*url\(['"]?\.\.\/Side_Background\.webp['"]?\)/s);
+        expect(mainCss).toMatch(/\.panel-left::after,\s*\n\.panel-right::after\s*\{[^}]*url\(['"]?\/Side_Background\.webp['"]?\)/s);
     });
 });

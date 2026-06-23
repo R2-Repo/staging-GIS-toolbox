@@ -1,5 +1,7 @@
 import { PipelineIcon } from '../ui/PipelineIcon.jsx';
 
+const faviconUrl = `${import.meta.env.BASE_URL}icons/favicon.png`;
+
 export function HeaderBar({
     onImport,
     onUndo,
@@ -21,7 +23,7 @@ export function HeaderBar({
             <div className="header-left-col">
                 <div className="header-left">
                     <span className="header-logo">
-                        <img src="icons/favicon.png" alt="GIS-Toolbox.com" width="36" height="36" />
+                        <img src={faviconUrl} alt="GIS-Toolbox.com" width="36" height="36" />
                     </span>
                     <h1 className="header-title">GIS-Toolbox<span className="title-com">.com</span></h1>
                 </div>

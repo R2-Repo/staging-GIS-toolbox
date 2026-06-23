@@ -1,5 +1,7 @@
 import { TOOL_GUIDE_SECTIONS } from '../../js/tools/tool-guide-sections.js';
 
+const faviconUrl = `${import.meta.env.BASE_URL}icons/favicon.png`;
+
 function ToolList({ tools }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -63,7 +65,7 @@ export function ToolGuideTitle({ isMobile = false }) {
 
     return (
         <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, flexWrap: 'nowrap', maxWidth: '100%' }}>
-            <img src="icons/favicon.png" alt="" width={titleIconSize} height={titleIconSize} style={{ borderRadius: 4, flexShrink: 0, alignSelf: 'center' }} />
+            <img src={faviconUrl} alt="" width={titleIconSize} height={titleIconSize} style={{ borderRadius: 4, flexShrink: 0, alignSelf: 'center' }} />
             <span style={{ fontSize: titleFontSize, fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap' }}>
                 GIS-Toolbox<span style={{ fontSize: '0.65em', fontWeight: 400, opacity: 0.7 }}>.com</span>
             </span>

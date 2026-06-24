@@ -62,3 +62,11 @@ Supplement with browser checks after substantive map/UI changes (Vitest runs in 
 - **Branches / PRs**: use normal feature branches off `main`, commit in logical chunks, push, and open PRs for review (match your team’s naming conventions).
 
 When cloud-specific steps grow (deploy URLs, staging accounts), add them **here** under this section so agents and humans stay in sync.
+
+### Cursor Cloud specific instructions
+
+- **No app server or database** — the shipped app is static files only. Run a local HTTP server from the repo root; never open `file://` for smoke tests (ES modules and `fetch` to `./pipelines/` need HTTP).
+- **Preview port**: Cloud VMs forward **4173** per [`.cursor/environment.json`](.cursor/environment.json). Bind `0.0.0.0` so the forwarded URL works: `python3 -m http.server 4173 --bind 0.0.0.0`. Local dev commonly uses **8080** instead (`python3 -m http.server 8080`).
+- **Automated tests**: `npm install` then `npm test` (Vitest, Node). There is **no ESLint/npm lint script** in this repo — treat `npm test` as the automated quality gate.
+- **Browser smoke**: Map tiles, CDN scripts (MapLibre, Turf, etc.), and optional ArcGIS/elevation calls need **outbound HTTPS**. If the map is blank, check network first.
+- **Long-lived static server**: Use a tmux session (e.g. `gis-static-server`) so the preview keeps running across agent turns; see `.cursor/environment.json` `terminals` for the canonical command.
